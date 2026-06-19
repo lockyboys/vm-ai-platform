@@ -20,7 +20,10 @@ from services.auth.auth_service import (
 )
 
 ALLOWED_EXT = {"csv", "xlsx", "xls", "tsv"}
+from src.AI.controllers.ai_job_controller import ai_job_bp
+
 app = Flask(__name__)
+app.register_blueprint(ai_job_bp)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
 
 # 🆕 config의 서버 주소/가격 정보를 모든 템플릿에 전역 주입
@@ -1163,80 +1166,5 @@ if __name__ == "__main__":
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
 
 
-# ==========================================================
-# AI 작업 목록 조회 API
-#
-# 목적:
-#     AI_JOBS에 저장된 분석 작업 목록을 화면에서 조회한다.
-#
-# 구조:
-#     Controller → Service → Repository → DB
-#
-# 관련 테이블:
-#     AI_JOBS
-#     AI_AUTOML_RESULTS
-# ==========================================================
-@app.route("/api/ai-jobs", methods=["GET"])
-def api_ai_jobs():
-    try:
-        from src.AI.services.ai_job_service import AIJobService
-
-        from config import AI_JOB_DEFAULT_LIMIT
-        limit = request.args.get("limit", AI_JOB_DEFAULT_LIMIT, type=int)
-        service = AIJobService()
-        rows = service.get_ai_jobs(limit)
-
-        return jsonify({
-            "success": True,
-            "message": "AI job list",
-            "count": len(rows),
-            "data": rows
-        })
-
-    except Exception as e:
-        logger.warning(f"⚠️ AI 작업 목록 조회 실패: {e}")
-        return jsonify({
-            "success": False,
-            "message": "AI job list failed",
-            "error": str(e)
-        }), 500
 
 
-# ==========================================================
-# AI 작업 로그 조회 API
-#
-# 목적:
-#     특정 AI 작업의 처리 이력을 조회한다.
-#
-# 구조:
-#     Controller → Service → Repository → DB
-#
-# 관련 테이블:
-#     AI_JOB_LOGS
-# ==========================================================
-@app.route("/api/ai-jobs/<int:job_id>/logs", methods=["GET"])
-def api_ai_job_logs(job_id):
-    try:
-        from src.AI.services.ai_job_log_service import AIJobLogService
-        from config import AI_JOB_DEFAULT_LIMIT
-
-        limit = request.args.get("limit", AI_JOB_DEFAULT_LIMIT, type=int)
-
-        service = AIJobLogService()
-        rows = service.get_logs(job_id, limit)
-
-        return jsonify({
-            "success": True,
-            "message": "AI job logs",
-            "job_id": job_id,
-            "count": len(rows),
-            "data": rows
-        })
-
-    except Exception as e:
-        logger.warning(f"⚠️ AI 작업 로그 조회 실패: {e}")
-        return jsonify({
-            "success": False,
-            "message": "AI job logs failed",
-            "error": str(e)
-        }), 500
