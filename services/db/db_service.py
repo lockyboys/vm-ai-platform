@@ -292,101 +292,38 @@ def save_to_mysql(table: str, data: dict) -> bool:
 
 
 
+
 def save_pipeline_result(user_id, file_name, task_type,
                          learning_type, accuracy, data) -> bool:
     """
-    AI 분석 결과 저장
+    AI 분석 결과 저장 호환 함수
 
     목적:
-        기존 pipeline_results 저장 방식을 신규 표준 테이블로 이관한다.
+        기존 코드가 save_pipeline_result()를 호출해도
+        신규 AI Pipeline Service를 사용하도록 연결한다.
 
-    처리 흐름:
-        1. AI_JOBS에 작업 이력 저장
-        2. AI_AUTOML_RESULTS에 분석 결과 저장
-        3. 두 작업 모두 성공하면 COMMIT
-        4. 하나라도 실패하면 ROLLBACK
+    관련 서비스:
+        AIPipelineService
 
-    관련 테이블:
-        AI_JOBS
-        AI_AUTOML_RESULTS
+    변경이력:
+        [v7.21] 2026-06-19
+        - pipeline_results 직접 저장 제거
+        - src/AI/services/ai_pipeline_service.py로 위임
     """
     try:
-        import json
-        import mysql.connector
+        from src.AI.services.ai_pipeline_service import AIPipelineService
 
-        conn = mysql.connector.connect(**MYSQL_CONFIG)
-        conn.start_transaction()
-        cursor = conn.cursor()
-
-        try:
-            cursor.execute(
-                """
-                INSERT INTO AI_JOBS
-                (
-                    job_name,
-                    job_type_code,
-                    status_code,
-                    created_by,
-                    started_at,
-                    ended_at
-                )
-                VALUES
-                (
-                    %s,
-                    %s,
-                    'SUCCESS',
-                    %s,
-                    NOW(),
-                    NOW()
-                )
-                """,
-                (
-                    file_name,
-                    learning_type.upper() if learning_type else 'AUTOML',
-                    user_id
-                )
-            )
-
-            job_id = cursor.lastrowid
-
-            cursor.execute(
-                """
-                INSERT INTO AI_AUTOML_RESULTS
-                (
-                    job_id,
-                    best_algorithm_name,
-                    best_score,
-                    result_json
-                )
-                VALUES
-                (
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-                """,
-                (
-                    job_id,
-                    task_type,
-                    accuracy,
-                    json.dumps(data, ensure_ascii=False)
-                )
-            )
-
-            conn.commit()
-            return True
-
-        except Exception:
-            conn.rollback()
-            raise
-
-        finally:
-            cursor.close()
-            conn.close()
+        return AIPipelineService().save_pipeline_result(
+            user_id=user_id,
+            file_name=file_name,
+            task_type=task_type,
+            learning_type=learning_type,
+            accuracy=accuracy,
+            data=data
+        )
 
     except Exception as e:
-        logger.warning(f"⚠️ AI 분석 결과 저장 실패: {e}")
+        logger.warning(f"⚠️ AI Pipeline Service 저장 실패: {e}")
         return False
 
 
