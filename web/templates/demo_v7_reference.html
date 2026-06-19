@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔐 VM Project {{ APP_VERSION }} — 권한 시스템</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0a0a18;color:#e0e0f0;padding:20px;min-height:100vh}
+h2{color:#a78bfa;margin-bottom:16px;font-size:1.1rem}
+
+.tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid #2d2d5e}
+.tab{padding:8px 16px;cursor:pointer;font-size:0.85rem;color:#9ca3af;border-bottom:2px solid transparent;transition:all .2s}
+.tab.active{color:#a78bfa;border-bottom-color:#7c3aed}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+.plan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.plan-card{background:#1a1a2e;border:2px solid #2d2d5e;border-radius:12px;padding:16px;cursor:pointer;transition:all .2s}
+.plan-card:hover,.plan-card.active{border-color:#7c3aed;background:#1a0a3e}
+.plan-name{font-size:1rem;font-weight:700;margin-bottom:4px}
+.plan-price{font-size:0.78rem;color:#9ca3af;margin-bottom:10px}
+.free .plan-name{color:#22c55e}
+.pro .plan-name{color:#f59e0b}
+.ent .plan-name{color:#a78bfa}
+
+.perm-wrap{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.perm{padding:3px 8px;border-radius:4px;font-size:0.72rem}
+.perm.y{background:#14532d;border:1px solid #22c55e;color:#86efac}
+.perm.n{background:#1f1f1f;border:1px solid #374151;color:#4b5563;text-decoration:line-through}
+
+.flow{display:flex;flex-direction:column;gap:6px}
+.flow-row{display:flex;align-items:center;gap:10px}
+.flow-label{font-size:0.72rem;color:#6b7280;width:90px;text-align:right;flex-shrink:0}
+.flow-box{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:8px;padding:9px 13px;flex:1;font-size:0.8rem;line-height:1.5}
+.flow-box.hi{border-color:#7c3aed;background:#1a0a3e}
+.flow-box.ok{border-color:#22c55e;background:#052e16}
+.flow-box.err{border-color:#ef4444;background:#2d0a0a}
+.arrow{color:#7c3aed;text-align:center;margin-left:100px;font-size:1.1rem}
+
+.code-box{background:#0d0d1a;border:1px solid #2d2d5e;border-radius:8px;padding:14px;font-family:monospace;font-size:0.78rem;line-height:1.7;color:#7dd3fc;white-space:pre-wrap;margin-bottom:10px;overflow-x:auto}
+.cm{color:#6b7280}.ky{color:#f59e0b}.vl{color:#86efac}.ur{color:#c4b5fd}
+
+table{width:100%;border-collapse:collapse;font-size:0.82rem}
+th{background:#2d1b69;color:#ddd6fe;padding:9px 12px;text-align:left}
+td{padding:8px 12px;border-bottom:1px solid #2d2d5e}
+tr:nth-child(even) td{background:#111128}
+.ck{color:#22c55e}.xx{color:#374151}
+
+select,input[type=text]{background:#0d0d1a;border:1px solid #3d3d6e;border-radius:6px;padding:7px 12px;color:#e0e0f0;font-size:0.85rem}
+.btn{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:6px;padding:8px 18px;cursor:pointer;font-size:0.85rem}
+.btn:hover{opacity:.85}
+.sim-result{border-radius:8px;padding:12px 16px;font-size:0.85rem;margin-top:10px;display:none}
+.tip{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:8px;padding:14px;font-size:0.82rem;color:#9ca3af;line-height:1.8;margin-top:12px}
+</style>
+</head>
+<body>
+
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+  <span style="font-size:2rem">🔐</span>
+  <div style="flex:1">
+    <div style="font-size:1.3rem;font-weight:700;color:#c4b5fd">VM Project {{ APP_VERSION }} — 권한 시스템</div>
+    <div style="font-size:0.8rem;color:#6b7280">JWT + 플랜별 권한 + DB 관리</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/" style="background:#1a1a2e;border:1px solid #4a3f8a;color:#c4b5fd;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:0.82rem">🏠 대시보드</a>
+    <a href="/login" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:0.82rem">🔐 로그인</a>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="sw('plans',this)">🎫 플랜별 권한</div>
+  <div class="tab" onclick="sw('flow',this)">🔄 인증 흐름</div>
+  <div class="tab" onclick="sw('api',this)">📡 API 사용법</div>
+  <div class="tab" onclick="sw('compare',this)">📊 기능 비교</div>
+  <div class="tab" onclick="sw('demo',this)">🧪 권한 테스트</div>
+</div>
+
+<!-- ═══ 플랜별 권한 ═══ -->
+<div class="tab-content active" id="tab-plans">
+  <h2>🎫 플랜별 권한 구조</h2>
+  <div class="plan-grid">
+    <div class="plan-card free active" onclick="selPlan(this)">
+      <div class="plan-name">🟢 Free</div>
+      <div class="plan-price">무료</div>
+      <!-- 🆕 Free 일부 제한 안내 -->
+      <div style="font-size:0.7rem;color:#fcd34d;background:#451a03;border:1px solid #f59e0b;
+        border-radius:4px;padding:4px 7px;margin-bottom:6px;line-height:1.5">
+        🔶 AI분석 <b>일부만</b> 허용<br>분류만 가능, 회귀 ❌
+      </div>
+      <div class="perm-wrap">
+        <span class="perm y">기본분석</span>
+        <span class="perm y">CSV업로드</span>
+        <span class="perm y">결과조회</span>
+        <!-- 🔶 주황색 = 일부 허용 -->
+        <span class="perm" style="background:#451a03;border:1px solid #f59e0b;color:#fcd34d">🔶 AI분석(분류만)</span>
+        <span class="perm" style="background:#451a03;border:1px solid #f59e0b;color:#fcd34d">🔶 지도학습(분류만)</span>
+        <!-- ❌ 불가 -->
+        <span class="perm n">회귀학습</span>
+        <span class="perm n">비지도학습</span>
+        <span class="perm n">SHAP</span>
+        <span class="perm n">PDF다운로드</span>
+        <span class="perm n">강화학습</span>
+        <span class="perm n">AutoML</span>
+      </div>
+    </div>
+    <div class="plan-card pro" onclick="selPlan(this)">
+      <div class="plan-name">🟡 Pro</div>
+      <div class="plan-price">월 5,000원</div>
+      <div class="perm-wrap">
+        <span class="perm y">기본분석</span><span class="perm y">CSV업로드</span><span class="perm y">결과조회</span>
+        <span class="perm y">AI분석</span><span class="perm y">SHAP</span><span class="perm y">PDF다운로드</span>
+        <span class="perm y">지도학습</span><span class="perm y">비지도학습</span>
+        <span class="perm n">준지도학습</span><span class="perm n">강화학습</span><span class="perm n">AutoML</span><span class="perm n">Cron관리</span>
+      </div>
+    </div>
+    <div class="plan-card ent" onclick="selPlan(this)">
+      <div class="plan-name">🟣 Enterprise</div>
+      <div class="plan-price">월 10,000원</div>
+      <div class="perm-wrap">
+        <span class="perm y">기본분석</span><span class="perm y">CSV업로드</span><span class="perm y">결과조회</span>
+        <span class="perm y">AI분석</span><span class="perm y">SHAP</span><span class="perm y">PDF다운로드</span>
+        <span class="perm y">지도학습</span><span class="perm y">비지도학습</span><span class="perm y">준지도학습</span>
+        <span class="perm y">강화학습</span><span class="perm y">AutoML</span><span class="perm y">API접근</span>
+        <span class="perm y">배치처리</span><span class="perm y">Cron관리</span>
+      </div>
+    </div>
+  </div>
+  <div class="tip">
+    💡 <b style="color:#c4b5fd">권한 부여 방식</b><br>
+    1️⃣ 회원가입 시 플랜 선택 → MariaDB <code>users.plan</code> 컬럼에 저장<br>
+    2️⃣ 로그인 → JWT 토큰 발급 (토큰 안에 plan 정보 포함)<br>
+    3️⃣ API 요청마다 토큰 검증 → <b>플랜에 맞는 기능만 허용</b><br>
+    4️⃣ 관리자가 DB에서 직접 플랜 변경 가능 → 즉시 적용
+  </div>
+</div>
+
+<!-- ═══ 인증 흐름 ═══ -->
+<div class="tab-content" id="tab-flow">
+  <h2>🔄 로그인 → 권한 확인 전체 흐름</h2>
+  <div class="flow">
+    <div class="flow-row"><div class="flow-label">① 회원가입</div>
+      <div class="flow-box hi">POST /api/register<br><span style="color:#6b7280;font-size:0.75rem">email + password + plan 전송</span></div></div>
+    <div class="arrow">↓</div>
+    <div class="flow-row"><div class="flow-label">② 암호화</div>
+      <div class="flow-box">SHA-256 해시 처리<br><span style="color:#6b7280;font-size:0.75rem">원본 비밀번호는 절대 DB에 저장 안 함!</span></div></div>
+    <div class="arrow">↓</div>
+    <div class="flow-row"><div class="flow-label">③ DB 저장</div>
+      <div class="flow-box">MariaDB users 테이블 INSERT<br><span style="color:#6b7280;font-size:0.75rem">id / email / password(해시) / plan / created_at</span></div></div>
+    <div class="arrow">↓</div>
+    <div class="flow-row"><div class="flow-label">④ 로그인</div>
+      <div class="flow-box hi">POST /api/login → JWT 토큰 발급<br><span style="color:#6b7280;font-size:0.75rem">토큰 안에 user_id + plan 정보 포함</span></div></div>
+    <div class="arrow">↓</div>
+    <div class="flow-row"><div class="flow-label">⑤ API 요청</div>
+      <div class="flow-box">Header: Authorization: Bearer {토큰}<br><span style="color:#6b7280;font-size:0.75rem">모든 요청에 토큰 첨부</span></div></div>
+    <div class="arrow">↓</div>
+    <div class="flow-row"><div class="flow-label">⑥ 권한 확인</div>
+      <div class="flow-box">check_permission(plan, feature)<br><span style="color:#6b7280;font-size:0.75rem">플랜에 맞는 기능인지 서버에서 확인</span></div></div>
+    <div class="arrow">↓</div>
+    <div style="display:flex;gap:12px;margin-left:100px">
+      <div class="flow-box ok" style="flex:1">✅ 허용 → 기능 실행</div>
+      <div class="flow-box err" style="flex:1">❌ 거부 → 403 Forbidden</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ API 사용법 ═══ -->
+<div class="tab-content" id="tab-api">
+  <h2>📡 실제 API 사용 방법 (VM 터미널에서 바로 테스트)</h2>
+
+  <p style="color:#a78bfa;font-size:0.85rem;margin-bottom:6px">① 회원가입</p>
+  <div class="code-box"><span class="cm"># VM 터미널에서 실행</span>
+curl -X POST http://localhost:8000/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "jeaje@test.com", "password": "my1234", "plan": "pro"}'
+
+<span class="cm"># 응답 예시</span>
+{"token": "abc123...", "plan": "pro", "user_id": "1", "expire": 1234567890}</div>
+
+  <p style="color:#a78bfa;font-size:0.85rem;margin-bottom:6px">② 로그인</p>
+  <div class="code-box">curl -X POST http://localhost:8000/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "jeaje@test.com", "password": "my1234"}'</div>
+
+  <p style="color:#a78bfa;font-size:0.85rem;margin-bottom:6px">③ 토큰으로 AI 분석 실행</p>
+  <div class="code-box">curl -X POST http://localhost:8000/api/run \
+  -H "Authorization: Bearer abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"learning_type": "reinforcement", "user_id": "jeaje"}'
+
+<span class="cm"># free 플랜이면 →</span>  {"error": "권한 없음: free 플랜은 강화학습 사용 불가", "code": 403}
+<span class="cm"># enterprise면  →</span>  {"ML결과": {...}, "정확도": 0.87, ...}</div>
+
+  <p style="color:#a78bfa;font-size:0.85rem;margin-bottom:6px">④ 관리자 플랜 변경 (MariaDB 직접)</p>
+  <div class="code-box"><span class="cm"># MariaDB 접속 후 직접 변경 → 즉시 적용!</span>
+mysql -u vm_user -p vm_project
+UPDATE users SET plan='enterprise' WHERE email='jeaje@test.com';
+SELECT email, plan FROM users;  <span class="cm"># 확인</span></div>
+
+  <p style="color:#a78bfa;font-size:0.85rem;margin-bottom:6px">⑤ 권한 목록 확인 API</p>
+  <div class="code-box">curl http://localhost:8000/api/permissions?plan=pro
+<span class="cm"># 응답</span>
+{"plan": "pro", "permissions": ["기본분석","CSV업로드","AI분석","SHAP","PDF다운로드","지도학습","비지도학습"]}</div>
+</div>
+
+<!-- ═══ 기능 비교표 ═══ -->
+<div class="tab-content" id="tab-compare">
+  <h2>📊 플랜별 기능 전체 비교표</h2>
+  <table>
+    <tr><th>기능</th><th>🟢 Free</th><th>🟡 Pro</th><th>🟣 Enterprise</th></tr>
+    <tr><td>CSV 업로드</td><td class="ck">✅</td><td class="ck">✅</td><td class="ck">✅</td></tr>
+    <tr><td>기본 데이터 분석</td><td class="ck">✅</td><td class="ck">✅</td><td class="ck">✅</td></tr>
+    <tr><td>결과 조회</td><td class="ck">✅</td><td class="ck">✅</td><td class="ck">✅</td></tr>
+    <tr><td>AI 분석 (지도학습)</td><td class="xx">❌</td><td class="ck">✅</td><td class="ck">✅</td></tr>
+    <tr><td>비지도학습 (클러스터링)</td><td class="xx">❌</td><td class="ck">✅</td><td class="ck">✅</td></tr>
+    <tr><td>SHAP 시각화 (AI 설명)</td><td class="xx">❌</td><td class="ck">✅</td><td class="ck">✅</td></tr>
+    <tr><td>PDF 리포트 다운로드</td><td class="xx">❌</td><td class="ck">✅</td><td class="ck">✅</td></tr>
+    <tr><td>준지도학습</td><td class="xx">❌</td><td class="xx">❌</td><td class="ck">✅</td></tr>
+    <tr><td>강화학습</td><td class="xx">❌</td><td class="xx">❌</td><td class="ck">✅</td></tr>
+    <tr><td>AutoML 자동 최적화</td><td class="xx">❌</td><td class="xx">❌</td><td class="ck">✅</td></tr>
+    <tr><td>API 직접 접근</td><td class="xx">❌</td><td class="xx">❌</td><td class="ck">✅</td></tr>
+    <tr><td>Cron 자동학습 관리</td><td class="xx">❌</td><td class="xx">❌</td><td class="ck">✅</td></tr>
+    <tr><td>배치 처리</td><td class="xx">❌</td><td class="xx">❌</td><td class="ck">✅</td></tr>
+  </table>
+</div>
+
+<!-- ═══ 권한 테스트 ═══ -->
+<div class="tab-content" id="tab-demo">
+  <h2>🧪 권한 시뮬레이터 — 직접 테스트해보세요!</h2>
+  <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:4px">
+    <div>
+      <label style="font-size:0.8rem;color:#9ca3af;display:block;margin-bottom:4px">내 플랜</label>
+      <select id="sim-plan">
+        <option value="free">🟢 Free (무료)</option>
+        <option value="pro">🟡 Pro (월 5,000원)</option>
+        <option value="enterprise">🟣 Enterprise (월 10,000원)</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:0.8rem;color:#9ca3af;display:block;margin-bottom:4px">사용하려는 기능</label>
+      <select id="sim-feat">
+        <option>기본분석</option><option>CSV업로드</option><option>결과조회</option>
+        <option>AI분석</option><option>SHAP</option><option>PDF다운로드</option>
+        <option>지도학습</option><option>비지도학습</option><option>준지도학습</option>
+        <option>강화학습</option><option>AutoML</option><option>Cron관리</option><option>API접근</option>
+      </select>
+    </div>
+    <button class="btn" onclick="sim()">🔍 권한 확인</button>
+  </div>
+  <div id="sim-res" class="sim-result"></div>
+
+  <div class="tip" style="margin-top:16px">
+    <p style="color:#a78bfa;margin-bottom:8px">💡 실제 코드에서 권한 체크는 이렇게 해요</p>
+    <div class="code-box" style="margin:0"><span class="cm"># web/app.py</span>
+@app.route("/api/run", methods=["POST"])
+def run():
+    token = request.headers.get("Authorization","").replace("Bearer ","")
+    user  = verify_token(token)       <span class="cm"># ① 토큰 검증</span>
+    plan  = user.get("plan","free")   <span class="cm"># ② 플랜 확인</span>
+    ltype = request.json.get("learning_type")
+
+    <span class="cm"># ③ 기능별 권한 체크</span>
+    perm_map = {
+        "reinforcement":   "강화학습",
+        "semi_supervised": "준지도학습",
+        "supervised":      "지도학습",
+    }
+    if ltype in perm_map:
+        if not check_permission(plan, perm_map[ltype]):
+            return jsonify({"error": f"권한 없음: {plan} 플랜은 {ltype} 불가"}), 403
+
+    return jsonify(run_pipeline(...))</div>
+  </div>
+</div>
+
+<script>
+// 🆕 서버 주소 — config.py에서 Flask가 자동 주입!
+const SERVER_BASE_URL = "{{ SERVER_BASE_URL }}";
+
+const P={
+  free:["기본분석","CSV업로드","결과조회"],
+  pro:["기본분석","CSV업로드","결과조회","AI분석","SHAP","PDF다운로드","파일다운로드","지도학습","비지도학습"],
+  enterprise:["기본분석","CSV업로드","결과조회","AI분석","SHAP","PDF다운로드","파일다운로드","지도학습","비지도학습","준지도학습","강화학습","AutoML","API접근","배치처리","Cron관리"]
+};
+const UP={free:"Pro 또는 Enterprise",pro:"Enterprise"};
+
+function sw(n,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-'+n).classList.add('active');
+}
+function selPlan(el){
+  document.querySelectorAll('.plan-card').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+}
+async function sim(){
+  const plan = document.getElementById('sim-plan').value;
+  const feat = document.getElementById('sim-feat').value;
+  const el   = document.getElementById('sim-res');
+  el.style.display = 'block';
+  el.innerHTML = '<span style="color:#f59e0b">🔄 서버 확인 중...</span>';
+
+  try {
+    // 실제 서버 API로 권한 확인
+    const r = await fetch(`${SERVER_BASE_URL}/api/upgrade-info?plan=${plan}&feature=${feat}`);
+    const d = await r.json();
+    const ok = (P[plan]||[]).includes(feat);
+
+    if (ok) {
+      el.style.cssText = 'display:block;border-radius:8px;padding:14px;border:1px solid #22c55e;background:#052e16';
+      el.innerHTML = `<span style="color:#86efac;font-size:1.1rem">✅ 허용!</span><br>
+        <span style="color:#9ca3af">
+          <b style="color:#c4b5fd">${plan}</b> 플랜은
+          <b style="color:#86efac">${feat}</b> 기능을 사용할 수 있어요! 🚀
+        </span>`;
+    } else {
+      const hl = d.highlight || {};
+      el.style.cssText = 'display:block;border-radius:8px;padding:14px;border:1px solid #ef4444;background:#2d0a0a';
+      el.innerHTML = `
+        <span style="color:#fca5a5;font-size:1.1rem">❌ 권한 없음!</span><br>
+        <span style="color:#9ca3af">
+          <b style="color:#c4b5fd">${plan}</b> 플랜은
+          <b style="color:#fca5a5">${feat}</b>을(를) 사용할 수 없어요.
+        </span><br>
+        ${hl.title ? `<div style="margin-top:8px;background:#1a0a3e;border:1px solid #f59e0b;border-radius:6px;padding:8px;font-size:0.8rem;color:#fcd34d">
+          ${hl.title}<br><span style="color:#9ca3af">${hl.desc||''}</span>
+        </div>` : ''}
+        <div style="margin-top:8px;font-size:0.85rem;color:#f59e0b">${d.cta||''}</div>
+        <a href="${d.upgrade_url||'/register'}" style="
+          display:inline-block;margin-top:8px;
+          background:linear-gradient(135deg,#7c3aed,#4f46e5);
+          color:#fff;border-radius:6px;padding:6px 14px;
+          text-decoration:none;font-size:0.82rem
+        ">🚀 업그레이드</a>`;
+    }
+  } catch(e) {
+    // API 실패 시 로컬 로직으로 대체
+    const ok = (P[plan]||[]).includes(feat);
+    el.style.cssText = `display:block;border-radius:8px;padding:14px;border:1px solid ${ok?'#22c55e':'#ef4444'};background:${ok?'#052e16':'#2d0a0a'}`;
+    el.innerHTML = ok
+      ? `<span style="color:#86efac">✅ 허용! (오프라인 모드)</span>`
+      : `<span style="color:#fca5a5">❌ 권한 없음 (오프라인 모드)</span>`;
+  }
+}
+</script>
+</body>
+</html>

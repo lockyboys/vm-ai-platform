@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📝 회원가입 — VM Project 7.16.4</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0a0a18;color:#e0e0f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:16px;padding:32px;width:100%;max-width:480px}
+.logo{text-align:center;margin-bottom:24px}
+.logo-icon{font-size:2.5rem}
+.logo h1{font-size:1.2rem;color:#c4b5fd;margin-top:6px}
+label{display:block;font-size:0.8rem;color:#9ca3af;margin-bottom:4px;margin-top:12px}
+input,select{width:100%;background:#0d0d1a;border:1px solid #3d3d6e;border-radius:8px;padding:10px 14px;color:#e0e0f0;font-size:0.88rem;transition:border .2s}
+input:focus,select:focus{outline:none;border-color:#7c3aed}
+
+/* 플랜 선택 카드 */
+.plan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+@media(max-width:420px){.plan-grid{grid-template-columns:1fr}}
+.plan-card{border:2px solid #2d2d5e;border-radius:10px;padding:12px 8px;cursor:pointer;text-align:center;transition:all .2s}
+.plan-card:hover,.plan-card.sel{border-color:#7c3aed;background:#1a0a3e}
+.plan-name{font-size:0.9rem;font-weight:700}
+.plan-price{font-size:0.72rem;color:#9ca3af;margin:3px 0}
+.plan-feat{font-size:0.68rem;color:#6b7280;line-height:1.4}
+.partial{font-size:0.65rem;background:#451a03;color:#fcd34d;border:1px solid #f59e0b;border-radius:3px;padding:1px 5px;display:inline-block;margin-top:3px}
+.free-c .plan-name{color:#22c55e}
+.pro-c  .plan-name{color:#f59e0b}
+.ent-c  .plan-name{color:#a78bfa}
+
+/* 약관 */
+.terms-box{background:#0d0d1a;border:1px solid #2d2d5e;border-radius:8px;padding:12px;margin-top:12px;max-height:120px;overflow-y:auto;font-size:0.75rem;color:#6b7280;line-height:1.6}
+.chk-item{display:flex;align-items:flex-start;gap:8px;margin-top:8px;cursor:pointer;font-size:0.8rem;color:#9ca3af}
+.chk-item input{width:16px;height:16px;margin-top:2px;accent-color:#7c3aed;flex-shrink:0;cursor:pointer}
+.required-mark{color:#f59e0b;font-size:0.7rem;margin-left:4px}
+.chk-all{font-weight:600;color:#a78bfa;border-top:1px solid #2d2d5e;padding-top:8px;margin-top:4px}
+
+.btn{width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:8px;padding:12px;font-size:0.95rem;cursor:pointer;margin-top:18px;transition:opacity .2s}
+.btn:hover:not(:disabled){opacity:.85}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.alert{border-radius:8px;padding:10px 14px;font-size:0.82rem;margin-top:10px;display:none}
+.alert-err{background:#2d0a0a;border:1px solid #ef4444;color:#fca5a5}
+.alert-ok{background:#052e16;border:1px solid #22c55e;color:#86efac}
+.link-row{text-align:center;font-size:0.82rem;color:#9ca3af;margin-top:12px}
+.link-row a{color:#a78bfa;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">🧠</div>
+    <h1>VM Project 7.16.4 회원가입</h1>
+  </div>
+
+  <label>이메일 <span style="color:#ef4444">*</span></label>
+  <input type="email" id="email" placeholder="example@email.com">
+
+  <label>비밀번호 <span style="color:#ef4444">*</span></label>
+  <input type="password" id="pw" placeholder="8자 이상">
+
+  <label>비밀번호 확인 <span style="color:#ef4444">*</span></label>
+  <input type="password" id="pw2" placeholder="비밀번호 재입력">
+
+  <!-- 플랜 선택 -->
+  <label>플랜 선택 <span style="color:#ef4444">*</span></label>
+  <div class="plan-grid">
+    <div class="plan-card free-c sel" onclick="selPlan('free',this)">
+      <div class="plan-name">🟢 Free</div>
+      <div class="plan-price">무료</div>
+      <div class="plan-feat">기본분석<br>CSV업로드</div>
+      <span class="partial">🔶 분류만</span>
+    </div>
+    <div class="plan-card pro-c" onclick="selPlan('pro',this)">
+      <div class="plan-name">🟡 Pro</div>
+      <!-- 🆕 가격을 서버 config에서 주입 — 여기만 바꾸면 전체 반영! -->
+      <div class="plan-price">월 {{ PLAN_PRICES.pro | default(5000) | int }}원</div>
+      <div class="plan-feat">분류+회귀<br>SHAP+PDF+배치</div>
+    </div>
+    <div class="plan-card ent-c" onclick="selPlan('enterprise',this)">
+      <div class="plan-name">🟣 Enterprise</div>
+      <div class="plan-price">월 {{ PLAN_PRICES.enterprise | default(10000) | int }}원</div>
+      <div class="plan-feat">전체 기능<br>강화학습+AutoML</div>
+    </div>
+  </div>
+  <input type="hidden" id="sel-plan" value="free">
+
+  <!-- 약관 요약 -->
+  <div class="terms-box">
+    <b>서비스 이용약관 요약</b><br>
+    • 본 서비스는 CSV 데이터 AI 분석 플랫폼입니다.<br>
+    • 플랜별 기능 제한이 적용됩니다 (Free=분류만, Pro=분류+회귀, Enterprise=전체).<br>
+    • 업로드 데이터는 30일 후 자동 삭제됩니다.<br>
+    • AI 분석 결과는 참고용이며 의사결정 책임은 사용자에게 있습니다.<br>
+    • 비밀번호는 SHA-256으로 암호화 저장됩니다.<br>
+    • 환불은 결제 후 7일 이내 가능합니다.<br>
+    <a href="/terms" target="_blank" style="color:#a78bfa">📋 전체 약관 보기 →</a>
+  </div>
+
+  <!-- 약관 동의 -->
+  <label class="chk-item">
+    <input type="checkbox" id="chk1" onchange="chkUpdate()">
+    <span>서비스 이용약관에 동의합니다 <span class="required-mark">(필수)</span></span>
+  </label>
+  <label class="chk-item">
+    <input type="checkbox" id="chk2" onchange="chkUpdate()">
+    <span>개인정보 수집 및 이용에 동의합니다 <span class="required-mark">(필수)</span></span>
+  </label>
+  <label class="chk-item">
+    <input type="checkbox" id="chk3" onchange="chkUpdate()">
+    <span>AI 결과는 참고용임을 확인합니다 <span class="required-mark">(필수)</span></span>
+  </label>
+  <label class="chk-item chk-all">
+    <input type="checkbox" id="chkAll" onchange="toggleAll(this)">
+    <span>전체 동의</span>
+  </label>
+
+  <button class="btn" id="reg-btn" disabled onclick="doRegister()">✅ 가입하고 시작하기</button>
+  <div id="alert-box" class="alert"></div>
+
+  <div class="link-row" style="margin-top:14px">
+    이미 계정이 있으신가요? <a href="/login">로그인</a>
+  </div>
+</div>
+
+<script>
+// 🆕 서버 주소를 config에서 Flask가 주입해줘요 — 여기서 직접 바꿀 필요 없어요!
+const SERVER_BASE_URL = "{{ SERVER_BASE_URL }}";
+let selectedPlan = 'free';
+
+function selPlan(plan, el) {
+  document.querySelectorAll('.plan-card').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');
+  selectedPlan = plan;
+  document.getElementById('sel-plan').value = plan;
+}
+
+function chkUpdate() {
+  const ok = ['chk1','chk2','chk3'].every(id=>document.getElementById(id).checked);
+  document.getElementById('reg-btn').disabled = !ok;
+  const all = ['chk1','chk2','chk3'].every(id=>document.getElementById(id).checked);
+  document.getElementById('chkAll').checked = all;
+}
+
+function toggleAll(cb) {
+  ['chk1','chk2','chk3'].forEach(id=>document.getElementById(id).checked=cb.checked);
+  chkUpdate();
+}
+
+async function doRegister() {
+  const email = document.getElementById('email').value.trim();
+  const pw    = document.getElementById('pw').value;
+  const pw2   = document.getElementById('pw2').value;
+  const plan  = selectedPlan;
+  const btn   = document.getElementById('reg-btn');
+
+  if (!email || !pw) return showAlert('이메일과 비밀번호를 입력해주세요', 'err');
+  if (pw.length < 8)  return showAlert('비밀번호는 8자 이상이어야 해요', 'err');
+  if (pw !== pw2)     return showAlert('비밀번호가 일치하지 않아요', 'err');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 가입 중...';
+
+  try {
+    // 🆕 SERVER_BASE_URL을 config에서 받아 쓰므로 IP 바꿀 때 config만 수정!
+    const res  = await fetch(`${SERVER_BASE_URL}/api/register`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email, password: pw, plan})
+    });
+    const data = await res.json();
+
+    if (!res.ok) return showAlert(data.error || '가입 실패', 'err');
+
+    localStorage.setItem('vm_token', data.token);
+    localStorage.setItem('vm_plan',  data.plan);
+    localStorage.setItem('vm_email', email);
+
+    showAlert(`🎉 가입 완료! [${data.plan}] 플랜으로 시작해요!`, 'ok');
+    setTimeout(() => window.location.href = '/', 1000);
+
+  } catch(e) {
+    showAlert('서버 연결 실패: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✅ 가입하고 시작하기';
+  }
+}
+
+function showAlert(msg, type) {
+  const el = document.getElementById('alert-box');
+  el.className = `alert alert-${type}`;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+</script>
+</body>
+</html>

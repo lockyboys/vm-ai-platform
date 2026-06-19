@@ -1,0 +1,121 @@
+# kubernetes/deployment.yaml ★ 7.12.0
+# ⭐ Kubernetes 배포 설정
+# 초등학생 설명: 여러 서버에 AI 프로그램을 자동으로 깔아주고
+#               트래픽 많으면 서버를 자동으로 더 켜줘요!
+# 🆕 7.12.0: SERVER_HOST 환경변수 주입 지원
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vm-7.12.0-api
+  namespace: vm-project
+  labels:
+    app: vm-7.12.0-api
+    version: 7.12.0
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vm-7.12.0-api
+  template:
+    metadata:
+      labels:
+        app: vm-7.12.0-api
+    spec:
+      containers:
+      - name: ai-api
+        image: vm-project-7.12.0:latest
+        ports:
+        - containerPort: 8000
+        env:
+        # 🆕 서버 주소 — 여기서 IP/도메인 설정하면 config.py에 자동 반영!
+        - name: SERVER_HOST
+          value: "34.64.209.152"       # ← IP 바꿀 때 여기!
+        - name: SERVER_PORT
+          value: "8000"
+        - name: SERVER_PROTOCOL
+          value: "http"
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "8000"
+        - name: DEBUG
+          value: "false"
+        # DB 설정
+        - name: MONGO_URI
+          value: "mongodb://vm-mongodb:27017"
+        - name: MYSQL_HOST
+          value: "vm-mariadb"
+        - name: MYSQL_USER
+          value: "vm_user"
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: vm-secrets
+              key: mysql-password
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: vm-secrets
+              key: secret-key
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/status
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vm-7.12.0-service
+  namespace: vm-project
+spec:
+  selector:
+    app: vm-7.12.0-api
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: LoadBalancer
+
+---
+# 오토스케일링 — CPU 70% 넘으면 서버 자동 추가
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vm-7.12.0-hpa
+  namespace: vm-project
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: vm-7.12.0-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+
+---
+# 비밀 정보 (실서비스에서는 kubectl create secret으로 생성)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vm-secrets
+  namespace: vm-project
+type: Opaque
+stringData:
+  mysql-password: "1234"                        # ← 실서비스에서 반드시 변경!
+  secret-key: "change-me-in-production!"       # ← 실서비스에서 반드시 변경!

@@ -1,0 +1,31 @@
+# docker-compose.yml ★ 7.12.0
+version: "3.8"
+services:
+  api:
+    build: { context: ., dockerfile: docker/Dockerfile }
+    container_name: vm_7.12.0_api
+    ports: ["8000:8000"]
+    volumes: ["./logs:/app/logs","./models:/app/models","./outputs:/app/outputs","./uploads:/app/uploads"]
+    depends_on: [mongo, mariadb]
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7.0
+    container_name: vm_7.12.0_mongo
+    ports: ["27017:27017"]
+    volumes: [mongo_data:/data/db]
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:10.11
+    container_name: vm_7.12.0_mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass123
+      MYSQL_DATABASE: vm_project
+      MYSQL_USER: vm_user
+      MYSQL_PASSWORD: "1234"
+    ports: ["3306:3306"]
+    volumes: [mariadb_data:/var/lib/mysql]
+    restart: unless-stopped
+
+volumes: { mongo_data: {}, mariadb_data: {} }

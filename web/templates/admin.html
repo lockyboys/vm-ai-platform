@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔑 관리자 — VM Project {{ APP_VERSION }}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0a0a18;color:#e0e0f0;min-height:100vh}
+
+/* 헤더 */
+header{background:linear-gradient(135deg,#1a0a3e,#2d1b69);padding:14px 24px;display:flex;align-items:center;gap:12px;border-bottom:2px solid #4a3f8a}
+header h1{font-size:1.2rem;color:#c4b5fd;flex:1}
+.badge{background:#4a3f8a;padding:3px 10px;border-radius:20px;font-size:0.75rem;color:#ddd6fe}
+.btn-home{background:#1a1a2e;border:1px solid #4a3f8a;color:#c4b5fd;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:0.8rem}
+
+/* 레이아웃 */
+main{padding:20px;max-width:1400px;margin:0 auto}
+
+/* 탭 */
+.tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid #2d2d5e;flex-wrap:wrap}
+.tab{padding:8px 16px;cursor:pointer;font-size:0.85rem;color:#9ca3af;border-bottom:2px solid transparent;transition:all .2s;white-space:nowrap}
+.tab.active{color:#a78bfa;border-bottom-color:#7c3aed}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+/* 카드 */
+.card{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:10px;padding:18px;margin-bottom:16px}
+.card-title{color:#a78bfa;font-size:0.95rem;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* 통계 카드 */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:10px;padding:16px;text-align:center}
+.stat-val{font-size:2rem;font-weight:700;color:#a78bfa}
+.stat-label{font-size:0.78rem;color:#6b7280;margin-top:4px}
+
+/* 테이블 */
+.tbl{width:100%;border-collapse:collapse;font-size:0.82rem}
+.tbl th{background:#2d1b69;color:#ddd6fe;padding:9px 12px;text-align:left;white-space:nowrap}
+.tbl td{padding:8px 12px;border-bottom:1px solid #2d2d5e;vertical-align:middle}
+.tbl tr:hover td{background:#111128}
+
+/* 플랜 뱃지 */
+.plan{padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600}
+.plan-free{background:#14532d;color:#86efac}
+.plan-pro{background:#451a03;color:#fcd34d}
+.plan-ent{background:#2d1b69;color:#c4b5fd}
+
+/* 폼 */
+select,input{background:#0d0d1a;border:1px solid #3d3d6e;border-radius:6px;padding:6px 10px;color:#e0e0f0;font-size:0.82rem}
+.btn{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:0.82rem;transition:opacity .2s}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-sm{padding:4px 10px;font-size:0.75rem}
+.btn-danger{background:linear-gradient(135deg,#dc2626,#b91c1c)}
+.btn-warn{background:linear-gradient(135deg,#d97706,#b45309)}
+.btn-green{background:linear-gradient(135deg,#16a34a,#15803d)}
+.btn-secondary{background:#1a1a2e;border:1px solid #4a3f8a;color:#c4b5fd}
+
+/* 업로드 존 */
+.upload-zone{border:2px dashed #4a3f8a;border-radius:10px;padding:30px;text-align:center;cursor:pointer;transition:all .2s;background:#0d0d1a}
+.upload-zone:hover,.upload-zone.drag-over{border-color:#7c3aed;background:#1a0a3e}
+.upload-zone p{color:#9ca3af;font-size:0.85rem;margin-top:8px}
+
+/* 알림 */
+.alert{border-radius:8px;padding:10px 14px;font-size:0.82rem;margin-bottom:10px}
+.alert-ok{background:#052e16;border:1px solid #22c55e;color:#86efac}
+.alert-err{background:#2d0a0a;border:1px solid #ef4444;color:#fca5a5}
+.alert-warn{background:#451a03;border:1px solid #f59e0b;color:#fcd34d}
+.alert-info{background:#1e3a5f;border:1px solid #3b82f6;color:#93c5fd}
+
+/* 서버 상태 */
+.svc{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#0d0d1a;border:1px solid #2d2d5e;border-radius:8px;margin-bottom:8px}
+.svc-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.svc-on{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.svc-off{background:#ef4444}
+.svc-name{font-size:0.85rem;font-weight:600;flex:1}
+.svc-port{font-size:0.75rem;color:#6b7280}
+
+/* 배포 단계 */
+.step-list{display:flex;flex-direction:column;gap:6px}
+.step-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d1a;border:1px solid #2d2d5e;border-radius:6px;font-size:0.82rem}
+.step-icon{font-size:1rem;width:24px;text-align:center;flex-shrink:0}
+.step-done{border-color:#22c55e;background:#052e16}
+.step-running{border-color:#f59e0b;background:#451a03}
+.step-err{border-color:#ef4444;background:#2d0a0a}
+
+/* 로딩 */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{display:inline-block;animation:spin 1s linear infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.blink{animation:pulse 1.2s infinite}
+
+/* 권한 데모 */
+.plan-grid-demo{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:600px){.plan-grid-demo{grid-template-columns:1fr}.stat-grid{grid-template-columns:1fr 1fr}}
+.plan-card-demo{border:2px solid #2d2d5e;border-radius:10px;padding:14px;cursor:pointer;transition:all .2s}
+.plan-card-demo:hover,.plan-card-demo.active{border-color:#7c3aed;background:#1a0a3e}
+.perm{padding:3px 7px;border-radius:4px;font-size:0.72rem;margin:2px;display:inline-block}
+.perm-y{background:#14532d;border:1px solid #22c55e;color:#86efac}
+.perm-n{background:#1f1f1f;border:1px solid #374151;color:#4b5563;text-decoration:line-through}
+.perm-p{background:#451a03;border:1px solid #f59e0b;color:#fcd34d}
+.perm-r{background:#2d1b69;border:1px solid #7c3aed;color:#c4b5fd}
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.5rem">🔑</span>
+  <h1>관리자 대시보드 <span class="badge">{{ APP_VERSION }}</span></h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span id="admin-email" style="font-size:0.8rem;color:#9ca3af"></span>
+    <a href="/" class="btn-home">🏠 대시보드</a>
+    <a href="/logout" onclick="doLogout()" class="btn-home" style="color:#fca5a5;border-color:#ef4444">로그아웃</a>
+  </div>
+</header>
+
+<main>
+
+<!-- 통계 카드 -->
+<div class="stat-grid" id="stat-grid">
+  <div class="stat"><div class="stat-val" id="s-users">-</div><div class="stat-label">전체 사용자</div></div>
+  <div class="stat"><div class="stat-val" id="s-models">-</div><div class="stat-label">학습 횟수</div></div>
+  <div class="stat"><div class="stat-val" id="s-accuracy">-</div><div class="stat-label">평균 정확도</div></div>
+  <div class="stat"><div class="stat-val" id="s-cron">-</div><div class="stat-label">Cron 실행</div></div>
+</div>
+
+<!-- 탭 -->
+<div class="tabs">
+  <div class="tab active" onclick="sw('deploy',this)">📦 배포 관리</div>
+  <div class="tab" onclick="sw('users',this)">👥 사용자 관리</div>
+  <div class="tab" onclick="sw('server',this)">🏥 서버 상태</div>
+  <div class="tab" onclick="sw('models',this)">📈 모델 이력</div>
+  <div class="tab" onclick="sw('cron',this)">⏰ Cron 이력</div>
+  <div class="tab" onclick="sw('permissions',this)">🔐 권한 데모</div>
+</div>
+
+<!-- ══ 탭1: 배포 관리 ══════════════════════════════════ -->
+<div class="tab-content active" id="tab-deploy">
+  <div class="card">
+    <div class="card-title">📦 ZIP 업로드 → 자동 배포</div>
+    <p style="font-size:0.82rem;color:#9ca3af;margin-bottom:14px">
+      새 버전 ZIP 파일을 올리면 자동으로 백업 → 삭제 → 재설치 → 서버 재시작까지 해줘요!
+    </p>
+
+    <!-- 업로드 존 -->
+    <div class="upload-zone" id="deploy-zone" onclick="document.getElementById('zip-input').click()">
+      <div style="font-size:2.5rem">📦</div>
+      <p>ZIP 파일을 클릭하거나 드래그해서 올려주세요</p>
+      <p style="font-size:0.75rem;color:#6b7280;margin-top:4px">vm_project_vX.X.X.zip</p>
+    </div>
+    <input type="file" id="zip-input" accept=".zip" style="display:none" onchange="startDeploy(this)">
+
+    <div id="deploy-status" style="margin-top:12px"></div>
+
+    <!-- 배포 단계 표시 -->
+    <div id="deploy-steps" style="display:none;margin-top:14px">
+      <div class="card-title" style="margin-bottom:10px">🔄 배포 진행 상황</div>
+      <div class="step-list" id="step-list"></div>
+    </div>
+  </div>
+
+  <!-- 현재 버전 + 백업 목록 -->
+  <div class="card">
+    <div class="card-title">📋 현재 버전 정보</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.85rem">
+      <div>
+        <div style="color:#6b7280;margin-bottom:4px">현재 버전</div>
+        <div style="color:#a78bfa;font-size:1.1rem;font-weight:700">{{ APP_VERSION }}</div>
+      </div>
+      <div>
+        <div style="color:#6b7280;margin-bottom:4px">서버 주소</div>
+        <div style="color:#c4b5fd">{{ SERVER_BASE_URL }}</div>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-sm btn-secondary" onclick="loadBackups()">💾 백업 목록 보기</button>
+      <div id="backup-list" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 탭2: 사용자 관리 ══════════════════════════════ -->
+<div class="tab-content" id="tab-users">
+  <div class="card">
+    <div class="card-title">👥 전체 사용자 목록
+      <button class="btn btn-sm" onclick="loadUsers()" style="margin-left:auto">🔄 새로고침</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl" id="user-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>이메일</th><th>플랜</th><th>상태</th>
+            <th>가입일</th><th>플랜 변경</th>
+          </tr>
+        </thead>
+        <tbody id="user-tbody">
+          <tr><td colspan="6" style="text-align:center;color:#6b7280;padding:20px">
+            위의 새로고침 버튼을 눌러주세요
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 탭3: 서버 상태 ════════════════════════════════ -->
+<div class="tab-content" id="tab-server">
+  <div class="card">
+    <div class="card-title">🏥 서비스 상태
+      <button class="btn btn-sm" onclick="loadServerStatus()" style="margin-left:auto">🔄 새로고침</button>
+    </div>
+    <div id="server-services">
+      <div class="svc"><div class="svc-dot blink" style="background:#6b7280"></div><div class="svc-name">확인 중...</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">⚡ 빠른 명령</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-warn" onclick="quickCmd('restart')">🔄 서버 재시작</button>
+      <button class="btn btn-sm btn-green" onclick="quickCmd('cron_retrain')">🤖 지금 재학습</button>
+      <button class="btn btn-sm btn-green" onclick="quickCmd('cron_improve')">🧠 자기개선 실행</button>
+      <button class="btn btn-sm btn-secondary" onclick="quickCmd('status')">📡 상태 확인</button>
+    </div>
+    <div id="cmd-result" style="margin-top:10px"></div>
+  </div>
+</div>
+
+<!-- ══ 탭4: 모델 이력 ════════════════════════════════ -->
+<div class="tab-content" id="tab-models">
+  <div class="card">
+    <div class="card-title">📈 모델 정확도 히스토리
+      <button class="btn btn-sm" onclick="loadModels()" style="margin-left:auto">🔄 새로고침</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead>
+          <tr><th>모델</th><th>태스크</th><th>학습방식</th><th>정확도</th><th>사용자</th><th>학습일시</th></tr>
+        </thead>
+        <tbody id="model-tbody">
+          <tr><td colspan="6" style="text-align:center;color:#6b7280;padding:20px">새로고침 버튼을 눌러주세요</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 탭5: Cron 이력 ════════════════════════════════ -->
+<div class="tab-content" id="tab-cron">
+  <div class="card">
+    <div class="card-title">⏰ Cron 실행 이력
+      <button class="btn btn-sm" onclick="loadCron()" style="margin-left:auto">🔄 새로고침</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead>
+          <tr><th>작업명</th><th>상태</th><th>메시지</th><th>실행시각</th></tr>
+        </thead>
+        <tbody id="cron-tbody">
+          <tr><td colspan="4" style="text-align:center;color:#6b7280;padding:20px">새로고침 버튼을 눌러주세요</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 탭6: 권한 데모 ════════════════════════════════ -->
+<div class="tab-content" id="tab-permissions">
+  <div class="card">
+    <div class="card-title">🔐 플랜별 권한 확인</div>
+    <div class="plan-grid-demo" id="perm-plan-grid">
+      <div class="plan-card-demo active" onclick="selPermPlan('free',this)">
+        <div style="color:#22c55e;font-weight:700;margin-bottom:4px">🟢 Free (무료)</div>
+        <div style="font-size:0.72rem;background:#451a03;color:#fcd34d;border:1px solid #f59e0b;border-radius:3px;padding:2px 6px;display:inline-block;margin-bottom:6px">🔶 AI분류만</div>
+        <div id="perm-free"></div>
+      </div>
+      <div class="plan-card-demo" onclick="selPermPlan('pro',this)">
+        <div style="color:#f59e0b;font-weight:700;margin-bottom:10px">🟡 Pro (월 5,000원)</div>
+        <div id="perm-pro"></div>
+      </div>
+      <div class="plan-card-demo" onclick="selPermPlan('enterprise',this)">
+        <div style="color:#a78bfa;font-weight:700;margin-bottom:10px">🟣 Enterprise (월 10,000원)</div>
+        <div id="perm-ent"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🧪 권한 테스트</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label style="font-size:0.78rem;color:#9ca3af;display:block;margin-bottom:4px">플랜</label>
+        <select id="t-plan">
+          <option value="free">🟢 Free</option>
+          <option value="pro">🟡 Pro</option>
+          <option value="enterprise">🟣 Enterprise</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:0.78rem;color:#9ca3af;display:block;margin-bottom:4px">기능</label>
+        <select id="t-feat">
+          <option>기본분석</option><option>CSV업로드</option><option>AI분석</option>
+          <option>지도학습_분류</option><option>지도학습_회귀</option><option>비지도학습</option>
+          <option>준지도학습</option><option>강화학습</option><option>SHAP</option>
+          <option>PDF다운로드</option><option>배치처리</option>
+          <option>Cron조회</option><option>Cron관리</option><option>AutoML</option>
+        </select>
+      </div>
+      <button class="btn" onclick="testPerm()">🔍 확인</button>
+    </div>
+    <div id="perm-result" style="margin-top:10px"></div>
+  </div>
+</div>
+
+</main>
+
+<script>
+const BASE = "{{ SERVER_BASE_URL }}";
+const VER  = "{{ APP_VERSION }}";
+
+// ── 권한 정보 ─────────────────────────────────────────
+const PERMS = {
+  free:       ["기본분석","CSV업로드","결과조회","AI분석","지도학습_분류"],
+  pro:        ["기본분석","CSV업로드","결과조회","AI분석","지도학습_분류","지도학습_회귀",
+               "비지도학습","SHAP","PDF다운로드","파일다운로드","배치처리","Cron조회"],
+  enterprise: ["기본분석","CSV업로드","결과조회","AI분석","지도학습_분류","지도학습_회귀",
+               "비지도학습","준지도학습","강화학습","SHAP","PDF다운로드","파일다운로드",
+               "배치처리","AutoML","API접근","Cron조회","Cron관리"]
+};
+const PARTIAL = {"free": {"AI분석":"분류만","지도학습_분류":"분류만"}};
+const ALL_FEATS = [...new Set(Object.values(PERMS).flat())];
+
+// ── 초기화 ────────────────────────────────────────────
+window.onload = () => {
+  // 로그인 체크 (enterprise만 접근 가능)
+  const plan  = localStorage.getItem('vm_plan') || '';
+  const email = localStorage.getItem('vm_email') || '';
+  if (plan !== 'enterprise') {
+    alert('⛔ 관리자(Enterprise) 권한이 필요해요!\n\n테스트 계정: admin@test.com / admin1234');
+    window.location.href = '/login';
+    return;
+  }
+  document.getElementById('admin-email').textContent = `👤 ${email}`;
+  loadStats();
+  loadServerStatus();
+  renderPermBadges();
+};
+
+function doLogout() {
+  ['vm_token','vm_plan','vm_email'].forEach(k=>localStorage.removeItem(k));
+}
+
+// ── 탭 전환 ──────────────────────────────────────────
+function sw(name, el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  // 탭별 자동 로드
+  if(name==='users')   loadUsers();
+  if(name==='models')  loadModels();
+  if(name==='cron')    loadCron();
+  if(name==='server')  loadServerStatus();
+}
+
+// ── 통계 로드 ─────────────────────────────────────────
+async function loadStats() {
+  try {
+    const [users, models, cron] = await Promise.all([
+      fetch(`${BASE}/api/admin/users`).then(r=>r.json()).catch(()=>({users:[]})),
+      fetch(`${BASE}/api/history`).then(r=>r.json()).catch(()=>({history:[]})),
+      fetch(`${BASE}/api/cron/status`).then(r=>r.json()).catch(()=>({cron_logs:[]})),
+    ]);
+    document.getElementById('s-users').textContent   = users.users?.length || 0;
+    document.getElementById('s-models').textContent  = models.history?.length || 0;
+    document.getElementById('s-cron').textContent    = cron.cron_logs?.length || 0;
+    const accs = (models.history||[]).map(h=>h.accuracy||0).filter(a=>a>0);
+    document.getElementById('s-accuracy').textContent =
+      accs.length ? (accs.reduce((a,b)=>a+b,0)/accs.length*100).toFixed(1)+'%' : '-';
+  } catch(e) { console.error(e); }
+}
+
+// ══════════════════════════════════════════════════════
+// 📦 배포 관리
+// ══════════════════════════════════════════════════════
+const DEPLOY_STEPS = [
+  {id:'s1', label:'ZIP 파일 업로드'},
+  {id:'s2', label:'기존 서버 종료'},
+  {id:'s3', label:'현재 프로젝트 백업'},
+  {id:'s4', label:'기존 파일 삭제'},
+  {id:'s5', label:'새 버전 압축 해제'},
+  {id:'s6', label:'패키지 설치'},
+  {id:'s7', label:'DB 초기화'},
+  {id:'s8', label:'서버 재시작'},
+];
+
+async function startDeploy(input) {
+  const file = input.files[0];
+  if (!file || !file.name.endsWith('.zip')) {
+    showAlert('deploy-status', '❌ ZIP 파일만 가능해요!', 'err');
+    return;
+  }
+
+  // 버전 추출
+  const verMatch = file.name.match(/(\d+\.\d+\.\d+)/);
+  const newVer   = verMatch ? verMatch[1] : 'unknown';
+
+  // 확인 대화상자
+  if (!confirm(`📦 배포를 시작할까요?\n\n파일: ${file.name}\n버전: v${newVer}\n\n⚠️ 현재 서버가 재시작돼요!`)) return;
+
+  // 단계 UI 표시
+  const stepsDiv = document.getElementById('deploy-steps');
+  const stepList = document.getElementById('step-list');
+  stepsDiv.style.display = 'block';
+  stepList.innerHTML = DEPLOY_STEPS.map(s=>`
+    <div class="step-item" id="${s.id}">
+      <span class="step-icon">⏳</span>
+      <span>${s.label}</span>
+      <span style="margin-left:auto;color:#6b7280;font-size:0.75rem" id="${s.id}-msg"></span>
+    </div>`).join('');
+
+  try {
+    // STEP 1: ZIP 업로드
+    setStep('s1','running');
+    const fd = new FormData();
+    fd.append('zip', file);
+    const r1 = await fetch(`${BASE}/api/admin/deploy/upload`, {method:'POST', body:fd});
+    const d1 = await r1.json();
+    if (!r1.ok) throw new Error(d1.error);
+    setStep('s1','done', `${(file.size/1024).toFixed(0)}KB`);
+
+    // STEP 2~8: 배포 실행 (SSE 스트림으로 진행상황 수신)
+    const r2 = await fetch(`${BASE}/api/admin/deploy/run`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({filename: d1.filename, version: newVer})
+    });
+    const d2 = await r2.json();
+
+    if (d2.success) {
+      // 나머지 단계 완료 표시
+      ['s2','s3','s4','s5','s6','s7','s8'].forEach((s,i) => {
+        setTimeout(() => setStep(s,'done'), i*300);
+      });
+      setTimeout(() => {
+        showAlert('deploy-status',
+          `🎉 배포 완료! v${newVer}으로 업데이트됐어요!\n잠시 후 페이지가 새로고침돼요.`, 'ok');
+        setTimeout(() => window.location.reload(), 3000);
+      }, 2500);
+    } else {
+      throw new Error(d2.error || '배포 실패');
+    }
+  } catch(e) {
+    showAlert('deploy-status', `❌ 배포 실패: ${e.message}`, 'err');
+    // 실패한 단계 표시
+    document.querySelectorAll('.step-item').forEach(el => {
+      if (el.querySelector('.step-icon').textContent === '⏳') setStep(el.id,'err');
+    });
+  }
+}
+
+function setStep(id, status, msg='') {
+  const el   = document.getElementById(id);
+  const icon = el?.querySelector('.step-icon');
+  const msgEl = document.getElementById(id+'-msg');
+  if (!el) return;
+  el.className = `step-item step-${status==='done'?'done':status==='running'?'running':'err'}`;
+  if (icon) icon.textContent = status==='done'?'✅':status==='running'?'🔄':'❌';
+  if (msgEl && msg) msgEl.textContent = msg;
+}
+
+async function loadBackups() {
+  try {
+    const r = await fetch(`${BASE}/api/admin/backups`);
+    const d = await r.json();
+    const el = document.getElementById('backup-list');
+    if (!d.backups?.length) { el.innerHTML='<span style="color:#6b7280;font-size:0.82rem">백업 없음</span>'; return; }
+    el.innerHTML = d.backups.map(b=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #2d2d5e;font-size:0.82rem">
+        <span>💾 ${b.name}</span>
+        <span style="color:#6b7280">${b.size}</span>
+        <span style="color:#6b7280;margin-left:auto">${b.date}</span>
+      </div>`).join('');
+  } catch(e) {
+    document.getElementById('backup-list').innerHTML = '<span style="color:#6b7280;font-size:0.82rem">백업 정보 로드 실패</span>';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 👥 사용자 관리
+// ══════════════════════════════════════════════════════
+async function loadUsers() {
+  const tbody = document.getElementById('user-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">🔄 로딩 중...</td></tr>';
+  try {
+    const r = await fetch(`${BASE}/api/admin/users`);
+    const d = await r.json();
+    if (!d.users?.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">사용자 없음</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.users.map(u=>`
+      <tr>
+        <td style="color:#6b7280">${u.id}</td>
+        <td><b>${u.email}</b></td>
+        <td><span class="plan plan-${u.plan==='enterprise'?'ent':u.plan}">${planLabel(u.plan)}</span></td>
+        <td><span style="color:${u.is_active?'#22c55e':'#ef4444'}">${u.is_active?'✅ 활성':'❌ 비활성'}</span></td>
+        <td style="color:#6b7280;font-size:0.78rem">${u.created_at||''}</td>
+        <td>
+          <select onchange="changePlan(${u.id}, this.value)" style="font-size:0.75rem;padding:3px 6px">
+            <option value="free"   ${u.plan==='free'?'selected':''}>🟢 Free</option>
+            <option value="pro"    ${u.plan==='pro'?'selected':''}>🟡 Pro</option>
+            <option value="enterprise" ${u.plan==='enterprise'?'selected':''}>🟣 Enterprise</option>
+          </select>
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:#ef4444;padding:16px">DB 연결 실패 — ${e.message}</td></tr>`;
+  }
+}
+
+function planLabel(p) {
+  return {free:'🟢 Free',pro:'🟡 Pro',enterprise:'🟣 Enterprise'}[p]||p;
+}
+
+async function changePlan(userId, newPlan) {
+  try {
+    const r = await fetch(`${BASE}/api/admin/set-plan`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: userId, plan: newPlan})
+    });
+    const d = await r.json();
+    if (d.success) {
+      showAlert('deploy-status',`✅ 플랜 변경 완료: ${newPlan}`,'ok');
+      setTimeout(loadUsers, 500);
+    }
+  } catch(e) { alert('플랜 변경 실패: '+e.message); }
+}
+
+// ══════════════════════════════════════════════════════
+// 🏥 서버 상태
+// ══════════════════════════════════════════════════════
+async function loadServerStatus() {
+  const el = document.getElementById('server-services');
+  const services = [
+    {name:'Flask API', port:8000, check:`${BASE}/api/status`},
+    {name:'MongoDB', port:27017, check:null},
+    {name:'MariaDB', port:3306, check:null},
+  ];
+  el.innerHTML = '';
+  for (const svc of services) {
+    let alive = false;
+    try {
+      if (svc.check) {
+        const r = await fetch(svc.check, {signal: AbortSignal.timeout(2000)});
+        alive = r.ok;
+      }
+    } catch(e) { alive = false; }
+    el.innerHTML += `
+      <div class="svc">
+        <div class="svc-dot ${alive?'svc-on':'svc-off'}"></div>
+        <div class="svc-name">${svc.name}</div>
+        <div class="svc-port">포트 ${svc.port}</div>
+        <span style="margin-left:auto;font-size:0.78rem;color:${alive?'#22c55e':'#ef4444'}">
+          ${alive?'✅ 정상':'❌ 응답없음'}
+        </span>
+      </div>`;
+  }
+}
+
+async function quickCmd(cmd) {
+  const el = document.getElementById('cmd-result');
+  el.innerHTML = '<span style="color:#f59e0b" class="blink">🔄 실행 중...</span>';
+  try {
+    if (cmd === 'status') {
+      const r = await fetch(`${BASE}/api/status`);
+      const d = await r.json();
+      el.innerHTML = `<div class="alert alert-ok">✅ 서버 정상: ${JSON.stringify(d)}</div>`;
+    } else if (cmd === 'restart') {
+      el.innerHTML = '<div class="alert alert-warn blink">🔄 서버 재시작 중... 잠시 후 자동으로 새로고침돼요!</div>';
+      const r = await fetch(`${BASE}/api/admin/restart`, {method:'POST'});
+      const d = await r.json();
+      if (d.success) {
+        el.innerHTML = '<div class="alert alert-ok">✅ 재시작 명령 전송! 3초 후 새로고침...</div>';
+        setTimeout(() => window.location.reload(), 4000);
+      } else {
+        el.innerHTML = `<div class="alert alert-err">❌ ${d.error}</div>`;
+      }
+    } else {
+      const r = await fetch(`${BASE}/api/cron/trigger`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({job: cmd==='cron_retrain'?'daily_retrain':'self_improve'})
+      });
+      const d = await r.json();
+      el.innerHTML = `<div class="alert alert-ok">✅ ${d.message||'실행됨'}</div>`;
+    }
+  } catch(e) {
+    el.innerHTML = `<div class="alert alert-err">❌ ${e.message}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 📈 모델 이력
+// ══════════════════════════════════════════════════════
+async function loadModels() {
+  const tbody = document.getElementById('model-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">🔄 로딩 중...</td></tr>';
+  try {
+    const r = await fetch(`${BASE}/api/history`);
+    const d = await r.json();
+    if (!d.history?.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">학습 이력 없음</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.history.map(h=>{
+      const acc = h.accuracy ? (h.accuracy*100).toFixed(1)+'%' : '-';
+      const color = h.accuracy>=0.8?'#22c55e':h.accuracy>=0.6?'#f59e0b':'#ef4444';
+      return `<tr>
+        <td><b>${h.model_name||'-'}</b></td>
+        <td>${h.task_type||'-'}</td>
+        <td>${h.learning_type||'-'}</td>
+        <td style="color:${color};font-weight:600">${acc}</td>
+        <td style="color:#6b7280">${h.user_id||'-'}</td>
+        <td style="color:#6b7280;font-size:0.78rem">${h.trained_at||'-'}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:#ef4444;padding:16px">로드 실패: ${e.message}</td></tr>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// ⏰ Cron 이력
+// ══════════════════════════════════════════════════════
+async function loadCron() {
+  const tbody = document.getElementById('cron-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#6b7280;padding:16px">🔄 로딩 중...</td></tr>';
+  try {
+    const r = await fetch(`${BASE}/api/cron/status`);
+    const d = await r.json();
+    if (!d.cron_logs?.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#6b7280;padding:16px">Cron 이력 없음</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.cron_logs.map(l=>`
+      <tr>
+        <td><b>${l.job_name||'-'}</b></td>
+        <td><span style="color:${l.status==='완료'?'#22c55e':'#ef4444'}">${l.status||'-'}</span></td>
+        <td style="color:#9ca3af;font-size:0.78rem">${(l.message||'').substring(0,60)}</td>
+        <td style="color:#6b7280;font-size:0.78rem">${l.ran_at||'-'}</td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:#ef4444;padding:16px">로드 실패: ${e.message}</td></tr>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 🔐 권한 데모
+// ══════════════════════════════════════════════════════
+function renderPermBadges() {
+  const ALL = [...new Set(Object.values(PERMS).flat())];
+  ['free','pro','enterprise'].forEach(plan => {
+    const el = document.getElementById(`perm-${plan==='enterprise'?'ent':plan}`);
+    if (!el) return;
+    el.innerHTML = ALL.map(f => {
+      const has     = (PERMS[plan]||[]).includes(f);
+      const partial = PARTIAL[plan]?.[f];
+      const cls     = partial ? 'perm perm-p' : has ? 'perm perm-y' : 'perm perm-n';
+      return `<span class="${cls}">${partial?'🔶':has?'✅':'❌'} ${f}${partial?`(${partial})`:''}</span>`;
+    }).join('');
+  });
+}
+
+function selPermPlan(plan, el) {
+  document.querySelectorAll('.plan-card-demo').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+}
+
+async function testPerm() {
+  const plan = document.getElementById('t-plan').value;
+  const feat = document.getElementById('t-feat').value;
+  const el   = document.getElementById('perm-result');
+  const ok   = (PERMS[plan]||[]).includes(feat);
+
+  try {
+    const r = await fetch(`${BASE}/api/upgrade-info?plan=${plan}&feature=${feat}`);
+    const d = await r.json();
+    if (ok) {
+      el.innerHTML = `<div class="alert alert-ok">✅ <b>${plan}</b> 플랜은 <b>${feat}</b> 사용 가능!</div>`;
+    } else {
+      el.innerHTML = `<div class="alert alert-err">
+        ❌ <b>${plan}</b> 플랜은 <b>${feat}</b> 불가!<br>
+        <span style="font-size:0.8rem">${d.cta||''}</span>
+        <a href="${d.upgrade_url||'/register'}" style="display:inline-block;margin-top:6px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border-radius:4px;padding:4px 12px;text-decoration:none;font-size:0.78rem">🚀 업그레이드</a>
+      </div>`;
+    }
+  } catch(e) {
+    el.innerHTML = `<div class="alert ${ok?'alert-ok':'alert-err'}">${ok?'✅ 허용':'❌ 불가'} (오프라인)</div>`;
+  }
+}
+
+// ── 공통 유틸 ─────────────────────────────────────────
+function showAlert(targetId, msg, type) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  el.innerHTML = `<div class="alert alert-${type==='ok'?'ok':'err'}" style="white-space:pre-line">${msg}</div>`;
+}
+
+// 드래그 앤 드롭
+const zone = document.getElementById('deploy-zone');
+zone.addEventListener('dragover', e=>{e.preventDefault();zone.classList.add('drag-over')});
+zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e=>{
+  e.preventDefault(); zone.classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    const inp = document.getElementById('zip-input');
+    inp.files = files;
+    startDeploy(inp);
+  }
+});
+</script>
+</body>
+</html>

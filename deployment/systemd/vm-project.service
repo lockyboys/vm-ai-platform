@@ -1,0 +1,18 @@
+[Unit]
+Description=VM Project v7.20 AGI AI Platform
+After=network.target mariadb.service mongod.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/vm_project
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/%i/vm_project/run_server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/%i/vm_project/logs/flask.log
+StandardError=append:/home/%i/vm_project/logs/flask_error.log
+
+[Install]
+WantedBy=multi-user.target

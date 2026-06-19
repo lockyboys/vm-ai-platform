@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🧠 VM Project v7.20.0 마인드맵</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}body{background:#0a0a18;font-family:'Segoe UI',sans-serif;color:#e0e0f0;min-height:100vh;padding:18px}.wrap{max-width:1180px;margin:0 auto}h1{text-align:center;color:#a78bfa;font-size:1.35rem;margin-bottom:6px}.sub{text-align:center;color:#6b7280;font-size:.85rem;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:14px;padding:14px;min-height:150px}.card h2{font-size:1rem;margin-bottom:8px}.card p,.card li{font-size:.82rem;color:#9ca3af;line-height:1.65}.card ul{padding-left:18px}.center{grid-column:1/4;text-align:center;background:#1a0a3e;border:2px solid #7c3aed}.purple{border-color:#7c3aed}.green{border-color:#22c55e}.blue{border-color:#3b82f6}.red{border-color:#ef4444}.yellow{border-color:#f59e0b}.pink{border-color:#ec4899}.cyan{border-color:#06b6d4}.code{background:#0d0d1a;border:1px solid #374151;border-radius:8px;padding:10px;margin-top:8px;font-family:monospace;white-space:pre-wrap;color:#7dd3fc;font-size:.78rem}@media(max-width:850px){.grid{grid-template-columns:1fr}.center{grid-column:auto}}
+</style>
+</head>
+<body><div class="wrap">
+<h1>🧠 VM Project v7.20.0 — Enterprise AGI Platform</h1>
+<div class="sub">최종 보고용 마인드맵 · DB 보존 · 자동 실행 · 분석 실행 API · 디렉토리 구조 정리</div>
+<div class="grid">
+<div class="card center"><h2>🧠 중앙 목표</h2><p>CSV/XLSX 업로드 → AI 분석 → AutoML → SHAP → PDF/리포트 → DB 저장 → 자동 재학습까지 이어지는 운영형 AI 플랫폼입니다.</p></div>
+<div class="card purple"><h2>🔐 인증/권한</h2><ul><li>Free: 분류 중심</li><li>Pro: 분류+회귀+SHAP+PDF+배치</li><li>Enterprise: AutoML+강화학습+Cron관리</li><li>Admin: 사용자/플랜 관리</li></ul></div>
+<div class="card green"><h2>🤖 AI 학습</h2><ul><li>지도학습</li><li>비지도학습</li><li>준지도학습</li><li>강화학습 연결 골격</li><li>AutoML 엔진 골격</li></ul></div>
+<div class="card blue"><h2>📊 분석 파이프라인</h2><ul><li>Target 자동 탐지</li><li>Feature 자동 추천</li><li>이상값 탐지</li><li>/api/run 분석 실행 API</li><li>모델 학습</li><li>SHAP 설명</li></ul></div>
+<div class="card red"><h2>🗄️ DB/이력</h2><ul><li>MariaDB: 사용자/플랜/이력</li><li>MongoDB: 분석 JSON/리포트</li><li>JSON 로그: 항상 남기는 안전 기록</li><li>DB 삭제 없음</li></ul></div>
+<div class="card yellow"><h2>📂 파일/리포트</h2><ul><li>CSV/XLSX/XLS/TSV</li><li>중복 파일 감지</li><li>엑셀 시트 선택</li><li>학습방식 버튼 자동 선택</li><li>PDF/TXT 리포트 구조</li></ul></div>
+<div class="card cyan"><h2>🚀 서버 자동 운영</h2><ul><li>systemd 자동 시작</li><li>watchdog 1분 건강검진</li><li>서버 응답 없으면 재시작</li><li>로그는 logs/에 저장</li></ul><div class="code">./scripts/install_autorun.sh
+./scripts/install_watchdog_cron.sh</div></div>
+<div class="card pink"><h2>⏰ Cron/자기개선</h2><ul><li>매일 재학습 구조</li><li>정확도 히스토리</li><li>Self-Healing</li><li>Auto Fix Agent 방향 유지</li></ul></div>
+<div class="card purple"><h2>🗂️ 최종 디렉토리</h2><p>최종 구조도는 <b>docs/DIRECTORY_STRUCTURE_v7.20.md</b>에 정리했습니다.</p><p style="margin-top:8px;color:#86efac">핫픽스: 화면 버전 표시, /api/run, 학습방식 자동 선택을 반영했습니다.</p></div>
+</div></div></body></html>

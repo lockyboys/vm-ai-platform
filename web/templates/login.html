@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔐 로그인 — VM Project 7.16.4</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0a0a18;color:#e0e0f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:16px;padding:32px;width:100%;max-width:420px}
+.logo{text-align:center;margin-bottom:24px}
+.logo-icon{font-size:3rem}
+.logo h1{font-size:1.3rem;color:#c4b5fd;margin-top:8px}
+.logo p{font-size:0.8rem;color:#6b7280;margin-top:4px}
+label{display:block;font-size:0.8rem;color:#9ca3af;margin-bottom:4px;margin-top:14px}
+input{width:100%;background:#0d0d1a;border:1px solid #3d3d6e;border-radius:8px;padding:10px 14px;color:#e0e0f0;font-size:0.9rem;transition:border .2s}
+input:focus{outline:none;border-color:#7c3aed}
+.btn{width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:8px;padding:12px;font-size:0.95rem;cursor:pointer;margin-top:20px;transition:opacity .2s}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.divider{text-align:center;color:#4b5563;font-size:0.8rem;margin:16px 0;position:relative}
+.divider::before,.divider::after{content:'';position:absolute;top:50%;width:42%;height:1px;background:#2d2d5e}
+.divider::before{left:0}.divider::after{right:0}
+.link-row{text-align:center;font-size:0.82rem;color:#9ca3af;margin-top:12px}
+.link-row a{color:#a78bfa;text-decoration:none}
+.link-row a:hover{text-decoration:underline}
+.alert{border-radius:8px;padding:10px 14px;font-size:0.82rem;margin-top:12px;display:none}
+.alert-err{background:#2d0a0a;border:1px solid #ef4444;color:#fca5a5}
+.alert-ok{background:#052e16;border:1px solid #22c55e;color:#86efac}
+/* 플랜 뱃지 */
+.plan-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.72rem;margin-left:6px}
+.free-b{background:#14532d;color:#86efac}
+.pro-b{background:#451a03;color:#fcd34d}
+.ent-b{background:#2d1b69;color:#c4b5fd}
+/* 모바일 */
+@media(max-width:480px){.card{padding:24px 16px}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">🧠</div>
+    <h1>VM Project 7.16.4</h1>
+    <p>AGI AI Platform</p>
+  </div>
+
+  <label>이메일</label>
+  <input type="email" id="email" placeholder="example@email.com" autocomplete="email">
+
+  <label>비밀번호</label>
+  <input type="password" id="password" placeholder="비밀번호 입력" autocomplete="current-password"
+         onkeydown="if(event.key==='Enter') doLogin()">
+
+  <button class="btn" id="login-btn" onclick="doLogin()">🔐 로그인</button>
+
+  <div id="alert-box" class="alert"></div>
+
+  <div class="divider">또는</div>
+
+  <div class="link-row">
+    처음이신가요? <a href="/register">회원가입</a>
+  </div>
+  <div class="link-row" style="margin-top:6px">
+    <a href="/terms">서비스 약관 보기</a>
+  </div>
+  <div class="link-row" style="margin-top:16px;font-size:0.75rem;color:#4b5563">
+    🟢 Free 무료 &nbsp;|&nbsp; 🟡 Pro 5,000원 &nbsp;|&nbsp; 🟣 Enterprise 10,000원
+  </div>
+</div>
+
+<script>
+// 🆕 서버 주소 — config.py의 SERVER_BASE_URL에서 Flask가 자동 주입!
+// IP 바꾸려면 config.py의 SERVER_HOST만 바꾸면 돼요.
+const SERVER_BASE_URL = "{{ SERVER_BASE_URL }}";
+
+async function doLogin() {
+  const email = document.getElementById('email').value.trim();
+  const pw    = document.getElementById('password').value;
+  const btn   = document.getElementById('login-btn');
+  const alert = document.getElementById('alert-box');
+
+  if (!email || !pw) {
+    showAlert('이메일과 비밀번호를 입력해주세요', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 로그인 중...';
+
+  try {
+    const res  = await fetch(`${SERVER_BASE_URL}/api/login`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email, password: pw})
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showAlert(data.error || '로그인 실패', 'err');
+      return;
+    }
+
+    // 토큰 저장
+    localStorage.setItem('vm_token',    data.token);
+    localStorage.setItem('vm_plan',     data.plan);
+    localStorage.setItem('vm_email',    email);
+    localStorage.setItem('vm_is_admin', data.is_admin ? '1' : '0');
+
+    showAlert(`✅ 로그인 성공! [${data.plan}] 플랜`, 'ok');
+    setTimeout(() => window.location.href = '/', 800);
+
+  } catch(e) {
+    showAlert('서버 연결 실패: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔐 로그인';
+  }
+}
+
+function showAlert(msg, type) {
+  const el = document.getElementById('alert-box');
+  el.className = `alert alert-${type==='err'?'err':'ok'}`;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// 이미 로그인돼 있으면 메인으로
+if (localStorage.getItem('vm_token')) {
+  window.location.href = '/';
+}
+</script>
+</body>
+</html>

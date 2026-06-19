@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🧠 VM Project v7.15.0 마인드맵</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a18;font-family:'Segoe UI',sans-serif;overflow:auto;min-height:100vh}
+svg{display:block}
+
+/* 노드 스타일 */
+.node-center rect{fill:#4c1d95;stroke:#a78bfa;stroke-width:2;rx:12}
+.node-center text{fill:#e0e0f0;font-size:14px;font-weight:700}
+
+.node-l1 rect{stroke-width:1.5;rx:8}
+.node-l1 text{font-size:11px;font-weight:600}
+
+.node-l2 rect{stroke-width:1;rx:6}
+.node-l2 text{font-size:10px}
+
+.node-l3 rect{stroke-width:1;rx:4}
+.node-l3 text{font-size:9px;fill:#9ca3af}
+
+/* 연결선 */
+.edge{fill:none;stroke-width:1.5;opacity:0.6}
+
+/* 범례 */
+.legend rect{rx:4}
+</style>
+</head>
+<body>
+<svg id="mm" viewBox="0 0 1600 1100" xmlns="http://www.w3.org/2000/svg">
+
+<!-- 배경 -->
+<rect width="1600" height="1100" fill="#0a0a18"/>
+
+<!-- 제목 -->
+<text x="800" y="30" text-anchor="middle" fill="#a78bfa" font-size="16" font-weight="700">🧠 VM Project v7.15.0 — 전체 시스템 마인드맵</text>
+<text x="800" y="50" text-anchor="middle" fill="#6b7280" font-size="11">2026-06-16 | 범주별 색상 구분</text>
+
+<!-- ════════════════════════════════════
+     중앙 노드
+════════════════════════════════════ -->
+<g class="node-center" transform="translate(800,550)">
+  <rect x="-80" y="-30" width="160" height="60" fill="#4c1d95" stroke="#a78bfa" stroke-width="2" rx="12"/>
+  <text x="0" y="-8" text-anchor="middle" fill="#e0e0f0" font-size="13" font-weight="700">🧠 VM Project</text>
+  <text x="0" y="10" text-anchor="middle" fill="#c4b5fd" font-size="11">v7.15.0 AGI Platform</text>
+  <text x="0" y="24" text-anchor="middle" fill="#6b7280" font-size="9">GCP VM 34.64.209.152:8000</text>
+</g>
+
+<!-- ════════════════════════════════════
+     1. 🔐 인증/권한 (왼쪽 상단)
+════════════════════════════════════ -->
+<!-- 연결선 -->
+<path d="M720,530 Q600,420 460,380" class="edge" stroke="#7c3aed"/>
+<path d="M460,380 Q390,340 320,310" class="edge" stroke="#7c3aed" opacity="0.4"/>
+<path d="M460,380 Q390,360 320,360" class="edge" stroke="#7c3aed" opacity="0.4"/>
+<path d="M460,380 Q390,390 320,420" class="edge" stroke="#7c3aed" opacity="0.4"/>
+
+<!-- L1: 인증/권한 -->
+<g transform="translate(460,380)">
+  <rect x="-70" y="-22" width="140" height="44" fill="#2d1b69" stroke="#7c3aed" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#c4b5fd" font-size="11" font-weight="600">🔐 인증/권한</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">JWT + 플랜별 권한</text>
+</g>
+
+<!-- L2: 인증 하위 -->
+<g transform="translate(300,310)">
+  <rect x="-65" y="-18" width="130" height="36" fill="#1a0a3e" stroke="#4a3f8a" stroke-width="1" rx="6"/>
+  <text x="0" y="-4" text-anchor="middle" fill="#c4b5fd" font-size="10">🟢 Free (무료)</text>
+  <text x="0" y="10" text-anchor="middle" fill="#6b7280" font-size="9">분류만 허용</text>
+</g>
+<g transform="translate(300,360)">
+  <rect x="-65" y="-18" width="130" height="36" fill="#1a0a3e" stroke="#4a3f8a" stroke-width="1" rx="6"/>
+  <text x="0" y="-4" text-anchor="middle" fill="#f59e0b" font-size="10">🟡 Pro (5,000원)</text>
+  <text x="0" y="10" text-anchor="middle" fill="#6b7280" font-size="9">분류+회귀+배치</text>
+</g>
+<g transform="translate(300,420)">
+  <rect x="-65" y="-18" width="130" height="36" fill="#1a0a3e" stroke="#4a3f8a" stroke-width="1" rx="6"/>
+  <text x="0" y="-4" text-anchor="middle" fill="#a78bfa" font-size="10">🟣 Enterprise (10,000원)</text>
+  <text x="0" y="10" text-anchor="middle" fill="#6b7280" font-size="9">전체+강화+AutoML</text>
+</g>
+
+<!-- ════════════════════════════════════
+     2. 🤖 AI 학습방식 (왼쪽 중단)
+════════════════════════════════════ -->
+<path d="M720,560 Q580,560 460,560" class="edge" stroke="#22c55e"/>
+<path d="M460,560 Q390,520 310,500" class="edge" stroke="#22c55e" opacity="0.4"/>
+<path d="M460,560 Q390,545 310,545" class="edge" stroke="#22c55e" opacity="0.4"/>
+<path d="M460,560 Q390,575 310,590" class="edge" stroke="#22c55e" opacity="0.4"/>
+<path d="M460,560 Q390,600 310,630" class="edge" stroke="#22c55e" opacity="0.4"/>
+
+<g transform="translate(460,560)">
+  <rect x="-70" y="-22" width="140" height="44" fill="#052e16" stroke="#22c55e" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">🤖 4가지 학습방식</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">AI 자동 추천</text>
+</g>
+
+<g transform="translate(290,500)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0a1a0a" stroke="#16a34a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#86efac" font-size="9">📚 지도학습 (분류/회귀)</text>
+</g>
+<g transform="translate(290,545)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0a1a0a" stroke="#16a34a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#86efac" font-size="9">🔍 비지도학습 (클러스터)</text>
+</g>
+<g transform="translate(290,590)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0a1a0a" stroke="#16a34a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#86efac" font-size="9">🔀 준지도학습 🌟희귀</text>
+</g>
+<g transform="translate(290,630)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0a1a0a" stroke="#16a34a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#86efac" font-size="9">🎮 강화학습 (보상기반)</text>
+</g>
+
+<!-- ════════════════════════════════════
+     3. 📂 파일 업로드 (왼쪽 하단)
+════════════════════════════════════ -->
+<path d="M730,590 Q600,680 460,720" class="edge" stroke="#f59e0b"/>
+<path d="M460,720 Q390,690 320,680" class="edge" stroke="#f59e0b" opacity="0.4"/>
+<path d="M460,720 Q390,720 320,720" class="edge" stroke="#f59e0b" opacity="0.4"/>
+<path d="M460,720 Q390,750 320,760" class="edge" stroke="#f59e0b" opacity="0.4"/>
+
+<g transform="translate(460,720)">
+  <rect x="-70" y="-22" width="140" height="44" fill="#451a03" stroke="#f59e0b" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#fcd34d" font-size="11" font-weight="600">📂 파일 업로드</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">중복 감지 + 엑셀 지원</text>
+</g>
+
+<g transform="translate(310,680)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#1a0f00" stroke="#92400e" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#fcd34d" font-size="9">CSV · XLSX · XLS · TSV</text>
+</g>
+<g transform="translate(310,720)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#1a0f00" stroke="#92400e" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#fcd34d" font-size="9">MD5 중복 감지</text>
+</g>
+<g transform="translate(310,760)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#1a0f00" stroke="#92400e" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#fcd34d" font-size="9">엑셀 시트 선택</text>
+</g>
+
+<!-- ════════════════════════════════════
+     4. 📊 AI 분석 파이프라인 (상단)
+════════════════════════════════════ -->
+<path d="M800,520 Q800,380 800,300" class="edge" stroke="#3b82f6"/>
+<path d="M800,300 Q720,260 640,240" class="edge" stroke="#3b82f6" opacity="0.4"/>
+<path d="M800,300 Q800,260 800,230" class="edge" stroke="#3b82f6" opacity="0.4"/>
+<path d="M800,300 Q880,260 960,240" class="edge" stroke="#3b82f6" opacity="0.4"/>
+
+<g transform="translate(800,300)">
+  <rect x="-75" y="-22" width="150" height="44" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">📊 AI 분석 파이프라인</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">AutoML + SHAP + PDF</text>
+</g>
+
+<g transform="translate(630,240)">
+  <rect x="-60" y="-15" width="120" height="30" fill="#0f172a" stroke="#1d4ed8" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#93c5fd" font-size="9">🎯 Target 자동 탐지</text>
+</g>
+<g transform="translate(800,225)">
+  <rect x="-60" y="-15" width="120" height="30" fill="#0f172a" stroke="#1d4ed8" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#93c5fd" font-size="9">🤖 AutoML 모델 선택</text>
+</g>
+<g transform="translate(970,240)">
+  <rect x="-60" y="-15" width="120" height="30" fill="#0f172a" stroke="#1d4ed8" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#93c5fd" font-size="9">📈 SHAP 특성 중요도</text>
+</g>
+
+<!-- ════════════════════════════════════
+     5. 🗄️ DB / 이력 (오른쪽 상단)
+════════════════════════════════════ -->
+<path d="M880,530 Q1000,420 1140,380" class="edge" stroke="#ef4444"/>
+<path d="M1140,380 Q1210,340 1280,310" class="edge" stroke="#ef4444" opacity="0.4"/>
+<path d="M1140,380 Q1210,360 1280,360" class="edge" stroke="#ef4444" opacity="0.4"/>
+<path d="M1140,380 Q1210,395 1280,415" class="edge" stroke="#ef4444" opacity="0.4"/>
+
+<g transform="translate(1140,380)">
+  <rect x="-70" y="-22" width="140" height="44" fill="#2d0a0a" stroke="#ef4444" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="600">🗄️ DB / 이력</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">MongoDB + MariaDB</text>
+</g>
+
+<g transform="translate(1300,310)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#1a0000" stroke="#991b1b" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#fca5a5" font-size="9">🍃 MongoDB (비정형)</text>
+</g>
+<g transform="translate(1300,360)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#1a0000" stroke="#991b1b" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#fca5a5" font-size="9">🐬 MariaDB (정형)</text>
+</g>
+<g transform="translate(1300,415)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#1a0000" stroke="#991b1b" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#fca5a5" font-size="9">📄 JSON 이력 (항상!)</text>
+</g>
+
+<!-- ════════════════════════════════════
+     6. 🌐 웹 서버 (오른쪽 중단)
+════════════════════════════════════ -->
+<path d="M880,560 Q1020,560 1140,560" class="edge" stroke="#8b5cf6"/>
+<path d="M1140,560 Q1210,520 1290,500" class="edge" stroke="#8b5cf6" opacity="0.4"/>
+<path d="M1140,560 Q1210,550 1290,545" class="edge" stroke="#8b5cf6" opacity="0.4"/>
+<path d="M1140,560 Q1210,580 1290,590" class="edge" stroke="#8b5cf6" opacity="0.4"/>
+<path d="M1140,560 Q1210,610 1290,630" class="edge" stroke="#8b5cf6" opacity="0.4"/>
+
+<g transform="translate(1140,560)">
+  <rect x="-70" y="-22" width="140" height="44" fill="#1a0a3e" stroke="#8b5cf6" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#c4b5fd" font-size="11" font-weight="600">🌐 Flask 웹서버</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">:8000 | 20+ API</text>
+</g>
+
+<g transform="translate(1300,500)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0d0d1a" stroke="#4a3f8a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#c4b5fd" font-size="9">🏠 / 메인 대시보드</text>
+</g>
+<g transform="translate(1300,545)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0d0d1a" stroke="#4a3f8a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#c4b5fd" font-size="9">🔐 /login /register</text>
+</g>
+<g transform="translate(1300,590)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0d0d1a" stroke="#4a3f8a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#c4b5fd" font-size="9">🔑 /admin 관리자</text>
+</g>
+<g transform="translate(1300,630)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#0d0d1a" stroke="#4a3f8a" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#c4b5fd" font-size="9">🎮 /demo 권한데모</text>
+</g>
+
+<!-- ════════════════════════════════════
+     7. 🚀 배포/인프라 (오른쪽 하단)
+════════════════════════════════════ -->
+<path d="M870,595 Q1000,680 1140,720" class="edge" stroke="#10b981"/>
+<path d="M1140,720 Q1210,690 1290,680" class="edge" stroke="#10b981" opacity="0.4"/>
+<path d="M1140,720 Q1210,720 1290,720" class="edge" stroke="#10b981" opacity="0.4"/>
+<path d="M1140,720 Q1210,750 1290,760" class="edge" stroke="#10b981" opacity="0.4"/>
+
+<g transform="translate(1140,720)">
+  <rect x="-70" y="-22" width="140" height="44" fill="#052e16" stroke="#10b981" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">🚀 배포/인프라</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">GCP · Docker · K8s</text>
+</g>
+
+<g transform="translate(1300,680)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#001a0e" stroke="#065f46" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#6ee7b7" font-size="9">📦 launcher.sh 자동배포</text>
+</g>
+<g transform="translate(1300,720)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#001a0e" stroke="#065f46" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#6ee7b7" font-size="9">🐳 Docker Compose</text>
+</g>
+<g transform="translate(1300,760)">
+  <rect x="-58" y="-15" width="116" height="30" fill="#001a0e" stroke="#065f46" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#6ee7b7" font-size="9">☁️ Terraform GCP</text>
+</g>
+
+<!-- ════════════════════════════════════
+     8. ⏰ Cron/모니터링 (하단)
+════════════════════════════════════ -->
+<path d="M800,580 Q800,720 800,800" class="edge" stroke="#ec4899"/>
+<path d="M800,800 Q720,840 640,860" class="edge" stroke="#ec4899" opacity="0.4"/>
+<path d="M800,800 Q800,840 800,870" class="edge" stroke="#ec4899" opacity="0.4"/>
+<path d="M800,800 Q880,840 960,860" class="edge" stroke="#ec4899" opacity="0.4"/>
+
+<g transform="translate(800,800)">
+  <rect x="-75" y="-22" width="150" height="44" fill="#2d0a2e" stroke="#ec4899" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-5" text-anchor="middle" fill="#f9a8d4" font-size="11" font-weight="600">⏰ Cron / 모니터링</text>
+  <text x="0" y="10" text-anchor="middle" fill="#9ca3af" font-size="9">자동재학습 + Self-Healing</text>
+</g>
+
+<g transform="translate(630,860)">
+  <rect x="-60" y="-15" width="120" height="30" fill="#1a001a" stroke="#9d174d" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#f9a8d4" font-size="9">🔄 매일 02:00 재학습</text>
+</g>
+<g transform="translate(800,875)">
+  <rect x="-60" y="-15" width="120" height="30" fill="#1a001a" stroke="#9d174d" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#f9a8d4" font-size="9">🏥 Self-Healing (3회실패)</text>
+</g>
+<g transform="translate(970,860)">
+  <rect x="-60" y="-15" width="120" height="30" fill="#1a001a" stroke="#9d174d" stroke-width="1" rx="5"/>
+  <text x="0" y="5" text-anchor="middle" fill="#f9a8d4" font-size="9">🧠 자기개선 에이전트</text>
+</g>
+
+<!-- ════════════════════════════════════
+     9. AGI 에이전트 (왼쪽 중상)
+════════════════════════════════════ -->
+<path d="M730,535 Q620,480 500,460" class="edge" stroke="#f59e0b"/>
+<path d="M500,460 Q440,430 380,420" class="edge" stroke="#f59e0b" opacity="0.4"/>
+<path d="M500,460 Q440,455 380,455" class="edge" stroke="#f59e0b" opacity="0.4"/>
+<path d="M500,460 Q440,480 380,490" class="edge" stroke="#f59e0b" opacity="0.4"/>
+
+<g transform="translate(500,460)">
+  <rect x="-65" y="-20" width="130" height="40" fill="#1c1400" stroke="#d97706" stroke-width="1.5" rx="8"/>
+  <text x="0" y="-4" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">🧬 AGI 에이전트</text>
+  <text x="0" y="12" text-anchor="middle" fill="#9ca3af" font-size="9">멀티에이전트 오케스트라</text>
+</g>
+
+<g transform="translate(360,420)">
+  <rect x="-52" y="-13" width="104" height="26" fill="#0f0a00" stroke="#92400e" stroke-width="1" rx="4"/>
+  <text x="0" y="4" text-anchor="middle" fill="#fbbf24" font-size="9">💾 MemoryAgent</text>
+</g>
+<g transform="translate(360,455)">
+  <rect x="-52" y="-13" width="104" height="26" fill="#0f0a00" stroke="#92400e" stroke-width="1" rx="4"/>
+  <text x="0" y="4" text-anchor="middle" fill="#fbbf24" font-size="9">📋 PlanningAgent</text>
+</g>
+<g transform="translate(360,490)">
+  <rect x="-52" y="-13" width="104" height="26" fill="#0f0a00" stroke="#92400e" stroke-width="1" rx="4"/>
+  <text x="0" y="4" text-anchor="middle" fill="#fbbf24" font-size="9">🔎 ReasoningAgent</text>
+</g>
+
+<!-- ════════════════════════════════════
+     버전 히스토리 박스 (하단 중앙)
+════════════════════════════════════ -->
+<g transform="translate(800,1000)">
+  <rect x="-300" y="-30" width="600" height="60" fill="#0d0d1a" stroke="#2d2d5e" stroke-width="1" rx="8"/>
+  <text x="0" y="-10" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">📋 버전 관리 규칙</text>
+  <text x="-260" y="10" fill="#6b7280" font-size="9">🔴 주버전 (8.0.0): 큰 변경</text>
+  <text x="-60" y="10" fill="#6b7280" font-size="9">🟡 부버전 (7.16.0): 기능추가</text>
+  <text x="160" y="10" fill="#6b7280" font-size="9">🟢 패치 (7.15.1): 자잘한수정</text>
+  <text x="0" y="26" text-anchor="middle" fill="#4b5563" font-size="9">README: v7.x → README_v7.md | v8.x → README_v8.md</text>
+</g>
+
+<!-- ════════════════════════════════════
+     범례
+════════════════════════════════════ -->
+<g transform="translate(50,950)">
+  <text x="0" y="-5" fill="#6b7280" font-size="10" font-weight="600">범례</text>
+  <rect x="0" y="5" width="14" height="14" fill="#2d1b69" stroke="#7c3aed" rx="2"/><text x="20" y="17" fill="#9ca3af" font-size="9">인증/권한</text>
+  <rect x="0" y="25" width="14" height="14" fill="#052e16" stroke="#22c55e" rx="2"/><text x="20" y="37" fill="#9ca3af" font-size="9">AI 학습방식</text>
+  <rect x="0" y="45" width="14" height="14" fill="#451a03" stroke="#f59e0b" rx="2"/><text x="20" y="57" fill="#9ca3af" font-size="9">파일 업로드</text>
+  <rect x="0" y="65" width="14" height="14" fill="#1e3a5f" stroke="#3b82f6" rx="2"/><text x="20" y="77" fill="#9ca3af" font-size="9">AI 파이프라인</text>
+  <rect x="80" y="5" width="14" height="14" fill="#2d0a0a" stroke="#ef4444" rx="2"/><text x="100" y="17" fill="#9ca3af" font-size="9">DB/이력</text>
+  <rect x="80" y="25" width="14" height="14" fill="#1a0a3e" stroke="#8b5cf6" rx="2"/><text x="100" y="37" fill="#9ca3af" font-size="9">웹서버</text>
+  <rect x="80" y="45" width="14" height="14" fill="#052e16" stroke="#10b981" rx="2"/><text x="100" y="57" fill="#9ca3af" font-size="9">배포/인프라</text>
+  <rect x="80" y="65" width="14" height="14" fill="#2d0a2e" stroke="#ec4899" rx="2"/><text x="100" y="77" fill="#9ca3af" font-size="9">Cron/모니터링</text>
+</g>
+
+<!-- 버전 태그 -->
+<text x="1550" y="1090" text-anchor="end" fill="#374151" font-size="9">VM Project v7.15.0 | 2026-06-16</text>
+
+</svg>
+</body>
+</html>

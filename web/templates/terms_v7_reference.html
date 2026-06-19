@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📋 서비스 약관 — VM Project 7.10.1</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0a0a18;color:#e0e0f0;padding:16px;min-height:100vh}
+.container{max-width:680px;margin:0 auto}
+header{text-align:center;padding:24px 0 20px}
+header h1{font-size:1.3rem;color:#c4b5fd;margin-bottom:6px}
+header p{font-size:0.82rem;color:#6b7280}
+.section{background:#1a1a2e;border:1px solid #2d2d5e;border-radius:10px;padding:16px;margin-bottom:12px}
+.section h2{color:#a78bfa;font-size:0.9rem;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.section p,.section li{font-size:0.82rem;color:#9ca3af;line-height:1.8}
+.section ul{padding-left:16px}
+.section li{margin-bottom:4px}
+.highlight{color:#c4b5fd;font-weight:600}
+.warn{color:#fcd34d}
+.ok{color:#86efac}
+
+/* 약관 동의 체크박스 */
+.agree-box{background:#1a0a3e;border:2px solid #7c3aed;border-radius:10px;padding:16px;margin-bottom:12px}
+.agree-item{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;cursor:pointer}
+.agree-item input[type=checkbox]{width:18px;height:18px;margin-top:2px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0}
+.agree-label{font-size:0.83rem;color:#c4b5fd;line-height:1.6}
+.agree-label span{color:#9ca3af;font-size:0.78rem;display:block;margin-top:2px}
+.agree-item.required .agree-label::after{content:" (필수)";color:#f59e0b;font-size:0.72rem}
+
+/* 버튼 */
+.btn-wrap{display:flex;gap:10px;flex-wrap:wrap}
+.btn{flex:1;min-width:120px;padding:12px;border:none;border-radius:8px;font-size:0.9rem;cursor:pointer;text-align:center;transition:opacity .2s;text-decoration:none;display:block}
+.btn-primary{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.btn-secondary{background:#1a1a2e;border:1px solid #4a3f8a;color:#c4b5fd}
+.btn:hover:not(:disabled){opacity:.85}
+
+/* 플랜 선택 */
+.plan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+@media(max-width:480px){.plan-grid{grid-template-columns:1fr}}
+.plan-card{border:2px solid #2d2d5e;border-radius:8px;padding:12px;cursor:pointer;transition:all .2s;text-align:center}
+.plan-card:hover,.plan-card.selected{border-color:#7c3aed;background:#1a0a3e}
+.plan-name{font-size:0.9rem;font-weight:700;margin-bottom:3px}
+.plan-price{font-size:0.75rem;color:#9ca3af;margin-bottom:6px}
+.plan-badge{font-size:0.68rem;padding:2px 6px;border-radius:3px;display:inline-block}
+.free-badge{background:#14532d;color:#86efac}
+.pro-badge{background:#451a03;color:#fcd34d}
+.ent-badge{background:#2d1b69;color:#c4b5fd}
+.partial-note{font-size:0.68rem;background:#451a03;border:1px solid #f59e0b;color:#fcd34d;border-radius:3px;padding:2px 5px;margin-top:4px;display:inline-block}
+
+/* 진행 표시 */
+.progress{display:flex;gap:4px;margin-bottom:20px;justify-content:center}
+.step{width:28px;height:4px;border-radius:2px;background:#2d2d5e;transition:background .3s}
+.step.done{background:#7c3aed}
+.step.active{background:#a78bfa}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <div style="font-size:2.5rem;margin-bottom:8px">🧠</div>
+  <h1>VM Project 7.10.1 서비스 약관</h1>
+  <p>서비스 이용을 위해 아래 약관에 동의해주세요</p>
+</header>
+
+<!-- 진행 단계 -->
+<div class="progress">
+  <div class="step done" id="s1"></div>
+  <div class="step active" id="s2"></div>
+  <div class="step" id="s3"></div>
+</div>
+
+<!-- 1. 서비스 이용 약관 -->
+<div class="section">
+  <h2>📋 제1조 서비스 이용 약관</h2>
+  <ul>
+    <li>본 서비스는 <span class="highlight">VM Project 7.10.1 AI 분석 플랫폼</span>으로, CSV 데이터 분석 및 머신러닝 서비스를 제공합니다.</li>
+    <li>사용자는 서비스를 <span class="warn">불법적인 목적</span>으로 사용할 수 없습니다.</li>
+    <li>플랜별 기능 제한이 적용되며, 무단으로 제한을 우회할 수 없습니다.</li>
+    <li>서비스는 사전 고지 없이 기능이 변경될 수 있습니다.</li>
+    <li>Free 플랜은 <span class="warn">AI 분류(Classification)만</span> 허용되며, 회귀·강화학습은 유료 플랜에서 사용 가능합니다.</li>
+  </ul>
+</div>
+
+<!-- 2. 개인정보 처리방침 -->
+<div class="section">
+  <h2>🔒 제2조 개인정보 처리방침</h2>
+  <ul>
+    <li>수집 항목: <span class="highlight">이메일, 비밀번호(암호화), 플랜 정보, 분석 로그</span></li>
+    <li>수집 목적: 회원 식별, 서비스 제공, 분석 결과 저장</li>
+    <li>비밀번호는 <span class="ok">SHA-256 단방향 암호화</span>로 저장되며 원본은 보관하지 않습니다.</li>
+    <li>업로드한 CSV 데이터는 분석 후 <span class="warn">서버에 임시 저장</span>되며 30일 후 자동 삭제됩니다.</li>
+    <li>개인정보는 제3자에게 제공하지 않습니다.</li>
+    <li>사용자는 언제든지 개인정보 삭제를 요청할 수 있습니다.</li>
+  </ul>
+</div>
+
+<!-- 3. 플랜별 이용 조건 -->
+<div class="section">
+  <h2>💰 제3조 플랜별 이용 조건</h2>
+  <ul>
+    <li><span class="ok">Free 플랜</span>: 무료 · 기본분석 + <span class="warn">AI분류(분류만, 회귀 불가)</span></li>
+    <li><span class="warn">Pro 플랜</span>: 월 5,000원 · 분류+회귀+비지도+SHAP+PDF+배치처리</li>
+    <li><span class="highlight">Enterprise 플랜</span>: 월 10,000원 · 전체 기능 (강화학습·AutoML·Cron 포함)</li>
+    <li>결제는 월 단위이며, 해지 시 당월 말까지 서비스 이용 가능합니다.</li>
+    <li>환불은 결제 후 <span class="warn">7일 이내</span> 요청 시 가능합니다.</li>
+  </ul>
+</div>
+
+<!-- 4. 데이터 책임 -->
+<div class="section">
+  <h2>📊 제4조 데이터 및 AI 결과 책임</h2>
+  <ul>
+    <li>AI 분석 결과는 <span class="warn">참고용</span>이며, 실제 의사결정에 대한 책임은 사용자에게 있습니다.</li>
+    <li>업로드한 데이터의 저작권 및 적법성은 사용자가 책임집니다.</li>
+    <li>서비스 오류로 인한 데이터 손실에 대해 회사는 책임을 지지 않습니다.</li>
+    <li>Cron 자동학습 결과의 정확도를 보장하지 않습니다.</li>
+  </ul>
+</div>
+
+<!-- 플랜 선택 -->
+<div class="section">
+  <h2>🎫 이용할 플랜을 선택해주세요</h2>
+  <div class="plan-grid">
+    <div class="plan-card selected" onclick="selPlan('free',this)" id="card-free">
+      <div class="plan-name" style="color:#22c55e">🟢 Free</div>
+      <div class="plan-price">무료</div>
+      <span class="plan-badge free-badge">기본 제공</span><br>
+      <span class="partial-note">🔶 AI분류만</span>
+    </div>
+    <div class="plan-card" onclick="selPlan('pro',this)" id="card-pro">
+      <div class="plan-name" style="color:#f59e0b">🟡 Pro</div>
+      <div class="plan-price">월 5,000원</div>
+      <span class="plan-badge pro-badge">분류+회귀+배치</span>
+    </div>
+    <div class="plan-card" onclick="selPlan('enterprise',this)" id="card-ent">
+      <div class="plan-name" style="color:#a78bfa">🟣 Enterprise</div>
+      <div class="plan-price">월 10,000원</div>
+      <span class="plan-badge ent-badge">전체 기능</span>
+    </div>
+  </div>
+  <input type="hidden" id="selected-plan" value="free">
+</div>
+
+<!-- 약관 동의 체크박스 -->
+<div class="agree-box">
+  <h2 style="color:#a78bfa;font-size:0.9rem;margin-bottom:12px">✅ 약관 동의</h2>
+
+  <label class="agree-item required">
+    <input type="checkbox" id="chk1" onchange="checkAll()">
+    <div class="agree-label">서비스 이용약관에 동의합니다.
+      <span>플랜별 기능 제한 및 이용 조건에 동의합니다.</span>
+    </div>
+  </label>
+
+  <label class="agree-item required">
+    <input type="checkbox" id="chk2" onchange="checkAll()">
+    <div class="agree-label">개인정보 수집 및 이용에 동의합니다.
+      <span>이메일, 분석 로그 수집 및 서비스 제공 목적 사용에 동의합니다.</span>
+    </div>
+  </label>
+
+  <label class="agree-item required">
+    <input type="checkbox" id="chk3" onchange="checkAll()">
+    <div class="agree-label">AI 분석 결과는 참고용임을 확인합니다.
+      <span>분석 결과에 따른 의사결정 책임은 사용자에게 있음을 동의합니다.</span>
+    </div>
+  </label>
+
+  <label class="agree-item">
+    <input type="checkbox" id="chk4" onchange="checkAll()">
+    <div class="agree-label">마케팅 정보 수신에 동의합니다. (선택)
+      <span>새로운 기능 및 업데이트 알림을 받습니다.</span>
+    </div>
+  </label>
+
+  <label class="agree-item" style="margin-bottom:0;margin-top:4px">
+    <input type="checkbox" id="chkAll" onchange="toggleAll(this)">
+    <div class="agree-label" style="color:#a78bfa;font-weight:600">전체 동의
+      <span>필수 및 선택 약관에 모두 동의합니다.</span>
+    </div>
+  </label>
+</div>
+
+<!-- 버튼 -->
+<div class="btn-wrap" style="margin-bottom:24px">
+  <a href="/" class="btn btn-secondary">← 뒤로</a>
+  <button class="btn btn-primary" id="agree-btn" disabled onclick="doAgree()">
+    동의하고 서비스 시작 →
+  </button>
+</div>
+
+</div><!-- /container -->
+
+<script>
+let selectedPlan = 'free';
+
+function selPlan(plan, el) {
+  document.querySelectorAll('.plan-card').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedPlan = plan;
+  document.getElementById('selected-plan').value = plan;
+}
+
+function checkAll() {
+  const req = ['chk1','chk2','chk3'].every(id=>document.getElementById(id).checked);
+  document.getElementById('agree-btn').disabled = !req;
+  // 전체동의 체크박스 상태
+  const all = ['chk1','chk2','chk3','chk4'].every(id=>document.getElementById(id).checked);
+  document.getElementById('chkAll').checked = all;
+}
+
+function toggleAll(cb) {
+  ['chk1','chk2','chk3','chk4'].forEach(id=>{
+    document.getElementById(id).checked = cb.checked;
+  });
+  checkAll();
+}
+
+function doAgree() {
+  // 약관 동의 저장 후 메인으로 이동
+  const data = {
+    plan:     selectedPlan,
+    agreed:   true,
+    agreed_at: new Date().toISOString(),
+    marketing: document.getElementById('chk4').checked,
+  };
+  localStorage.setItem('vm_7.10.1_user', JSON.stringify(data));
+  alert(`✅ 동의 완료!\n선택 플랜: ${selectedPlan}\n서비스를 시작합니다!`);
+  window.location.href = '/';
+}
+</script>
+</body>
+</html>
