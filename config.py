@@ -113,10 +113,12 @@ MONGO_TIMEOUT_MS = 3000
 # 🐬 MariaDB — 표 형태 데이터 저장 (사용자 정보, 결과 정리 등)
 # 초등학생 설명: 엑셀처럼 행/열로 정리해서 저장하는 창고예요!
 MYSQL_CONFIG = {
-    "host": os.getenv("MYSQL_HOST"),
-    "user": os.getenv("MYSQL_USER"),
-    "password": os.getenv("MYSQL_PASSWORD"),
-    "database": os.getenv("MYSQL_DB"),
+    "host": os.getenv("MARIADB_HOST"),
+    "port": int(os.getenv("MARIADB_PORT", "3306")),
+    "user": os.getenv("MARIADB_USERNAME"),
+    "password": os.getenv("MARIADB_PASSWORD"),
+    "database": os.getenv("COMMON_MARIADB_DATABASE"),
+    "auth_plugin": "mysql_native_password"
 }
 # DB 연결 실패 시 재시도 횟수
 # 초등학생 설명: 문이 잠겨 있으면 몇 번 더 두드려볼지 결정해요!

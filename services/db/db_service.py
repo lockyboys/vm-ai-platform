@@ -19,7 +19,8 @@
 
 import json
 from utils import logger
-from config import MONGO_URI, MONGO_DB, MYSQL_CONFIG
+# from config import MONGO_URI, MONGO_DB, MYSQL_CONFIG
+from config import MYSQL_CONFIG
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🗄️ MariaDB 테이블 자동 생성 DDL
