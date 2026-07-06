@@ -113,12 +113,10 @@ MONGO_TIMEOUT_MS = 3000
 # 🐬 MariaDB — 표 형태 데이터 저장 (사용자 정보, 결과 정리 등)
 # 초등학생 설명: 엑셀처럼 행/열로 정리해서 저장하는 창고예요!
 MYSQL_CONFIG = {
-    "host": os.getenv("MARIADB_HOST"),
-    "port": int(os.getenv("MARIADB_PORT", "3306")),
-    "user": os.getenv("MARIADB_USERNAME"),
-    "password": os.getenv("MARIADB_PASSWORD"),
-    "database": os.getenv("COMMON_MARIADB_DATABASE"),
-    "auth_plugin": "mysql_native_password"
+    "host": os.getenv("MYSQL_HOST"),
+    "user": os.getenv("MYSQL_USER"),
+    "password": os.getenv("MYSQL_PASSWORD"),
+    "database": os.getenv("MYSQL_DB"),
 }
 # DB 연결 실패 시 재시도 횟수
 # 초등학생 설명: 문이 잠겨 있으면 몇 번 더 두드려볼지 결정해요!
@@ -351,7 +349,7 @@ ENV_PRESETS = {
     },
     # GCP VM (현재 운영 서버)
     "gcp": {
-        "SERVER_HOST":     "34.64.239.245",
+        "SERVER_HOST":     "34.64.209.152",
         "SERVER_PORT":     8000,
         "SERVER_PROTOCOL": "http",
     },
@@ -454,6 +452,78 @@ AI_JOB_DEFAULT_LIMIT = 100
 AI_JOB_MAX_LIMIT = 500
 
 
+# =========================================================
+# SPS Asset / Runtime Directory Configuration
+# =========================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+
+# ---------------------------------------------------------
+# Asset Root
+# ---------------------------------------------------------
+ASSET_ROOT_DIR = Path(
+    os.getenv("ASSET_ROOT_DIR", BASE_DIR / "assets")
+)
+
+ICON_DIR = os.getenv("ICON_DIR", "icons")
+IMAGE_DIR = os.getenv("IMAGE_DIR", "images")
+DOCUMENT_DIR = os.getenv("DOCUMENT_DIR", "documents")
+AUDIO_DIR = os.getenv("AUDIO_DIR", "audio")
+VIDEO_DIR = os.getenv("VIDEO_DIR", "video")
+MODEL_DIR = os.getenv("MODEL_DIR", "models")
+TEMPLATE_DIR = os.getenv("TEMPLATE_DIR", "templates")
+
+# ---------------------------------------------------------
+# Runtime Root
+# ---------------------------------------------------------
+OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "output"))
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "uploads"))
+SPS_TEMP_DIR = Path(os.getenv("TEMP_DIR", BASE_DIR / "temp"))
+LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+BACKUP_DIR = Path(os.getenv("BACKUP_DIR", BASE_DIR / "backup"))
+REPOSITORY_DIR = Path(os.getenv("REPOSITORY_DIR", BASE_DIR / "repository"))
+
+
+def get_asset_path(asset_dir: str, file_name: str) -> Path:
+    """
+    DB에는 file_name만 저장한다.
+    실제 폴더 위치는 .env/config.py에서 관리한다.
+    """
+    if not file_name:
+        raise ValueError("file_name is required")
+
+    if ".." in file_name or file_name.startswith(("/", "\\")):
+        raise ValueError("Invalid file name")
+
+    return ASSET_ROOT_DIR / asset_dir / file_name
+
+
+def get_icon_path(file_name: str) -> Path:
+    return get_asset_path(ICON_DIR, file_name)
+
+
+def get_image_path(file_name: str) -> Path:
+    return get_asset_path(IMAGE_DIR, file_name)
+
+
+def get_document_path(file_name: str) -> Path:
+    return get_asset_path(DOCUMENT_DIR, file_name)
+
+
+def get_audio_path(file_name: str) -> Path:
+    return get_asset_path(AUDIO_DIR, file_name)
+
+
+def get_video_path(file_name: str) -> Path:
+    return get_asset_path(VIDEO_DIR, file_name)
+
+
+def get_model_path(file_name: str) -> Path:
+    return get_asset_path(MODEL_DIR, file_name)
+
+
+def get_template_path(file_name: str) -> Path:
+    return get_asset_path(TEMPLATE_DIR, file_name)
 # =========================================================
 # SPS Asset / Runtime Directory Configuration
 # =========================================================

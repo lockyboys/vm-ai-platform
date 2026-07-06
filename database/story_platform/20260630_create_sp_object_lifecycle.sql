@@ -1,0 +1,26 @@
+CREATE TABLE IF NOT EXISTS sp_object_lifecycle (
+    object_lifecycle_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    object_id BIGINT NOT NULL,
+    lifecycle_status_code VARCHAR(50) NOT NULL,
+    lifecycle_event_code VARCHAR(50) NOT NULL,
+    lifecycle_reason VARCHAR(500),
+    lifecycle_note TEXT,
+    effective_start_dt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    effective_end_dt DATETIME,
+    current_yn CHAR(1) NOT NULL DEFAULT 'Y',
+    created_by VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
+    created_dt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR(50),
+    updated_dt DATETIME,
+    deleted_yn CHAR(1) NOT NULL DEFAULT 'N',
+    deleted_by VARCHAR(50),
+    deleted_dt DATETIME,
+    change_reason VARCHAR(500),
+    client_ip VARCHAR(50),
+    program_id VARCHAR(100),
+
+    INDEX idx_sp_object_lifecycle_01 (object_id),
+    INDEX idx_sp_object_lifecycle_02 (lifecycle_status_code),
+    INDEX idx_sp_object_lifecycle_03 (current_yn),
+    INDEX idx_sp_object_lifecycle_04 (deleted_yn)
+);
