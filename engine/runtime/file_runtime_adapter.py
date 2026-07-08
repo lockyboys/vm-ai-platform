@@ -9,6 +9,22 @@ import importlib
 import config
 from engine.runtime.object_runtime_engine import ObjectRuntimeEngine
 
+DOCUMENT_EXTENSIONS = {
+    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+    ".txt", ".csv", ".md", ".rtf", ".hwp", ".hwpx"
+}
+
+IMAGE_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp", ".heic"
+}
+
+VIDEO_EXTENSIONS = {
+    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm"
+}
+
+AUDIO_EXTENSIONS = {
+    ".mp3", ".wav", ".flac", ".ogg", ".wma", ".m4a", ".aac"
+}
 
 class FileRuntimeAdapter:
     def __init__(self):
@@ -35,22 +51,22 @@ class FileRuntimeAdapter:
     def _build_file_metadata(self, source_file: Path) -> dict:
         extension = source_file.suffix.lower()
 
-        if extension in config.DOCUMENT_EXTENSIONS:
+        if extension in DOCUMENT_EXTENSIONS:
             object_code = "DOCUMENT"
             analyzer_module = "document_analyzer"
             analyzer_method = "extract_document_text"
 
-        elif extension in config.IMAGE_EXTENSIONS:
+        elif extension in IMAGE_EXTENSIONS:
             object_code = "IMAGE"
             analyzer_module = "image_analyzer"
             analyzer_method = "extract_text_from_image"
 
-        elif extension in config.VIDEO_EXTENSIONS:
+        elif extension in VIDEO_EXTENSIONS:
             object_code = "VIDEO"
             analyzer_module = "video_analyzer"
             analyzer_method = "extract_text_from_video"
 
-        elif extension in config.AUDIO_EXTENSIONS:
+        elif extension in AUDIO_EXTENSIONS:
             object_code = "AUDIO"
             analyzer_module = "audio_analyzer"
             analyzer_method = "transcribe_audio_to_text"
@@ -96,11 +112,15 @@ class FileRuntimeAdapter:
 
 
 if __name__ == "__main__":
+    import json
+
     file_path = input("File Path : ").strip().strip('"')
     adapter = FileRuntimeAdapter()
     result = adapter.execute(file_path)
 
+    with open("result.json", "w", encoding="utf-8") as file:
+        json.dump(result, file, ensure_ascii=False, indent=2, default=str)
+
     print("=" * 70)
-    print("File Runtime Result")
+    print("File Runtime Result saved: result.json")
     print("=" * 70)
-    print(result)

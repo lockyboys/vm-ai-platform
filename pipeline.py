@@ -4,7 +4,7 @@
 import time, os
 import pandas as pd
 from utils import logger, log_event, get_timestamp, ensure_dirs, read_file_auto, file_hash
-from config import DATA_PATH, UPLOAD_PATH
+from config import DATA_PATH, UPLOAD_PAT
 from core.analyzer       import run as analyze
 from core.metrics        import calculate
 from core.shap_service   import generate_shap, get_feature_importance

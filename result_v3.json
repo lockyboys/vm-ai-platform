@@ -1,0 +1,156 @@
+{
+  "status": "READY",
+  "object_code": "IMAGE",
+  "input_data": {
+    "source_type": "FILE",
+    "file_metadata": {
+      "file_path": "/data/vm_project/uploads/ocr_tuned/v3_adaptive.jpg",
+      "file_name": "v3_adaptive.jpg",
+      "file_stem": "v3_adaptive",
+      "extension": ".jpg",
+      "file_size": 8332501,
+      "object_code": "IMAGE",
+      "analyzer_module": "image_analyzer",
+      "analyzer_method": "extract_text_from_image"
+    },
+    "analyzer_result": {
+      "status": "SUCCESS",
+      "analyzer_module": "image_analyzer",
+      "analyzer_method": "extract_text_from_image",
+      "text": "Ilmmimmamlll m 고개번호: 20260622-0070675 '20260622 053631 0001 068 상행수당   심사   결과 통보세 성명 생년월일 08,23 신청인 박해규 상황수량 신청 기간 p026년 05월 08일 :rj: 2026년 06월 04일 (총 28일) (신청서상) 신정 내역 근로활동물가 기간 12026년 05월 08일 2026년 06월 04일 (총 28일) '(진단서상) 심사 결과 0일) (심사 결정 근로활동불가기간)  귀하의 상명수당 지급심사 결과는 [ ] 승인 또는 조정 [l 불승인 입니다: 승인 또는: 조정 조정 사유 (해당 시) : [ ] 의로인증 심사 결과 조정 [ ] 기타 심사결과 승인문 경우라도 근로 복귀가 확인되없거나  지원제외 사유가 발생한 경우 상병수당 지급이 제 한월 수 있으떠  최종 지급결정기간은 수급요건 충족여부 및 연간 최대보장기간 초과여부 등에 따라 위 심 사결과와 다을 수 잇음올 안내 드립니다: 최초신청의 경우   심사결정근 로활동불가기간에서  대기기간 체외 후 지급되다 ,  심사결정일-가: 대 기기간 이하인 경우는 진단서 발급비용만 한글틱 불승인 자격심사  불승인 [ ] 불승인 사유 ( [ ] 소득[ ] 취업자[ ] 지운제외자 [ ] 기타) 2 의로인증 불승인 [v] 불승인 사유: ( [v] 의료인층 심사 결과 불승인 [ ] 기타 ) 귀하의 상병수당 지급신청에 대하여 위와 같이 결정되없음올 통보하여 드립니다: 공단의 처분에 대하여 이의가 있을 때어는 그 처분의 통지름 받은 날로부터 30일 이내에 문서로 주소지 관할 국민건강보험공단 치사에 재심의 요청올 할 수 있습다다: 심사 결과에 관한 자세한 'J0y0e{군 사항은 관할 지사로 문의해 주시기' 바람니다: 2026년 06월 10일 담당부서 국민건강보험공단  용인서부지사 상병수당운영팀   (전화번호 '031-829-4160) 국민견강 보험공단 용인 세부지사장 '20260622-053631 6,143쪽 / 9,730창 ; B13g20 ) 1972,C"
+    }
+  },
+  "object_metadata": {
+    "object_id": "OB_2026_00003",
+    "object_code": "IMAGE",
+    "object_name": "Image Object",
+    "business_code": "STORY_PROGRAMMING",
+    "domain_code": "DOCUMENT",
+    "object_type_code": "OBJECT",
+    "identifier_target_code": "IM"
+  },
+  "execution_plan": [
+    {
+      "step_no": 1,
+      "step_code": "LOAD_OBJECT_METADATA",
+      "step_name": "Load Object Metadata",
+      "status": "READY"
+    },
+    {
+      "step_no": 2,
+      "step_code": "GENERATE_IDENTIFIER",
+      "step_name": "Generate Identifier",
+      "status": "READY",
+      "identifier_target_code": "IM"
+    },
+    {
+      "step_no": 3,
+      "step_code": "SAVE_REPOSITORY",
+      "step_name": "Save Repository",
+      "status": "READY"
+    },
+    {
+      "step_no": 4,
+      "step_code": "SAVE_MONGODB",
+      "step_name": "Save MongoDB",
+      "status": "READY"
+    },
+    {
+      "step_no": 5,
+      "step_code": "SAVE_EXECUTION_LINK",
+      "step_name": "Save Execution Link",
+      "status": "READY"
+    }
+  ],
+  "pre_identity_decision": {
+    "intelligence_type": "PRE_IDENTITY_INTELLIGENCE",
+    "object_code": "IMAGE",
+    "book_policy": "CREATE_NEW",
+    "book_id_policy": "GENERATE",
+    "book_version_policy": "CREATE_NEW",
+    "book_version_id_policy": "GENERATE",
+    "read_session_policy": "CREATE_NEW",
+    "read_session_id_policy": "GENERATE",
+    "knowledge_unit_policy": "SENTENCE",
+    "confidence": 0.85,
+    "reason": "Prototype default decision before identifier generation.",
+    "status": "SUCCESS"
+  },
+  "identifier_result": {
+    "identifier_target_code": "IM",
+    "generated_identifier": "IM_20260706_00001"
+  },
+  "repository_save_request": {
+    "object_id": "OB_2026_00003",
+    "object_code": "IMAGE",
+    "identifier": "IM_20260706_00001",
+    "identifier_target_code": "IM",
+    "save_status": "READY"
+  },
+  "mongodb_save_request": {
+    "mongodb_document_id": "IM_20260706_00001",
+    "object_id": "OB_2026_00003",
+    "input_data": {
+      "source_type": "FILE",
+      "file_metadata": {
+        "file_path": "/data/vm_project/uploads/ocr_tuned/v3_adaptive.jpg",
+        "file_name": "v3_adaptive.jpg",
+        "file_stem": "v3_adaptive",
+        "extension": ".jpg",
+        "file_size": 8332501,
+        "object_code": "IMAGE",
+        "analyzer_module": "image_analyzer",
+        "analyzer_method": "extract_text_from_image"
+      },
+      "analyzer_result": {
+        "status": "SUCCESS",
+        "analyzer_module": "image_analyzer",
+        "analyzer_method": "extract_text_from_image",
+        "text": "Ilmmimmamlll m 고개번호: 20260622-0070675 '20260622 053631 0001 068 상행수당   심사   결과 통보세 성명 생년월일 08,23 신청인 박해규 상황수량 신청 기간 p026년 05월 08일 :rj: 2026년 06월 04일 (총 28일) (신청서상) 신정 내역 근로활동물가 기간 12026년 05월 08일 2026년 06월 04일 (총 28일) '(진단서상) 심사 결과 0일) (심사 결정 근로활동불가기간)  귀하의 상명수당 지급심사 결과는 [ ] 승인 또는 조정 [l 불승인 입니다: 승인 또는: 조정 조정 사유 (해당 시) : [ ] 의로인증 심사 결과 조정 [ ] 기타 심사결과 승인문 경우라도 근로 복귀가 확인되없거나  지원제외 사유가 발생한 경우 상병수당 지급이 제 한월 수 있으떠  최종 지급결정기간은 수급요건 충족여부 및 연간 최대보장기간 초과여부 등에 따라 위 심 사결과와 다을 수 잇음올 안내 드립니다: 최초신청의 경우   심사결정근 로활동불가기간에서  대기기간 체외 후 지급되다 ,  심사결정일-가: 대 기기간 이하인 경우는 진단서 발급비용만 한글틱 불승인 자격심사  불승인 [ ] 불승인 사유 ( [ ] 소득[ ] 취업자[ ] 지운제외자 [ ] 기타) 2 의로인증 불승인 [v] 불승인 사유: ( [v] 의료인층 심사 결과 불승인 [ ] 기타 ) 귀하의 상병수당 지급신청에 대하여 위와 같이 결정되없음올 통보하여 드립니다: 공단의 처분에 대하여 이의가 있을 때어는 그 처분의 통지름 받은 날로부터 30일 이내에 문서로 주소지 관할 국민건강보험공단 치사에 재심의 요청올 할 수 있습다다: 심사 결과에 관한 자세한 'J0y0e{군 사항은 관할 지사로 문의해 주시기' 바람니다: 2026년 06월 10일 담당부서 국민건강보험공단  용인서부지사 상병수당운영팀   (전화번호 '031-829-4160) 국민견강 보험공단 용인 세부지사장 '20260622-053631 6,143쪽 / 9,730창 ; B13g20 ) 1972,C"
+      }
+    },
+    "object_code": "IMAGE",
+    "target_collection": "image",
+    "repository_save_status": "SUCCESS",
+    "save_status": "READY"
+  },
+  "repository_intelligence_result": {
+    "intelligence_type": "REPOSITORY_INTELLIGENCE",
+    "object_code": "IMAGE",
+    "object_role": "Semantic Object",
+    "repository_thinking_yn": "Y",
+    "ai_ready_yn": "Y",
+    "interpretation": "Repository preserves object knowledge. Engine interprets repository knowledge.",
+    "status": "SUCCESS"
+  },
+  "execution_history_request": {
+    "trace_id": "TR_20260708_131230",
+    "engine_code": "OBJECT_RUNTIME",
+    "object_code": "IMAGE",
+    "object_id": "OB_2026_00003",
+    "generated_identifier": "IM_20260706_00001",
+    "repository_status": "SUCCESS",
+    "mongodb_status": "READY",
+    "execution_status": "SUCCESS",
+    "history_status": "READY"
+  },
+  "execution_history_generator_result": {
+    "generator": "ExecutionHistoryGenerator",
+    "execution_history_id": 20,
+    "status": "SUCCESS"
+  },
+  "mongodb_collection_request": {
+    "object_id": "OB_2026_00003",
+    "object_code": "IMAGE",
+    "collection_name": "image",
+    "create_if_not_exists": true,
+    "request_status": "READY"
+  },
+  "mongodb_collection_generator_result": {
+    "generator": "MongoDBCollectionGenerator",
+    "database_name": "health_companion_ai",
+    "collection_name": "image",
+    "created_yn": "N",
+    "status": "SUCCESS"
+  }
+}

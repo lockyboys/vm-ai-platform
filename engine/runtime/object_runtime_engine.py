@@ -93,7 +93,11 @@ class ObjectRuntimeEngine:
     # Execute
     #################################################################
 
-    def execute(self, object_code: str):
+    #def execute(self, object_code: str):
+    def execute(self, object_code: str, input_data: dict | None = None):
+
+        if input_data is None:
+            input_data = {}
 
         self.logger.header()
         self.repository_generator = RepositoryGenerator()
@@ -266,6 +270,12 @@ class ObjectRuntimeEngine:
         )
 
         self.logger.step(6, "Repository Generator Save")
+        
+        repository_generator_result = self.repository_generator.save(
+            repository_save_request
+        )
+
+        repository_save_result = repository_generator_result
 
         self.logger.info(
             "Generator",
@@ -281,10 +291,16 @@ class ObjectRuntimeEngine:
         # STEP-007 Build MongoDB Save Request
         #############################################################
 
+        # mongodb_save_request = self._build_mongodb_save_request(
+        #     object_metadata,
+        #     identifier_result,
+        #     repository_generator_result
+        # )
         mongodb_save_request = self._build_mongodb_save_request(
             object_metadata,
             identifier_result,
-            repository_generator_result
+           repository_generator_result,
+            input_data
         )
 
         self.logger.step(7, "Build MongoDB Save Request")
@@ -468,6 +484,7 @@ class ObjectRuntimeEngine:
         return {
             "status": "READY",
             "object_code": object_code,
+            "input_data": input_data,
             "object_metadata": object_metadata,
             "execution_plan": execution_plan,
             "pre_identity_decision": pre_identity_decision,
@@ -622,7 +639,8 @@ class ObjectRuntimeEngine:
         self,
         object_metadata,
         identifier_result,
-        repository_generator_result
+        repository_generator_result,
+        input_data=None
     ):
         """
         MongoDB 저장 요청 생성.
@@ -634,6 +652,7 @@ class ObjectRuntimeEngine:
         mongodb_save_request = {
             "mongodb_document_id": identifier_result["generated_identifier"],
             "object_id": object_metadata["object_id"],
+            "input_data": input_data or {},
             "object_code": object_metadata["object_code"],
             "target_collection": object_metadata["object_code"].lower(),
             "repository_save_status": repository_generator_result["status"],
