@@ -34,7 +34,7 @@ class ExecutionHistoryGenerator:
                 mongodb_status,
                 execution_status,
                 history_status,
-                created_at
+                created_dt
             )
             VALUES (
                 %s, %s, %s, %s, %s,

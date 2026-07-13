@@ -9,6 +9,11 @@ from engine.generator.execution_history_generator import ExecutionHistoryGenerat
 from engine.generator.mongodb_collection_generator import MongoDBCollectionGenerator
 from engine.intelligence.pre_identity_intelligence import PreIdentityIntelligence
 from common.database import CommonDatabase
+from engine.generator.file_storage_generator import FileStorageGenerator
+from engine.generator.mongodb_document_generator import (
+    MongoDBDocumentGenerator,
+)
+from engine.identifier_engine import IdentifierEngine
 
 class ObjectRuntimeIntelligence:
 
@@ -63,33 +68,34 @@ class ObjectRuntimeEngine:
     STEP-003
         Build Execution Plan
     """
+    def __init__(self):
+        
+        self.database = CommonDatabase(
+            database_role="STORY_PLATFORM"
+        )
 
+        self.identifier_engine = IdentifierEngine(
+            database_manager=self.database
+        )       
     #################################################################
     # Generate Identifier
     #################################################################
 
-    def _generate_identifier(self, object_metadata):
-
-        identifier_target_code = object_metadata["identifier_target_code"]
-
-        # Prototype
-        generated_identifier = f"{identifier_target_code}_20260706_00001"
+    def _generate_identifier(
+        self,
+        object_metadata: dict,
+    ) -> dict:
+        generated_identifier = self.identifier_engine.generate(
+            object_code=object_metadata["object_code"],
+        )
 
         return {
-            "identifier_target_code": identifier_target_code,
-            "generated_identifier": generated_identifier
+            "identifier_target_code": (
+                object_metadata["identifier_target_code"]
+            ),
+            "generated_identifier": generated_identifier,
         }
-
-    def __init__(self):
-
-        self.logger = ObjectRuntimeLogger()
-        self.repository_generator = RepositoryGenerator()
-        self.ai_engine = AIEngine()
-        self.execution_history_generator = ExecutionHistoryGenerator()
-        self.mongodb_collection_generator = MongoDBCollectionGenerator()
-        self.pre_identity_intelligence = PreIdentityIntelligence()
-        self.database = CommonDatabase(database_role="STORY_PLATFORM")
-    #################################################################
+    #######################################################
     # Execute
     #################################################################
 
@@ -101,28 +107,6 @@ class ObjectRuntimeEngine:
 
         self.logger.header()
         self.repository_generator = RepositoryGenerator()
-        
-        object_metadata = self._load_object_metadata(object_code)
- 
-        if object_metadata is None:
-            raise RuntimeError(f"Object metadata loading failed. object_code={object_code}")
-            
-        execution_plan = self._build_execution_plan(object_metadata)
-
-        self.logger.step(3, "Build Execution Plan")
-        for plan_step in execution_plan:
-            self.logger.info(
-                f"Plan Step {plan_step['step_no']}",
-                f"{plan_step['step_code']} / {plan_step['status']}"
-            )
-
-        # #############################################################
-        # # STEP-001 Load Object Metadata
-        # #############################################################
-
-        # self.logger.step(1, "Execution Request")
-
-        # self.logger.info("Object Code", object_code)
 
         #############################################################
         # STEP-001 Load Object Metadata
@@ -141,7 +125,6 @@ class ObjectRuntimeEngine:
                 "success": False,
                 "message": str(ex)
             }        
-        #object_metadata = self._load_object_metadata(object_code)
 
         self.logger.step(1, "Load Object Metadata")
 
@@ -270,10 +253,6 @@ class ObjectRuntimeEngine:
         )
 
         self.logger.step(6, "Repository Generator Save")
-        
-        repository_generator_result = self.repository_generator.save(
-            repository_save_request
-        )
 
         repository_save_result = repository_generator_result
 
@@ -479,6 +458,70 @@ class ObjectRuntimeEngine:
         self.logger.info(
             "Status",
             mongodb_collection_generator_result["status"]
+        )
+        #############################################################
+        # STEP-013 Save MongoDB document
+        #############################################################
+        mongodb_document_result = (
+            self.mongodb_document_generator.save(
+                mongodb_document_request
+            )
+        )
+
+        self.logger.step(
+            13,
+            "MongoDB Document Generator Save",
+        )
+
+        self.logger.info(
+            "Generator",
+            mongodb_document_result["generator"],
+        )
+
+        self.logger.info(
+            "Inserted ID",
+            mongodb_document_result.get(
+                "inserted_id"
+            ),
+        )
+
+        self.logger.info(
+            "Status",
+            mongodb_document_result["status"],
+        )
+        #############################################################
+        # Generate Knowledge Document
+        #############################################################
+
+        knowledge_document_result = (
+            self.knowledge_document_generator.generate(
+                object_metadata=object_metadata,
+                identifier_result=identifier_result,
+                input_data=input_data,
+            )
+        )
+
+        input_data["knowledge_document"] = (
+            knowledge_document_result
+        )
+
+        self.logger.step(
+            5,
+            "Knowledge Document Generator",
+        )
+
+        self.logger.info(
+            "Knowledge Document ID",
+            knowledge_document_result[
+                "knowledge_document_id"
+            ],
+        )
+
+        self.logger.info(
+            "Text Length",
+            knowledge_document_result[
+                "analysis"
+            ]["text_length"],
         )        
         #############################################################
         return {
@@ -491,6 +534,9 @@ class ObjectRuntimeEngine:
             "identifier_result": identifier_result,
             "repository_save_request": repository_save_request,
             "mongodb_save_request": mongodb_save_request,
+            "knowledge_document_result": knowledge_document_result,
+            "mongodb_document_request": mongodb_document_request,
+            "mongodb_document_result": mongodb_document_result,
             "repository_intelligence_result": repository_intelligence_result,
             "execution_history_request": execution_history_request,
             "execution_history_generator_result": execution_history_generator_result,
@@ -635,31 +681,37 @@ class ObjectRuntimeEngine:
     # Build MongoDB Save Request
     #################################################################
 
-    def _build_mongodb_save_request(
+    def _build_mongodb_document_request(
         self,
         object_metadata,
         identifier_result,
         repository_generator_result,
-        input_data=None
+        input_data,
     ):
-        """
-        MongoDB 저장 요청 생성.
+        knowledge_document = input_data.get(
+            "knowledge_document"
+        )
 
-        Prototype:
-        실제 MongoDB 저장은 하지 않는다.
-        """
+        if not knowledge_document:
+            raise RuntimeError(
+                "Knowledge Document generation failed."
+            )
 
-        mongodb_save_request = {
-            "mongodb_document_id": identifier_result["generated_identifier"],
+        return {
+            "mongodb_document_id": (
+                identifier_result["generated_identifier"]
+            ),
             "object_id": object_metadata["object_id"],
-            "input_data": input_data or {},
             "object_code": object_metadata["object_code"],
-            "target_collection": object_metadata["object_code"].lower(),
-            "repository_save_status": repository_generator_result["status"],
-            "save_status": "READY"
+            "collection_name": (
+                object_metadata["object_code"].lower()
+            ),
+            "repository_status": (
+                repository_generator_result["status"]
+            ),
+            "knowledge_document": knowledge_document,
+            "status": "READY",
         }
-
-        return mongodb_save_request
 
     def _read_object_comment_metadata(self, object_metadata):
 
