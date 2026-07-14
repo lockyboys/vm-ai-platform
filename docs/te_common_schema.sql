@@ -1,9 +1,9 @@
 /*M!999999\- enable the sandbox mode */ 
--- MariaDB dump 10.19  Distrib 10.11.14-MariaDB, for debian-linux-gnu (x86_64)
+-- MariaDB dump 10.19  Distrib 10.11.18-MariaDB, for debian-linux-gnu (x86_64)
 --
--- Host: localhost    Database: te_common
+-- Host: 127.0.0.1    Database: te_common
 -- ------------------------------------------------------
--- Server version	10.11.14-MariaDB-0+deb12u2
+-- Server version	10.11.18-MariaDB-0+deb12u1
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -141,7 +141,7 @@ CREATE TABLE `cm_common_code` (
   `group_code` varchar(50) NOT NULL,
   `code` varchar(50) NOT NULL,
   `code_name` varchar(100) NOT NULL,
-  `code_description` varchar(500) DEFAULT NULL COMMENT '코드 설명',
+  `knowledge_description` varchar(2000) DEFAULT NULL COMMENT '공통코드 Object의 사람이 읽을 수 있는 Knowledge 설명',
   `sort_no` int(11) NOT NULL DEFAULT 0,
   `status_code` varchar(50) NOT NULL DEFAULT 'ACTIVE',
   `created_dt` datetime NOT NULL DEFAULT current_timestamp(),
@@ -152,8 +152,10 @@ CREATE TABLE `cm_common_code` (
   `deleted_by` varchar(100) DEFAULT NULL,
   `deleted_dt` datetime DEFAULT NULL,
   `program_id` varchar(100) DEFAULT NULL,
+  `knowledge_json` longtext DEFAULT NULL COMMENT '공통코드 Object의 공식 Knowledge(JSON)',
   PRIMARY KEY (`group_code`,`code`),
-  CONSTRAINT `fk_cm_common_code_group` FOREIGN KEY (`group_code`) REFERENCES `cm_common_code_group` (`group_code`)
+  CONSTRAINT `fk_cm_common_code_group` FOREIGN KEY (`group_code`) REFERENCES `cm_common_code_group` (`group_code`),
+  CONSTRAINT `chk_cm_common_code_knowledge_json` CHECK (`knowledge_json` is null or json_valid(`knowledge_json`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -171,7 +173,7 @@ CREATE TABLE `cm_common_code_group` (
   `sort_no` int(11) DEFAULT 0,
   `status_code` varchar(50) NOT NULL DEFAULT 'ACTIVE',
   `reserved_yn` char(1) NOT NULL DEFAULT 'N' COMMENT '예약 그룹 여부',
-  `system_yn` char(1) NOT NULL DEFAULT 'N' COMMENT '시스템 그룹 여부',
+  `system_yn` char(1) NOT NULL DEFAULT 'N' COMMENT '시스템 및 SPS Framework가 공통으로 참조하는 핵심 기준 코드임을 식별하기 위해 사용한다. (Y: Framework Core Code, N: Business/User Code)',
   `created_dt` datetime NOT NULL DEFAULT current_timestamp(),
   `created_by` varchar(100) NOT NULL DEFAULT 'SYSTEM',
   `updated_dt` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -1191,6 +1193,65 @@ CREATE TABLE `rl_rule_evidence` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `sp_policy_rule_candidate`
+--
+
+DROP TABLE IF EXISTS `sp_policy_rule_candidate`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sp_policy_rule_candidate` (
+  `rule_candidate_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `policy_id` bigint(20) DEFAULT NULL,
+  `source_document_name` varchar(255) DEFAULT NULL,
+  `source_page_no` int(11) DEFAULT NULL,
+  `source_sentence_text` text NOT NULL,
+  `matched_keyword_text` varchar(100) DEFAULT NULL,
+  `rule_candidate_category_code` varchar(50) DEFAULT NULL,
+  `confidence_score` decimal(5,2) DEFAULT 0.00,
+  `confirm_yn` char(1) NOT NULL DEFAULT 'N',
+  `use_yn` char(1) NOT NULL DEFAULT 'Y',
+  `created_by` varchar(50) NOT NULL DEFAULT 'SYSTEM',
+  `created_dt` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_by` varchar(50) DEFAULT NULL,
+  `updated_dt` datetime DEFAULT NULL,
+  `deleted_yn` char(1) NOT NULL DEFAULT 'N',
+  `deleted_by` varchar(50) DEFAULT NULL,
+  `deleted_dt` datetime DEFAULT NULL,
+  `change_reason` varchar(500) DEFAULT NULL,
+  `client_ip` varchar(50) DEFAULT NULL,
+  `program_id` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`rule_candidate_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `sp_policy_rule_keyword`
+--
+
+DROP TABLE IF EXISTS `sp_policy_rule_keyword`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sp_policy_rule_keyword` (
+  `rule_keyword_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `rule_keyword_text` varchar(100) NOT NULL,
+  `rule_keyword_category_code` varchar(50) NOT NULL,
+  `rule_keyword_description` varchar(500) DEFAULT NULL,
+  `use_yn` char(1) NOT NULL DEFAULT 'Y',
+  `created_by` varchar(50) NOT NULL DEFAULT 'SYSTEM',
+  `created_dt` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_by` varchar(50) DEFAULT NULL,
+  `updated_dt` datetime DEFAULT NULL,
+  `deleted_yn` char(1) NOT NULL DEFAULT 'N',
+  `deleted_by` varchar(50) DEFAULT NULL,
+  `deleted_dt` datetime DEFAULT NULL,
+  `change_reason` varchar(500) DEFAULT NULL,
+  `client_ip` varchar(50) DEFAULT NULL,
+  `program_id` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`rule_keyword_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `sql_guard_execution_log`
 --
 
@@ -1414,6 +1475,50 @@ CREATE TABLE `verified_sql_query` (
   PRIMARY KEY (`query_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Temporary table structure for view `vw_cm_common_code_standard`
+--
+
+DROP TABLE IF EXISTS `vw_cm_common_code_standard`;
+/*!50001 DROP VIEW IF EXISTS `vw_cm_common_code_standard`*/;
+SET @saved_cs_client     = @@character_set_client;
+SET character_set_client = utf8mb4;
+/*!50001 CREATE VIEW `vw_cm_common_code_standard` AS SELECT
+ NULL AS `common_code_group_code`,
+ NULL AS `common_code`,
+ NULL AS `common_code_name`,
+ NULL AS `knowledge_description`,
+ NULL AS `sort_no`,
+ NULL AS `status_code`,
+ NULL AS `created_dt`,
+ NULL AS `created_by`,
+ NULL AS `updated_dt`,
+ NULL AS `updated_by`,
+ NULL AS `client_ip`,
+ NULL AS `deleted_by`,
+ NULL AS `deleted_dt`,
+ NULL AS `program_id`,
+ NULL AS `knowledge_json` */;
+SET character_set_client = @saved_cs_client;
+
+--
+-- Final view structure for view `vw_cm_common_code_standard`
+--
+
+/*!50001 DROP VIEW IF EXISTS `vw_cm_common_code_standard`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb3 */;
+/*!50001 SET character_set_results     = utf8mb3 */;
+/*!50001 SET collation_connection      = utf8mb3_general_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50001 VIEW `vw_cm_common_code_standard` AS select `cm_common_code`.`group_code` AS `common_code_group_code`,`cm_common_code`.`code` AS `common_code`,`cm_common_code`.`code_name` AS `common_code_name`,`cm_common_code`.`knowledge_description` AS `knowledge_description`,`cm_common_code`.`sort_no` AS `sort_no`,`cm_common_code`.`status_code` AS `status_code`,`cm_common_code`.`created_dt` AS `created_dt`,`cm_common_code`.`created_by` AS `created_by`,`cm_common_code`.`updated_dt` AS `updated_dt`,`cm_common_code`.`updated_by` AS `updated_by`,`cm_common_code`.`client_ip` AS `client_ip`,`cm_common_code`.`deleted_by` AS `deleted_by`,`cm_common_code`.`deleted_dt` AS `deleted_dt`,`cm_common_code`.`program_id` AS `program_id`,`cm_common_code`.`knowledge_json` AS `knowledge_json` from `cm_common_code` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -1424,4 +1529,4 @@ CREATE TABLE `verified_sql_query` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-06-28 12:02:18
+-- Dump completed on 2026-07-12 13:35:16
