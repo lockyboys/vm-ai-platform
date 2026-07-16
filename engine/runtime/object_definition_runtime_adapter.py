@@ -17,8 +17,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from engine.generator.object_definition_generator import (
-    ObjectDefinitionGenerator,
+from engine.object_definition import (
+    ObjectDefinitionEngine,
 )
 
 
@@ -101,7 +101,7 @@ def main() -> int:
         print("[STEP-001] Request Loaded")
         print(f"Object Code : {request.get('object_code')}")
 
-        generator = ObjectDefinitionGenerator()
+        generator = ObjectDefinitionEngine()
 
         print("[STEP-002] Repository Validation")
         print("[STEP-003] Identifier Sequence")

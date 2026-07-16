@@ -1,0 +1,31 @@
+engine/generator/ports.py:12:class RepositoryDefinitionResolver(Protocol):
+engine/generator/ports.py:24:class ArtifactGenerator(Protocol):
+engine/generator/__init__.py:1:from engine.generator.engine import UnifiedGeneratorEngine
+engine/generator/__init__.py:2:from engine.generator.executor import GeneratorExecutor
+engine/generator/__init__.py:16:from engine.generator.planner import GeneratorPlanner
+engine/generator/__init__.py:24:    "GeneratorExecutor",
+engine/generator/__init__.py:26:    "GeneratorPlanner",
+engine/generator/__init__.py:32:    "UnifiedGeneratorEngine",
+engine/generator/planner.py:13:class GeneratorPlanner:
+engine/generator/engine.py:3:from engine.generator.executor import GeneratorExecutor
+engine/generator/engine.py:8:from engine.generator.planner import GeneratorPlanner
+engine/generator/engine.py:9:from engine.generator.ports import RepositoryDefinitionResolver
+engine/generator/engine.py:12:class UnifiedGeneratorEngine:
+engine/generator/engine.py:21:        resolver: RepositoryDefinitionResolver,
+engine/generator/engine.py:22:        planner: GeneratorPlanner,
+engine/generator/engine.py:23:        executor: GeneratorExecutor,
+engine/generator/executor.py:13:from engine.generator.ports import ArtifactGenerator
+engine/generator/executor.py:16:class GeneratorExecutor:
+engine/generator/executor.py:23:        generators: Mapping[ArtifactType, ArtifactGenerator],
+engine/generator/artifact/noop_generator.py:11:class NoOpArtifactGenerator:
+tests/generator/test_unified_generator.py:4:    NoOpArtifactGenerator,
+tests/generator/test_unified_generator.py:6:from engine.generator.engine import UnifiedGeneratorEngine
+tests/generator/test_unified_generator.py:7:from engine.generator.executor import GeneratorExecutor
+tests/generator/test_unified_generator.py:17:from engine.generator.planner import GeneratorPlanner
+tests/generator/test_unified_generator.py:20:class InMemoryRepositoryDefinitionResolver:
+tests/generator/test_unified_generator.py:100:    resolver = InMemoryRepositoryDefinitionResolver()
+tests/generator/test_unified_generator.py:101:    planner = GeneratorPlanner()
+tests/generator/test_unified_generator.py:103:    noop = NoOpArtifactGenerator()
+tests/generator/test_unified_generator.py:105:    executor = GeneratorExecutor(
+tests/generator/test_unified_generator.py:113:    engine = UnifiedGeneratorEngine(
+tests/generator/test_unified_generator.py:150:    resolver = InMemoryRepositoryDefinitionResolver()

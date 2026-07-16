@@ -1,0 +1,2111 @@
+
+==============================================================================
+FILE : engine/generator/repository_generator.py
+==============================================================================
+     1	class RepositoryGenerator:
+     2	    """
+     3	    Repository Generator Prototype
+     4	    """
+     5	
+     6	    def save(self, repository_save_request):
+     7	
+     8	        print()
+     9	        print("[Repository Generator]")
+    10	        print("Repository Save Start")
+    11	
+    12	        print(repository_save_request)
+    13	
+    14	        return {
+    15	            "status": "SUCCESS",
+    16	            "generator": "RepositoryGenerator",
+    17	            "message": "Repository Save Completed."
+    18	        }
+
+==============================================================================
+FILE : engine/generator/repository_execution_plan_builder.py
+==============================================================================
+     1	"""
+     2	Repository Execution Plan Builder
+     3	
+     4	Repository Object와 선택적 Execution Link를 조회하여
+     5	실행 계획 조립에 필요한 Context를 생성한다.
+     6	
+     7	Principles:
+     8	    - Repository First
+     9	    - Object First
+    10	    - Metadata Driven
+    11	    - No Hardcoding
+    12	
+    13	Current Scope:
+    14	    - sp_object 조회
+    15	    - sp_object_execution_link 조회
+    16	    - Execution Link 0건 정상 처리
+    17	    - RepositoryExecutionPlan 조립 지원
+    18	
+    19	Future Scope:
+    20	    - Entity 및 Attribute Repository 연결
+    21	    - Relationship 정책 연결
+    22	    - Metadata Validation 연결
+    23	"""
+    24	
+    25	from __future__ import annotations
+    26	
+    27	from typing import Any, Mapping
+    28	
+    29	from common.database import CommonDatabase
+    30	from engine.model.repository_execution_plan import (
+    31	    RepositoryExecutionPlan,
+    32	)
+    33	
+    34	
+    35	class RepositoryExecutionPlanBuilder:
+    36	    """Repository 조회 결과로 실행 계획을 조립한다."""
+    37	
+    38	    def __init__(
+    39	        self,
+    40	        database: CommonDatabase | None = None,
+    41	    ) -> None:
+    42	        self.database = database or CommonDatabase(
+    43	            database_role="STORY_PLATFORM"
+    44	        )
+    45	
+    46	    def load_context(
+    47	        self,
+    48	        *,
+    49	        object_code: str,
+    50	    ) -> dict[str, Any]:
+    51	        """
+    52	        Object와 선택적 Execution Link Context를 조회한다.
+    53	
+    54	        Execution Link가 없어도 정상 Context를 반환한다.
+    55	        """
+    56	        normalized_object_code = self._normalize_code(
+    57	            object_code,
+    58	            "object_code",
+    59	        )
+    60	
+    61	        object_metadata = self._load_object(
+    62	            normalized_object_code
+    63	        )
+    64	
+    65	        execution_links = self._load_execution_links(
+    66	            object_metadata["object_id"]
+    67	        )
+    68	
+    69	        return {
+    70	            "object": object_metadata,
+    71	            "execution_links": execution_links,
+    72	            "execution_link_count": len(execution_links),
+    73	        }
+    74	
+    75	    def build(
+    76	        self,
+    77	        *,
+    78	        object_code: str,
+    79	        operation_code: str,
+    80	        repository_metadata: Mapping[str, Any],
+    81	    ) -> RepositoryExecutionPlan:
+    82	        """
+    83	        Repository Context와 저장 구조 Metadata를 결합하여
+    84	        RepositoryExecutionPlan을 생성한다.
+    85	
+    86	        repository_metadata는 다음 Repository 연결 전까지
+    87	        호출자가 전달한다.
+    88	
+    89	        Required:
+    90	            database_role
+    91	            table_name
+    92	            primary_key
+    93	            columns
+    94	        """
+    95	        context = self.load_context(
+    96	            object_code=object_code,
+    97	        )
+    98	
+    99	        relationships = [
+   100	            {
+   101	                "object_attempt_id": row[
+   102	                    "object_attempt_id"
+   103	                ],
+   104	                "object_id": row["object_id"],
+   105	                "target_object_id": row.get(
+   106	                    "target_object_id"
+   107	                ),
+   108	                "execution_link_type_code": row[
+   109	                    "execution_link_type_code"
+   110	                ],
+   111	                "mongodb_database_id": row.get(
+   112	                    "mongodb_database_id"
+   113	                ),
+   114	                "mongodb_collection_id": row.get(
+   115	                    "mongodb_collection_id"
+   116	                ),
+   117	                "mongodb_document_master_id": row.get(
+   118	                    "mongodb_document_master_id"
+   119	                ),
+   120	            }
+   121	            for row in context["execution_links"]
+   122	        ]
+   123	
+   124	        return RepositoryExecutionPlan.from_repository(
+   125	            object_metadata=context["object"],
+   126	            operation_code=operation_code,
+   127	            repository_metadata=repository_metadata,
+   128	            relationships=relationships,
+   129	        )
+   130	
+   131	    def _load_object(
+   132	        self,
+   133	        object_code: str,
+   134	    ) -> dict[str, Any]:
+   135	        row = self.database.fetch_one(
+   136	            """
+   137	            SELECT
+   138	                object_id,
+   139	                object_code,
+   140	                object_name,
+   141	                business_code,
+   142	                domain_code,
+   143	                object_type_code,
+   144	                object_description,
+   145	                parent_object_id,
+   146	                object_level,
+   147	                status_code,
+   148	                active_yn,
+   149	                version_no,
+   150	                lifecycle_id,
+   151	                target_identifier_field,
+   152	                sequence_scope_code,
+   153	                sequence_length,
+   154	                identifier_target_code
+   155	            FROM sp_object
+   156	            WHERE object_code = %s
+   157	              AND status_code = 'ACTIVE'
+   158	              AND active_yn = 'Y'
+   159	              AND deleted_dt IS NULL
+   160	            LIMIT 1
+   161	            """,
+   162	            (object_code,),
+   163	        )
+   164	
+   165	        if not row:
+   166	            raise LookupError(
+   167	                "Active Repository Object not found. "
+   168	                f"object_code={object_code}"
+   169	            )
+   170	
+   171	        return dict(row)
+   172	
+   173	    def _load_execution_links(
+   174	        self,
+   175	        object_id: str,
+   176	    ) -> list[dict[str, Any]]:
+   177	        rows = self.database.fetch_all(
+   178	            """
+   179	            SELECT
+   180	                object_attempt_id,
+   181	                object_id,
+   182	                target_object_id,
+   183	                execution_link_type_code,
+   184	                mongodb_database_id,
+   185	                mongodb_collection_id,
+   186	                mongodb_document_master_id,
+   187	                created_by,
+   188	                created_dt,
+   189	                updated_by,
+   190	                updated_dt,
+   191	                client_ip,
+   192	                program_id
+   193	            FROM sp_object_execution_link
+   194	            WHERE object_id = %s
+   195	              AND deleted_dt IS NULL
+   196	            ORDER BY created_dt, object_attempt_id
+   197	            """,
+   198	            (object_id,),
+   199	        )
+   200	
+   201	        return [
+   202	            dict(row)
+   203	            for row in (rows or [])
+   204	        ]
+   205	
+   206	    @staticmethod
+   207	    def _normalize_code(
+   208	        value: str,
+   209	        field_name: str,
+   210	    ) -> str:
+   211	        normalized = str(value or "").strip().upper()
+   212	
+   213	        if not normalized:
+   214	            raise ValueError(
+   215	                f"{field_name} must not be empty."
+   216	            )
+   217	
+   218	        return normalized
+
+==============================================================================
+FILE : engine/generator/object_definition_generator.py
+==============================================================================
+     1	"""
+     2	SPS Object Definition Generator
+     3	
+     4	Purpose:
+     5	    Object Definition Request를 검증하고 다음 Repository를 생성한다.
+     6	
+     7	    - sp_object
+     8	    - sp_identifier_sequence
+     9	
+    10	Principles:
+    11	    - Repository First
+    12	    - Object First
+    13	    - Generator First
+    14	    - Metadata Driven
+    15	    - Single Source of Truth
+    16	    - No Hardcoding
+    17	"""
+    18	
+    19	from __future__ import annotations
+    20	
+    21	import re
+    22	from datetime import datetime
+    23	from typing import Any
+    24	
+    25	from common.database import CommonDatabase
+    26	from engine.identifier_engine import IdentifierEngine
+    27	
+    28	
+    29	class ObjectDefinitionGenerator:
+    30	    """신규 Object Definition Repository Generator."""
+    31	
+    32	    REQUIRED_FIELDS = (
+    33	        "object_code",
+    34	        "object_name",
+    35	        "business_code",
+    36	        "domain_code",
+    37	        "object_type_code",
+    38	        "object_level",
+    39	        "identifier_target_code",
+    40	        "sequence_scope_code",
+    41	        "sequence_length",
+    42	    )
+    43	
+    44	    ALLOWED_SEQUENCE_SCOPES = {
+    45	        "NO",
+    46	        "NONE",
+    47	        "YEARLY",
+    48	        "MONTHLY",
+    49	        "DAILY",
+    50	    }
+    51	
+    52	    def __init__(
+    53	        self,
+    54	        database: CommonDatabase | None = None,
+    55	    ) -> None:
+    56	        self.database = database or CommonDatabase(
+    57	            database_role="STORY_PLATFORM"
+    58	        )
+    59	        self.identifier_engine = IdentifierEngine(self.database)
+    60	
+    61	    def create(
+    62	        self,
+    63	        request: dict[str, Any],
+    64	    ) -> dict[str, Any]:
+    65	        """
+    66	        Object Definition을 생성한다.
+    67	
+    68	        Flow:
+    69	            Request Normalize
+    70	            → Repository Validation
+    71	            → Blueprint Load
+    72	            → Sequence Metadata Initialize
+    73	            → Identifier Allocate
+    74	            → sp_object Save
+    75	            → Commit
+    76	        """
+    77	        normalized = self._normalize_request(request)
+    78	        self._validate_required_fields(normalized)
+    79	        self._validate_repository_metadata(normalized)
+    80	
+    81	        existing = self._find_existing_object(
+    82	            normalized["object_code"]
+    83	        )
+    84	
+    85	        if existing:
+    86	            return {
+    87	                "success": False,
+    88	                "status": "ALREADY_EXISTS",
+    89	                "message": (
+    90	                    "Object already exists. "
+    91	                    f"object_code={normalized['object_code']}"
+    92	                ),
+    93	                "object": existing,
+    94	            }
+    95	
+    96	        blueprint = self.identifier_engine.load_identifier_blueprint(
+    97	            int(normalized["object_level"])
+    98	        )
+    99	
+   100	        now = datetime.now()
+   101	
+   102	        sequence_scope_code = (
+   103	            normalized.get("sequence_scope_code")
+   104	            or blueprint.get("sequence_scope_code")
+   105	        )
+   106	
+   107	        sequence_length = int(
+   108	            normalized.get("sequence_length")
+   109	            or blueprint.get("sequence_length")
+   110	            or 5
+   111	        )
+   112	
+   113	        sequence_date = self.identifier_engine.resolve_sequence_date(
+   114	            sequence_scope_code=sequence_scope_code,
+   115	            now=now,
+   116	        )
+   117	
+   118	        lock_name = self._build_lock_name(
+   119	            normalized=normalized,
+   120	            sequence_date=sequence_date,
+   121	        )
+   122	
+   123	        lock_acquired = False
+   124	
+   125	        try:
+   126	            lock_acquired = self._acquire_lock(lock_name)
+   127	
+   128	            if not lock_acquired:
+   129	                raise RuntimeError(
+   130	                    "Object Definition lock acquisition failed. "
+   131	                    f"lock_name={lock_name}"
+   132	                )
+   133	
+   134	            self.database.begin()
+   135	
+   136	            # Lock 획득 후 중복을 다시 확인한다.
+   137	            existing = self._find_existing_object(
+   138	                normalized["object_code"]
+   139	            )
+   140	
+   141	            if existing:
+   142	                self.database.rollback()
+   143	
+   144	                return {
+   145	                    "success": False,
+   146	                    "status": "ALREADY_EXISTS",
+   147	                    "message": (
+   148	                        "Object already exists. "
+   149	                        f"object_code={normalized['object_code']}"
+   150	                    ),
+   151	                    "object": existing,
+   152	                }
+   153	
+   154	            sequence_row = self._ensure_sequence_metadata(
+   155	                normalized=normalized,
+   156	                blueprint=blueprint,
+   157	                sequence_date=sequence_date,
+   158	                sequence_length=sequence_length,
+   159	                now=now,
+   160	            )
+   161	
+   162	            sequence_no = self._allocate_sequence(
+   163	                identifier_sequence_id=(
+   164	                    sequence_row["identifier_sequence_id"]
+   165	                ),
+   166	                sequence_length=sequence_length,
+   167	            )
+   168	
+   169	            object_id = self.identifier_engine.render_identifier(
+   170	                object_metadata=normalized,
+   171	                blueprint=blueprint,
+   172	                sequence_no=sequence_no,
+   173	                sequence_length=sequence_length,
+   174	                now=now,
+   175	            )
+   176	
+   177	            self._validate_generated_identifier(
+   178	                identifier=object_id,
+   179	                blueprint=blueprint,
+   180	            )
+   181	
+   182	            self._insert_object(
+   183	                object_id=object_id,
+   184	                request=normalized,
+   185	            )
+   186	
+   187	            self.database.commit()
+   188	
+   189	            saved_object = self._find_existing_object(
+   190	                normalized["object_code"]
+   191	            )
+   192	
+   193	            return {
+   194	                "success": True,
+   195	                "status": "CREATED",
+   196	                "message": "Object Definition created successfully.",
+   197	                "object_id": object_id,
+   198	                "object_code": normalized["object_code"],
+   199	                "identifier_target_code": (
+   200	                    normalized["identifier_target_code"]
+   201	                ),
+   202	                "object_level": normalized["object_level"],
+   203	                "sequence_date": sequence_date,
+   204	                "sequence_no": sequence_no,
+   205	                "blueprint_code": blueprint["blueprint_code"],
+   206	                "object": saved_object,
+   207	            }
+   208	
+   209	        except Exception:
+   210	            self.database.rollback()
+   211	            raise
+   212	
+   213	        finally:
+   214	            if lock_acquired:
+   215	                self._release_lock(lock_name)
+   216	
+   217	    def _normalize_request(
+   218	        self,
+   219	        request: dict[str, Any],
+   220	    ) -> dict[str, Any]:
+   221	        """입력 Request를 Repository 저장 형식으로 정규화한다."""
+   222	        if not isinstance(request, dict):
+   223	            raise TypeError("request must be a dictionary.")
+   224	
+   225	        normalized = dict(request)
+   226	
+   227	        uppercase_fields = (
+   228	            "object_code",
+   229	            "business_code",
+   230	            "domain_code",
+   231	            "object_type_code",
+   232	            "identifier_target_code",
+   233	            "sequence_scope_code",
+   234	            "status_code",
+   235	            "active_yn",
+   236	        )
+   237	
+   238	        for field in uppercase_fields:
+   239	            value = normalized.get(field)
+   240	
+   241	            if value is not None:
+   242	                normalized[field] = str(value).strip().upper()
+   243	
+   244	        normalized["object_name"] = str(
+   245	            normalized.get("object_name") or ""
+   246	        ).strip()
+   247	
+   248	        normalized["object_description"] = (
+   249	            str(normalized.get("object_description")).strip()
+   250	            if normalized.get("object_description") is not None
+   251	            else None
+   252	        )
+   253	
+   254	        normalized["object_level"] = int(
+   255	            normalized.get("object_level")
+   256	        )
+   257	
+   258	        normalized["sequence_length"] = int(
+   259	            normalized.get("sequence_length")
+   260	        )
+   261	
+   262	        normalized.setdefault("status_code", "ACTIVE")
+   263	        normalized.setdefault("active_yn", "Y")
+   264	        normalized.setdefault("version_no", "v1.0")
+   265	        normalized.setdefault("sort_no", 0)
+   266	        normalized.setdefault("created_by", "OBJECT_DEFINITION_GENERATOR")
+   267	        normalized.setdefault("updated_by", "OBJECT_DEFINITION_GENERATOR")
+   268	        normalized.setdefault("program_id", "ObjectDefinitionGenerator")
+   269	        normalized.setdefault("client_ip", "127.0.0.1")
+   270	        normalized.setdefault("parent_object_id", None)
+   271	        normalized.setdefault("lifecycle_id", None)
+   272	        normalized.setdefault("target_identifier_field", None)
+   273	        normalized.setdefault("change_reason", "Object Definition Runtime 생성")
+   274	
+   275	        return normalized
+   276	
+   277	    def _validate_required_fields(
+   278	        self,
+   279	        request: dict[str, Any],
+   280	    ) -> None:
+   281	        """필수 입력값을 검증한다."""
+   282	        missing = [
+   283	            field
+   284	            for field in self.REQUIRED_FIELDS
+   285	            if request.get(field) in (None, "")
+   286	        ]
+   287	
+   288	        if missing:
+   289	            raise ValueError(
+   290	                "Required Object Definition fields are missing. "
+   291	                f"missing_fields={missing}"
+   292	            )
+   293	
+   294	        if not re.fullmatch(
+   295	            r"[A-Z][A-Z0-9_]*",
+   296	            request["object_code"],
+   297	        ):
+   298	            raise ValueError(
+   299	                "Invalid object_code. "
+   300	                "Only uppercase letters, digits, and underscore are allowed."
+   301	            )
+   302	
+   303	        if not 0 <= int(request["object_level"]) <= 4:
+   304	            raise ValueError(
+   305	                "object_level must be between 0 and 4."
+   306	            )
+   307	
+   308	        if not 1 <= int(request["sequence_length"]) <= 20:
+   309	            raise ValueError(
+   310	                "sequence_length must be between 1 and 20."
+   311	            )
+   312	
+   313	        if (
+   314	            request["sequence_scope_code"]
+   315	            not in self.ALLOWED_SEQUENCE_SCOPES
+   316	        ):
+   317	            raise ValueError(
+   318	                "Unsupported sequence_scope_code. "
+   319	                f"value={request['sequence_scope_code']}"
+   320	            )
+   321	
+   322	        description = request.get("object_description")
+   323	
+   324	        if description and len(description) > 2000:
+   325	            raise ValueError(
+   326	                "object_description exceeds VARCHAR(2000). "
+   327	                f"length={len(description)}"
+   328	            )
+   329	
+   330	    def _validate_repository_metadata(
+   331	        self,
+   332	        request: dict[str, Any],
+   333	    ) -> None:
+   334	        """Business, Domain, Object Type, Identifier Target를 검증한다."""
+   335	        business = self.database.fetch_one(
+   336	            """
+   337	            SELECT
+   338	                business_code,
+   339	                business_name
+   340	            FROM sp_business
+   341	            WHERE business_code = %s
+   342	              AND active_yn = 'Y'
+   343	              AND deleted_dt IS NULL
+   344	            LIMIT 1
+   345	            """,
+   346	            (request["business_code"],),
+   347	        )
+   348	
+   349	        if not business:
+   350	            raise ValueError(
+   351	                "Business metadata not found. "
+   352	                f"business_code={request['business_code']}"
+   353	            )
+   354	
+   355	        domain = self.database.fetch_one(
+   356	            """
+   357	            SELECT
+   358	                domain_code,
+   359	                business_code,
+   360	                domain_name
+   361	            FROM sp_domain
+   362	            WHERE domain_code = %s
+   363	              AND business_code = %s
+   364	              AND active_yn = 'Y'
+   365	              AND deleted_dt IS NULL
+   366	            LIMIT 1
+   367	            """,
+   368	            (
+   369	                request["domain_code"],
+   370	                request["business_code"],
+   371	            ),
+   372	        )
+   373	
+   374	        if not domain:
+   375	            raise ValueError(
+   376	                "Domain metadata not found or business mismatch. "
+   377	                f"business_code={request['business_code']}, "
+   378	                f"domain_code={request['domain_code']}"
+   379	            )
+   380	
+   381	        object_type = self.database.fetch_one(
+   382	            """
+   383	            SELECT
+   384	                group_code,
+   385	                code,
+   386	                code_name
+   387	            FROM te_common.cm_common_code
+   388	            WHERE group_code IN
+   389	            (
+   390	                'OBJECT_TYPE',
+   391	                'CM_OBJECT_TYPE'
+   392	            )
+   393	              AND code = %s
+   394	              AND status_code = 'ACTIVE'
+   395	              AND deleted_dt IS NULL
+   396	            ORDER BY
+   397	                CASE
+   398	                    WHEN group_code = 'OBJECT_TYPE' THEN 1
+   399	                    ELSE 2
+   400	                END
+   401	            LIMIT 1
+   402	            """,
+   403	            (request["object_type_code"],),
+   404	        )
+   405	
+   406	        if not object_type:
+   407	            raise ValueError(
+   408	                "Object Type metadata not found. "
+   409	                f"object_type_code={request['object_type_code']}"
+   410	            )
+   411	
+   412	        identifier_target = self.database.fetch_one(
+   413	            """
+   414	            SELECT
+   415	                code,
+   416	                code_name
+   417	            FROM te_common.cm_common_code
+   418	            WHERE group_code = 'SPS_IDENTIFIER_TARGET'
+   419	              AND code = %s
+   420	              AND status_code = 'ACTIVE'
+   421	              AND deleted_dt IS NULL
+   422	            LIMIT 1
+   423	            """,
+   424	            (request["identifier_target_code"],),
+   425	        )
+   426	
+   427	        if not identifier_target:
+   428	            raise ValueError(
+   429	                "Identifier Target metadata not found. "
+   430	                f"identifier_target_code="
+   431	                f"{request['identifier_target_code']}"
+   432	            )
+   433	
+   434	    def _find_existing_object(
+   435	        self,
+   436	        object_code: str,
+   437	    ) -> dict[str, Any] | None:
+   438	        """Object Code로 기존 Object를 조회한다."""
+   439	        return self.database.fetch_one(
+   440	            """
+   441	            SELECT
+   442	                object_id,
+   443	                object_code,
+   444	                object_name,
+   445	                business_code,
+   446	                domain_code,
+   447	                object_type_code,
+   448	                object_level,
+   449	                identifier_target_code,
+   450	                sequence_scope_code,
+   451	                sequence_length,
+   452	                status_code,
+   453	                active_yn,
+   454	                created_dt
+   455	            FROM sp_object
+   456	            WHERE object_code = %s
+   457	              AND deleted_dt IS NULL
+   458	            LIMIT 1
+   459	            """,
+   460	            (object_code,),
+   461	        )
+   462	
+   463	    @staticmethod
+   464	    def _build_lock_name(
+   465	        normalized: dict[str, Any],
+   466	        sequence_date: str,
+   467	    ) -> str:
+   468	        """MariaDB Named Lock 이름을 생성한다."""
+   469	        return (
+   470	            "SPS_OBJECT_DEFINITION:"
+   471	            f"{normalized['business_code']}:"
+   472	            f"{normalized['domain_code']}:"
+   473	            f"{normalized['object_code']}:"
+   474	            f"{sequence_date}"
+   475	        )[:64]
+   476	
+   477	    def _acquire_lock(
+   478	        self,
+   479	        lock_name: str,
+   480	    ) -> bool:
+   481	        """동일 Object 동시 생성 방지 Lock을 획득한다."""
+   482	        row = self.database.fetch_one(
+   483	            "SELECT GET_LOCK(%s, 10) AS acquired",
+   484	            (lock_name,),
+   485	        )
+   486	
+   487	        return bool(row and int(row["acquired"]) == 1)
+   488	
+   489	    def _release_lock(
+   490	        self,
+   491	        lock_name: str,
+   492	    ) -> None:
+   493	        """Named Lock을 해제한다."""
+   494	        self.database.fetch_one(
+   495	            "SELECT RELEASE_LOCK(%s) AS released",
+   496	            (lock_name,),
+   497	        )
+   498	
+   499	    def _ensure_sequence_metadata(
+   500	        self,
+   501	        normalized: dict[str, Any],
+   502	        blueprint: dict[str, Any],
+   503	        sequence_date: str,
+   504	        sequence_length: int,
+   505	        now: datetime,
+   506	    ) -> dict[str, Any]:
+   507	        """
+   508	        Identifier Sequence Metadata를 준비한다.
+   509	
+   510	        Sequence Metadata ID는 동일 Blueprint를 사용하되
+   511	        Sequence 00000을 Repository 기준 행으로 사용한다.
+   512	        """
+   513	        existing = self.database.fetch_one(
+   514	            """
+   515	            SELECT
+   516	                identifier_sequence_id,
+   517	                identifier_target_code,
+   518	                identifier_prefix,
+   519	                sequence_date,
+   520	                current_sequence_no,
+   521	                sequence_length
+   522	            FROM sp_identifier_sequence
+   523	            WHERE identifier_target_code = %s
+   524	              AND identifier_prefix = %s
+   525	              AND sequence_date = %s
+   526	              AND status_code = 'ACTIVE'
+   527	              AND deleted_dt IS NULL
+   528	            FOR UPDATE
+   529	            """,
+   530	            (
+   531	                normalized["identifier_target_code"],
+   532	                normalized["object_code"],
+   533	                sequence_date,
+   534	            ),
+   535	        )
+   536	
+   537	        if existing:
+   538	            return existing
+   539	
+   540	        identifier_sequence_id = (
+   541	            self.identifier_engine.render_identifier(
+   542	                object_metadata=normalized,
+   543	                blueprint=blueprint,
+   544	                sequence_no=0,
+   545	                sequence_length=sequence_length,
+   546	                now=now,
+   547	            )
+   548	        )
+   549	
+   550	        affected = self.database.execute(
+   551	            """
+   552	            INSERT INTO sp_identifier_sequence
+   553	            (
+   554	                identifier_sequence_id,
+   555	                identifier_target_code,
+   556	                identifier_prefix,
+   557	                sequence_date,
+   558	                current_sequence_no,
+   559	                sequence_length,
+   560	                status_code,
+   561	                created_dt,
+   562	                created_by,
+   563	                updated_dt,
+   564	                updated_by,
+   565	                deleted_by,
+   566	                deleted_dt,
+   567	                client_ip,
+   568	                program_id,
+   569	                extension_json
+   570	            )
+   571	            VALUES
+   572	            (
+   573	                %s,
+   574	                %s,
+   575	                %s,
+   576	                %s,
+   577	                0,
+   578	                %s,
+   579	                'ACTIVE',
+   580	                CURRENT_TIMESTAMP,
+   581	                %s,
+   582	                CURRENT_TIMESTAMP,
+   583	                %s,
+   584	                NULL,
+   585	                NULL,
+   586	                %s,
+   587	                %s,
+   588	                JSON_OBJECT(
+   589	                    'object_code', %s,
+   590	                    'object_level', %s,
+   591	                    'blueprint_code', %s,
+   592	                    'sequence_scope_code', %s
+   593	                )
+   594	            )
+   595	            """,
+   596	            (
+   597	                identifier_sequence_id,
+   598	                normalized["identifier_target_code"],
+   599	                normalized["object_code"],
+   600	                sequence_date,
+   601	                sequence_length,
+   602	                normalized["created_by"],
+   603	                normalized["updated_by"],
+   604	                normalized["client_ip"],
+   605	                normalized["program_id"],
+   606	                normalized["object_code"],
+   607	                normalized["object_level"],
+   608	                blueprint["blueprint_code"],
+   609	                normalized["sequence_scope_code"],
+   610	            ),
+   611	        )
+   612	
+   613	        if affected != 1:
+   614	            raise RuntimeError(
+   615	                "Identifier Sequence metadata creation failed. "
+   616	                f"affected_rows={affected}"
+   617	            )
+   618	
+   619	        return {
+   620	            "identifier_sequence_id": identifier_sequence_id,
+   621	            "identifier_target_code": (
+   622	                normalized["identifier_target_code"]
+   623	            ),
+   624	            "identifier_prefix": normalized["object_code"],
+   625	            "sequence_date": sequence_date,
+   626	            "current_sequence_no": 0,
+   627	            "sequence_length": sequence_length,
+   628	        }
+   629	
+   630	    def _allocate_sequence(
+   631	        self,
+   632	        identifier_sequence_id: str,
+   633	        sequence_length: int,
+   634	    ) -> int:
+   635	        """현재 트랜잭션 안에서 다음 Sequence를 할당한다."""
+   636	        row = self.database.fetch_one(
+   637	            """
+   638	            SELECT
+   639	                current_sequence_no
+   640	            FROM sp_identifier_sequence
+   641	            WHERE identifier_sequence_id = %s
+   642	              AND status_code = 'ACTIVE'
+   643	              AND deleted_dt IS NULL
+   644	            FOR UPDATE
+   645	            """,
+   646	            (identifier_sequence_id,),
+   647	        )
+   648	
+   649	        if not row:
+   650	            raise ValueError(
+   651	                "Identifier Sequence metadata not found. "
+   652	                f"identifier_sequence_id={identifier_sequence_id}"
+   653	            )
+   654	
+   655	        next_sequence_no = int(
+   656	            row["current_sequence_no"]
+   657	        ) + 1
+   658	
+   659	        maximum = (10 ** sequence_length) - 1
+   660	
+   661	        if next_sequence_no > maximum:
+   662	            raise OverflowError(
+   663	                "Identifier Sequence overflow. "
+   664	                f"sequence_length={sequence_length}"
+   665	            )
+   666	
+   667	        affected = self.database.execute(
+   668	            """
+   669	            UPDATE sp_identifier_sequence
+   670	            SET
+   671	                current_sequence_no = %s,
+   672	                sequence_length = %s,
+   673	                updated_dt = CURRENT_TIMESTAMP,
+   674	                updated_by = 'OBJECT_DEFINITION_GENERATOR',
+   675	                program_id = 'ObjectDefinitionGenerator'
+   676	            WHERE identifier_sequence_id = %s
+   677	            """,
+   678	            (
+   679	                next_sequence_no,
+   680	                sequence_length,
+   681	                identifier_sequence_id,
+   682	            ),
+   683	        )
+   684	
+   685	        if affected != 1:
+   686	            raise RuntimeError(
+   687	                "Identifier Sequence allocation failed. "
+   688	                f"affected_rows={affected}"
+   689	            )
+   690	
+   691	        return next_sequence_no
+   692	
+   693	    @staticmethod
+   694	    def _validate_generated_identifier(
+   695	        identifier: str,
+   696	        blueprint: dict[str, Any],
+   697	    ) -> None:
+   698	        """생성된 Identifier에 미해결 Token이 없는지 확인한다."""
+   699	        if not identifier:
+   700	            raise ValueError("Generated identifier is empty.")
+   701	
+   702	        unresolved = re.findall(
+   703	            r"\{[A-Z0-9_]+\}",
+   704	            identifier,
+   705	        )
+   706	
+   707	        if unresolved:
+   708	            raise ValueError(
+   709	                "Generated identifier contains unresolved tokens. "
+   710	                f"tokens={unresolved}, "
+   711	                f"blueprint={blueprint['blueprint_code']}"
+   712	            )
+   713	
+   714	        if len(identifier) > 99:
+   715	            raise ValueError(
+   716	                "Generated object_id exceeds VARCHAR(99). "
+   717	                f"length={len(identifier)}, "
+   718	                f"identifier={identifier}"
+   719	            )
+   720	
+   721	    def _insert_object(
+   722	        self,
+   723	        object_id: str,
+   724	        request: dict[str, Any],
+   725	    ) -> None:
+   726	        """sp_object에 신규 Object Definition을 저장한다."""
+   727	        affected = self.database.execute(
+   728	            """
+   729	            INSERT INTO sp_object
+   730	            (
+   731	                object_id,
+   732	                object_code,
+   733	                object_name,
+   734	                business_code,
+   735	                domain_code,
+   736	                object_type_code,
+   737	                object_description,
+   738	                parent_object_id,
+   739	                object_level,
+   740	                sort_no,
+   741	                status_code,
+   742	                active_yn,
+   743	                version_no,
+   744	                lifecycle_id,
+   745	                created_by,
+   746	                created_dt,
+   747	                updated_by,
+   748	                updated_dt,
+   749	                deleted_by,
+   750	                deleted_dt,
+   751	                client_ip,
+   752	                program_id,
+   753	                target_identifier_field,
+   754	                sequence_scope_code,
+   755	                sequence_length,
+   756	                change_reason,
+   757	                identifier_target_code
+   758	            )
+   759	            VALUES
+   760	            (
+   761	                %s,
+   762	                %s,
+   763	                %s,
+   764	                %s,
+   765	                %s,
+   766	                %s,
+   767	                %s,
+   768	                %s,
+   769	                %s,
+   770	                %s,
+   771	                %s,
+   772	                %s,
+   773	                %s,
+   774	                %s,
+   775	                %s,
+   776	                CURRENT_TIMESTAMP,
+   777	                %s,
+   778	                CURRENT_TIMESTAMP,
+   779	                NULL,
+   780	                NULL,
+   781	                %s,
+   782	                %s,
+   783	                %s,
+   784	                %s,
+   785	                %s,
+   786	                %s,
+   787	                %s
+   788	            )
+   789	            """,
+   790	            (
+   791	                object_id,
+   792	                request["object_code"],
+   793	                request["object_name"],
+   794	                request["business_code"],
+   795	                request["domain_code"],
+   796	                request["object_type_code"],
+   797	                request.get("object_description"),
+   798	                request.get("parent_object_id"),
+   799	                request["object_level"],
+   800	                request.get("sort_no", 0),
+   801	                request["status_code"],
+   802	                request["active_yn"],
+   803	                request["version_no"],
+   804	                request.get("lifecycle_id"),
+   805	                request["created_by"],
+   806	                request["updated_by"],
+   807	                request["client_ip"],
+   808	                request["program_id"],
+   809	                request.get("target_identifier_field"),
+   810	                request["sequence_scope_code"],
+   811	                request["sequence_length"],
+   812	                request.get("change_reason"),
+   813	                request["identifier_target_code"],
+   814	            ),
+   815	        )
+   816	
+   817	        if affected != 1:
+   818	            raise RuntimeError(
+   819	                "sp_object creation failed. "
+   820	                f"affected_rows={affected}"
+   821	            )
+
+==============================================================================
+FILE : engine/generator/relationship_generator.py
+==============================================================================
+     1	"""
+     2	SPS Relationship Generator
+     3	
+     4	Purpose:
+     5	    Object 간 Relationship을 Repository Metadata 기반으로 검증하고
+     6	    Identifier Engine을 통해 Relationship ID를 발급한 뒤
+     7	    sp_relationship에 저장한다.
+     8	
+     9	Principles:
+    10	    - Repository First
+    11	    - Object First
+    12	    - Generator First
+    13	    - Metadata Driven
+    14	    - Single Source of Truth
+    15	    - No Hardcoding
+    16	"""
+    17	
+    18	from __future__ import annotations
+    19	
+    20	import json
+    21	from datetime import datetime
+    22	import os
+    23	import re
+    24	from typing import Any
+    25	
+    26	from common.database import CommonDatabase
+    27	from engine.identifier_engine import IdentifierEngine
+    28	
+    29	
+    30	class RelationshipGenerator:
+    31	    """SPS 범용 Object Relationship Generator."""
+    32	
+    33	    OBJECT_CODE = "RELATIONSHIP"
+    34	    RELATIONSHIP_SCOPE_CODE = "OBJECT"
+    35	
+    36	    REQUIRED_FIELDS = (
+    37	        "source_object_id",
+    38	        "source_object_type_code",
+    39	        "target_object_id",
+    40	        "target_object_type_code",
+    41	        "relationship_code",
+    42	        "relationship_name",
+    43	        "relationship_type_code",
+    44	    )
+    45	
+    46	    def __init__(
+    47	        self,
+    48	        database: CommonDatabase | None = None,
+    49	    ) -> None:
+    50	        self.database = database or CommonDatabase(
+    51	            database_role="STORY_PLATFORM"
+    52	        )
+    53	        self.identifier_engine = IdentifierEngine(self.database)
+    54	
+    55	    def create_batch(
+    56	        self,
+    57	        requests: list[dict[str, Any]],
+    58	    ) -> dict[str, Any]:
+    59	        """
+    60	        Relationship 여러 건을 한 트랜잭션으로 생성한다.
+    61	
+    62	        Flow:
+    63	            Request 정규화
+    64	            → Predicate 검증
+    65	            → Object Type 검증
+    66	            → Source/Target 존재 검증
+    67	            → Relationship ID 발급
+    68	            → INSERT
+    69	            → COMMIT
+    70	        """
+    71	        if not isinstance(requests, list) or not requests:
+    72	            raise ValueError(
+    73	                "Relationship requests must be a non-empty list."
+    74	            )
+    75	
+    76	        normalized_requests = [
+    77	            self._normalize_request(request)
+    78	            for request in requests
+    79	        ]
+    80	
+    81	        self._validate_duplicate_request_codes(
+    82	            normalized_requests
+    83	        )
+    84	
+    85	        existing_rows = self._find_existing_relationships(
+    86	            normalized_requests
+    87	        )
+    88	
+    89	        if existing_rows:
+    90	            return {
+    91	                "success": False,
+    92	                "status": "ALREADY_EXISTS",
+    93	                "message": (
+    94	                    "One or more relationships already exist."
+    95	                ),
+    96	                "existing_relationships": existing_rows,
+    97	            }
+    98	
+    99	        for request in normalized_requests:
+   100	            self._validate_request(request)
+   101	            self._validate_predicate(
+   102	                request["relationship_type_code"]
+   103	            )
+   104	            self._validate_object_type(
+   105	                request["source_object_type_code"]
+   106	            )
+   107	            self._validate_object_type(
+   108	                request["target_object_type_code"]
+   109	            )
+   110	            self._validate_object_exists(
+   111	                object_id=request["source_object_id"],
+   112	                object_type_code=(
+   113	                    request["source_object_type_code"]
+   114	                ),
+   115	            )
+   116	            self._validate_object_exists(
+   117	                object_id=request["target_object_id"],
+   118	                object_type_code=(
+   119	                    request["target_object_type_code"]
+   120	                ),
+   121	            )
+   122	
+   123	        generated_rows: list[dict[str, Any]] = []
+   124	        batch_dt = datetime.now()
+   125	
+   126	        try:
+   127	            self.database.begin()
+   128	
+   129	            # Transaction 시작 후 동시 등록 여부를 다시 확인한다.
+   130	            existing_rows = self._find_existing_relationships(
+   131	                normalized_requests
+   132	            )
+   133	
+   134	            if existing_rows:
+   135	                self.database.rollback()
+   136	
+   137	                return {
+   138	                    "success": False,
+   139	                    "status": "ALREADY_EXISTS",
+   140	                    "message": (
+   141	                        "Relationships were created by another process."
+   142	                    ),
+   143	                    "existing_relationships": existing_rows,
+   144	                }
+   145	
+   146	            # Relationship Identifier 발급과 INSERT를
+   147	            # 동일한 Database Transaction 안에서 수행한다.
+   148	            for request in normalized_requests:
+   149	                relationship_id = (
+   150	                    self.identifier_engine.generate_for_level(
+   151	                        object_code=self.OBJECT_CODE,
+   152	                        object_level=4,
+   153	                        now=batch_dt,
+   154	                        manage_transaction=False,
+   155	                    )
+   156	                )
+   157	
+   158	                generated_row = {
+   159	                    **request,
+   160	                    "relationship_id": relationship_id,
+   161	                }
+   162	
+   163	                self._insert_relationship(generated_row)
+   164	                generated_rows.append(generated_row)
+   165	
+   166	                if (
+   167	                    os.getenv(
+   168	                        "SPS_FORCE_RELATIONSHIP_ROLLBACK_TEST",
+   169	                        "N",
+   170	                    ).strip().upper()
+   171	                    == "Y"
+   172	                ):
+   173	                    raise RuntimeError(
+   174	                        "Forced Relationship transaction "
+   175	                        "rollback test."
+   176	                    )
+   177	
+   178	            self.database.commit()
+   179	
+   180	        except Exception:
+   181	            self.database.rollback()
+   182	            raise
+   183	
+   184	        saved_rows = self._find_relationships_by_codes(
+   185	            [
+   186	                row["relationship_code"]
+   187	                for row in generated_rows
+   188	            ]
+   189	        )
+   190	
+   191	        return {
+   192	            "success": True,
+   193	            "status": "CREATED",
+   194	            "message": (
+   195	                f"{len(saved_rows)} relationships created successfully."
+   196	            ),
+   197	            "relationship_count": len(saved_rows),
+   198	            "relationships": saved_rows,
+   199	        }
+   200	
+   201	    def _normalize_request(
+   202	        self,
+   203	        request: dict[str, Any],
+   204	    ) -> dict[str, Any]:
+   205	        """Relationship Request를 정규화한다."""
+   206	        if not isinstance(request, dict):
+   207	            raise TypeError(
+   208	                "Each relationship request must be a dictionary."
+   209	            )
+   210	
+   211	        normalized = dict(request)
+   212	
+   213	        uppercase_fields = (
+   214	            "source_object_type_code",
+   215	            "target_object_type_code",
+   216	            "relationship_code",
+   217	            "relationship_type_code",
+   218	            "identifying_yn",
+   219	            "delete_rule_code",
+   220	            "update_rule_code",
+   221	            "enabled_yn",
+   222	        )
+   223	
+   224	        for field in uppercase_fields:
+   225	            value = normalized.get(field)
+   226	
+   227	            if value is not None:
+   228	                normalized[field] = str(value).strip().upper()
+   229	
+   230	        text_fields = (
+   231	            "source_object_id",
+   232	            "target_object_id",
+   233	            "relationship_name",
+   234	            "relationship_description",
+   235	        )
+   236	
+   237	        for field in text_fields:
+   238	            value = normalized.get(field)
+   239	
+   240	            if value is not None:
+   241	                normalized[field] = str(value).strip()
+   242	
+   243	        normalized.setdefault(
+   244	            "relationship_scope_code",
+   245	            self.RELATIONSHIP_SCOPE_CODE,
+   246	        )
+   247	        normalized.setdefault("source_min_cardinality", 1)
+   248	        normalized.setdefault("source_max_cardinality", 1)
+   249	        normalized.setdefault("target_min_cardinality", 1)
+   250	        normalized.setdefault("target_max_cardinality", 1)
+   251	        normalized.setdefault("identifying_yn", "N")
+   252	        normalized.setdefault("delete_rule_code", "RESTRICT")
+   253	        normalized.setdefault("update_rule_code", "CASCADE")
+   254	        normalized.setdefault("enabled_yn", "Y")
+   255	        normalized.setdefault("sort_no", 0)
+   256	        normalized.setdefault("created_by", "RELATIONSHIP_GENERATOR")
+   257	        normalized.setdefault("updated_by", "RELATIONSHIP_GENERATOR")
+   258	        normalized.setdefault("client_ip", "127.0.0.1")
+   259	        normalized.setdefault(
+   260	            "program_id",
+   261	            "RelationshipGenerator",
+   262	        )
+   263	
+   264	        normalized["source_min_cardinality"] = int(
+   265	            normalized["source_min_cardinality"]
+   266	        )
+   267	        normalized["source_max_cardinality"] = int(
+   268	            normalized["source_max_cardinality"]
+   269	        )
+   270	        normalized["target_min_cardinality"] = int(
+   271	            normalized["target_min_cardinality"]
+   272	        )
+   273	        normalized["target_max_cardinality"] = int(
+   274	            normalized["target_max_cardinality"]
+   275	        )
+   276	        normalized["sort_no"] = int(normalized["sort_no"])
+   277	
+   278	        return normalized
+   279	
+   280	    def _validate_request(
+   281	        self,
+   282	        request: dict[str, Any],
+   283	    ) -> None:
+   284	        """필수값과 문자열 규격을 검증한다."""
+   285	        missing = [
+   286	            field
+   287	            for field in self.REQUIRED_FIELDS
+   288	            if request.get(field) in (None, "")
+   289	        ]
+   290	
+   291	        if missing:
+   292	            raise ValueError(
+   293	                "Required Relationship fields are missing. "
+   294	                f"missing_fields={missing}"
+   295	            )
+   296	
+   297	        if request["relationship_scope_code"] != "OBJECT":
+   298	            raise ValueError(
+   299	                "RelationshipGenerator supports OBJECT scope only."
+   300	            )
+   301	
+   302	        if not re.fullmatch(
+   303	            r"[A-Z][A-Z0-9_]*",
+   304	            request["relationship_code"],
+   305	        ):
+   306	            raise ValueError(
+   307	                "Invalid relationship_code. "
+   308	                f"value={request['relationship_code']}"
+   309	            )
+   310	
+   311	        if len(request["relationship_code"]) > 100:
+   312	            raise ValueError(
+   313	                "relationship_code exceeds VARCHAR(100)."
+   314	            )
+   315	
+   316	        if len(request["relationship_name"]) > 150:
+   317	            raise ValueError(
+   318	                "relationship_name exceeds VARCHAR(150)."
+   319	            )
+   320	
+   321	        description = request.get(
+   322	            "relationship_description"
+   323	        )
+   324	
+   325	        if description and len(description) > 2000:
+   326	            raise ValueError(
+   327	                "relationship_description exceeds VARCHAR(2000)."
+   328	            )
+   329	
+   330	    @staticmethod
+   331	    def _validate_duplicate_request_codes(
+   332	        requests: list[dict[str, Any]],
+   333	    ) -> None:
+   334	        """동일 Batch 안의 Relationship Code 중복을 차단한다."""
+   335	        codes = [
+   336	            request["relationship_code"]
+   337	            for request in requests
+   338	        ]
+   339	
+   340	        duplicate_codes = sorted(
+   341	            {
+   342	                code
+   343	                for code in codes
+   344	                if codes.count(code) > 1
+   345	            }
+   346	        )
+   347	
+   348	        if duplicate_codes:
+   349	            raise ValueError(
+   350	                "Duplicate relationship_code in request. "
+   351	                f"codes={duplicate_codes}"
+   352	            )
+   353	
+   354	    def _validate_predicate(
+   355	        self,
+   356	        predicate_code: str,
+   357	    ) -> None:
+   358	        """Relationship Predicate 공통코드를 검증한다."""
+   359	        row = self.database.fetch_one(
+   360	            """
+   361	            SELECT
+   362	                code,
+   363	                code_name
+   364	            FROM te_common.cm_common_code
+   365	            WHERE group_code = 'SPS_RELATIONSHIP_PREDICATE'
+   366	              AND code = %s
+   367	              AND status_code = 'ACTIVE'
+   368	              AND deleted_dt IS NULL
+   369	            LIMIT 1
+   370	            """,
+   371	            (predicate_code,),
+   372	        )
+   373	
+   374	        if not row:
+   375	            raise ValueError(
+   376	                "Relationship Predicate metadata not found. "
+   377	                f"predicate_code={predicate_code}"
+   378	            )
+   379	
+   380	    def _validate_object_type(
+   381	        self,
+   382	        object_type_code: str,
+   383	    ) -> None:
+   384	        """Relationship Object Type 공통코드를 검증한다."""
+   385	        row = self.database.fetch_one(
+   386	            """
+   387	            SELECT
+   388	                code,
+   389	                code_name
+   390	            FROM te_common.cm_common_code
+   391	            WHERE group_code = 'SPS_RELATIONSHIP_OBJECT_TYPE'
+   392	              AND code = %s
+   393	              AND status_code = 'ACTIVE'
+   394	              AND deleted_dt IS NULL
+   395	            LIMIT 1
+   396	            """,
+   397	            (object_type_code,),
+   398	        )
+   399	
+   400	        if not row:
+   401	            raise ValueError(
+   402	                "Relationship Object Type metadata not found. "
+   403	                f"object_type_code={object_type_code}"
+   404	            )
+   405	
+   406	    def _load_object_type_metadata(
+   407	        self,
+   408	        object_type_code: str,
+   409	    ) -> dict[str, Any]:
+   410	        """Object Type의 Repository 위치 Metadata를 읽는다."""
+   411	        row = self.database.fetch_one(
+   412	            """
+   413	            SELECT
+   414	                code,
+   415	                common_code_json
+   416	            FROM te_common.cm_common_code
+   417	            WHERE group_code = 'SPS_RELATIONSHIP_OBJECT_TYPE'
+   418	              AND code = %s
+   419	              AND status_code = 'ACTIVE'
+   420	              AND deleted_dt IS NULL
+   421	            LIMIT 1
+   422	            """,
+   423	            (object_type_code,),
+   424	        )
+   425	
+   426	        if not row:
+   427	            raise ValueError(
+   428	                "Object Type metadata not found. "
+   429	                f"object_type_code={object_type_code}"
+   430	            )
+   431	
+   432	        raw_json = row.get("common_code_json")
+   433	
+   434	        if isinstance(raw_json, dict):
+   435	            metadata = raw_json
+   436	        elif isinstance(raw_json, str) and raw_json.strip():
+   437	            metadata = json.loads(raw_json)
+   438	        else:
+   439	            metadata = {}
+   440	
+   441	        required = (
+   442	            "database_role",
+   443	            "table_name",
+   444	            "identifier_column",
+   445	        )
+   446	
+   447	        missing = [
+   448	            field
+   449	            for field in required
+   450	            if not metadata.get(field)
+   451	        ]
+   452	
+   453	        if missing:
+   454	            raise ValueError(
+   455	                "Object Type Repository metadata is incomplete. "
+   456	                f"object_type_code={object_type_code}, "
+   457	                f"missing_fields={missing}"
+   458	            )
+   459	
+   460	        return metadata
+   461	
+   462	    def _validate_object_exists(
+   463	        self,
+   464	        object_id: str,
+   465	        object_type_code: str,
+   466	    ) -> None:
+   467	        """공통코드 JSON이 지정한 Repository에서 Object를 조회한다."""
+   468	        metadata = self._load_object_type_metadata(
+   469	            object_type_code
+   470	        )
+   471	
+   472	        database_role = str(
+   473	            metadata["database_role"]
+   474	        ).upper()
+   475	
+   476	        database_map = {
+   477	            "COMMON": "te_common",
+   478	            "STORY_PLATFORM": "te_story_platform",
+   479	        }
+   480	
+   481	        database_name = database_map.get(database_role)
+   482	
+   483	        if not database_name:
+   484	            raise ValueError(
+   485	                "Unsupported Repository database role. "
+   486	                f"database_role={database_role}"
+   487	            )
+   488	
+   489	        table_name = metadata["table_name"]
+   490	        identifier_column = metadata["identifier_column"]
+   491	
+   492	        identifier_pattern = re.compile(
+   493	            r"^[a-z][a-z0-9_]*$"
+   494	        )
+   495	
+   496	        for identifier in (
+   497	            database_name,
+   498	            table_name,
+   499	            identifier_column,
+   500	        ):
+   501	            if not identifier_pattern.fullmatch(identifier):
+   502	                raise ValueError(
+   503	                    "Unsafe Repository identifier metadata. "
+   504	                    f"identifier={identifier}"
+   505	                )
+   506	
+   507	        sql = (
+   508	            f"SELECT {identifier_column} "
+   509	            f"FROM {database_name}.{table_name} "
+   510	            f"WHERE {identifier_column} = %s "
+   511	            f"LIMIT 1"
+   512	        )
+   513	
+   514	        row = self.database.fetch_one(
+   515	            sql,
+   516	            (object_id,),
+   517	        )
+   518	
+   519	        if not row:
+   520	            raise ValueError(
+   521	                "Relationship Source/Target Object not found. "
+   522	                f"object_type_code={object_type_code}, "
+   523	                f"object_id={object_id}, "
+   524	                f"repository={database_name}.{table_name}"
+   525	            )
+   526	
+   527	    def _find_existing_relationships(
+   528	        self,
+   529	        requests: list[dict[str, Any]],
+   530	    ) -> list[dict[str, Any]]:
+   531	        """요청 Relationship Code와 일치하는 기존 행을 조회한다."""
+   532	        codes = [
+   533	            request["relationship_code"]
+   534	            for request in requests
+   535	        ]
+   536	
+   537	        return self._find_relationships_by_codes(codes)
+   538	
+   539	    def _find_relationships_by_codes(
+   540	        self,
+   541	        relationship_codes: list[str],
+   542	    ) -> list[dict[str, Any]]:
+   543	        """Relationship Code 목록으로 저장 결과를 조회한다."""
+   544	        if not relationship_codes:
+   545	            return []
+   546	
+   547	        placeholders = ", ".join(
+   548	            ["%s"] * len(relationship_codes)
+   549	        )
+   550	
+   551	        sql = f"""
+   552	            SELECT
+   553	                relationship_id,
+   554	                relationship_scope_code,
+   555	                source_object_id,
+   556	                source_object_type_code,
+   557	                relationship_type_code,
+   558	                target_object_id,
+   559	                target_object_type_code,
+   560	                relationship_code,
+   561	                relationship_name,
+   562	                relationship_description,
+   563	                enabled_yn,
+   564	                sort_no,
+   565	                created_dt
+   566	            FROM sp_relationship
+   567	            WHERE relationship_code IN ({placeholders})
+   568	              AND deleted_dt IS NULL
+   569	            ORDER BY sort_no, relationship_code
+   570	        """
+   571	
+   572	        rows = self.database.fetch_all(
+   573	            sql,
+   574	            tuple(relationship_codes),
+   575	        )
+   576	
+   577	        return rows or []
+   578	
+   579	    def _insert_relationship(
+   580	        self,
+   581	        row: dict[str, Any],
+   582	    ) -> None:
+   583	        """sp_relationship에 Relationship 한 건을 저장한다."""
+   584	        affected = self.database.execute(
+   585	            """
+   586	            INSERT INTO sp_relationship
+   587	            (
+   588	                relationship_id,
+   589	                relationship_scope_code,
+   590	                erd_id,
+   591	                source_entity_id,
+   592	                source_object_id,
+   593	                source_object_type_code,
+   594	                target_entity_id,
+   595	                target_object_id,
+   596	                target_object_type_code,
+   597	                relationship_code,
+   598	                relationship_name,
+   599	                relationship_description,
+   600	                relationship_type_code,
+   601	                source_min_cardinality,
+   602	                source_max_cardinality,
+   603	                target_min_cardinality,
+   604	                target_max_cardinality,
+   605	                identifying_yn,
+   606	                delete_rule_code,
+   607	                update_rule_code,
+   608	                enabled_yn,
+   609	                sort_no,
+   610	                created_by,
+   611	                created_dt,
+   612	                updated_by,
+   613	                updated_dt,
+   614	                deleted_by,
+   615	                deleted_dt,
+   616	                client_ip,
+   617	                program_id
+   618	            )
+   619	            VALUES
+   620	            (
+   621	                %s,
+   622	                'OBJECT',
+   623	                NULL,
+   624	                NULL,
+   625	                %s,
+   626	                %s,
+   627	                NULL,
+   628	                %s,
+   629	                %s,
+   630	                %s,
+   631	                %s,
+   632	                %s,
+   633	                %s,
+   634	                %s,
+   635	                %s,
+   636	                %s,
+   637	                %s,
+   638	                %s,
+   639	                %s,
+   640	                %s,
+   641	                %s,
+   642	                %s,
+   643	                %s,
+   644	                CURRENT_TIMESTAMP,
+   645	                %s,
+   646	                CURRENT_TIMESTAMP,
+   647	                NULL,
+   648	                NULL,
+   649	                %s,
+   650	                %s
+   651	            )
+   652	            """,
+   653	            (
+   654	                row["relationship_id"],
+   655	                row["source_object_id"],
+   656	                row["source_object_type_code"],
+   657	                row["target_object_id"],
+   658	                row["target_object_type_code"],
+   659	                row["relationship_code"],
+   660	                row["relationship_name"],
+   661	                row.get("relationship_description"),
+   662	                row["relationship_type_code"],
+   663	                row["source_min_cardinality"],
+   664	                row["source_max_cardinality"],
+   665	                row["target_min_cardinality"],
+   666	                row["target_max_cardinality"],
+   667	                row["identifying_yn"],
+   668	                row.get("delete_rule_code"),
+   669	                row.get("update_rule_code"),
+   670	                row["enabled_yn"],
+   671	                row["sort_no"],
+   672	                row["created_by"],
+   673	                row["updated_by"],
+   674	                row["client_ip"],
+   675	                row["program_id"],
+   676	            ),
+   677	        )
+   678	
+   679	        if affected != 1:
+   680	            raise RuntimeError(
+   681	                "Relationship Repository save failed. "
+   682	                f"relationship_code={row['relationship_code']}, "
+   683	                f"affected_rows={affected}"
+   684	            )
+
+==============================================================================
+FILE : engine/generator/metadata_generator.py
+==============================================================================
+     1	"""
+     2	SPS Metadata Generator
+     3	
+     4	Purpose:
+     5	    Metadata Object의 Identifier를 Repository Metadata로 발급하고
+     6	    sp_metadata에 규제 Metadata를 저장한다.
+     7	
+     8	Principles:
+     9	    - Repository First
+    10	    - Object First
+    11	    - Generator First
+    12	    - Metadata Driven
+    13	    - Single Source of Truth
+    14	    - No Hardcoding
+    15	"""
+    16	
+    17	from __future__ import annotations
+    18	
+    19	from datetime import datetime
+    20	from typing import Any
+    21	
+    22	from common.database import CommonDatabase
+    23	from engine.identifier_engine import IdentifierEngine
+    24	
+    25	
+    26	class MetadataGenerator:
+    27	    """SPS Metadata Repository Generator."""
+    28	
+    29	    OBJECT_CODE = "METADATA"
+    30	
+    31	    REQUIRED_FIELDS = (
+    32	        "target_type_code",
+    33	        "target_id",
+    34	        "metadata_type_code",
+    35	        "metadata_key",
+    36	    )
+    37	
+    38	    def __init__(
+    39	        self,
+    40	        database: CommonDatabase | None = None,
+    41	    ) -> None:
+    42	        self.database = database or CommonDatabase(
+    43	            database_role="STORY_PLATFORM"
+    44	        )
+    45	        self.identifier_engine = IdentifierEngine(self.database)
+    46	
+    47	    def create_batch(
+    48	        self,
+    49	        requests: list[dict[str, Any]],
+    50	    ) -> dict[str, Any]:
+    51	        """Metadata 여러 건을 하나의 Transaction으로 생성한다."""
+    52	        if not isinstance(requests, list) or not requests:
+    53	            raise ValueError(
+    54	                "Metadata requests must be a non-empty list."
+    55	            )
+    56	
+    57	        normalized_requests = [
+    58	            self._normalize_request(request)
+    59	            for request in requests
+    60	        ]
+    61	
+    62	        self._validate_duplicate_keys(normalized_requests)
+    63	
+    64	        existing_rows = self._find_existing_metadata(
+    65	            normalized_requests
+    66	        )
+    67	
+    68	        if existing_rows:
+    69	            return {
+    70	                "success": False,
+    71	                "status": "ALREADY_EXISTS",
+    72	                "message": (
+    73	                    "One or more metadata records already exist."
+    74	                ),
+    75	                "metadata_count": 0,
+    76	                "metadata": existing_rows,
+    77	            }
+    78	
+    79	        generated_rows: list[dict[str, Any]] = []
+    80	        batch_dt = datetime.now()
+    81	
+    82	        try:
+    83	            self.database.begin()
+    84	
+    85	            existing_rows = self._find_existing_metadata(
+    86	                normalized_requests
+    87	            )
+    88	
+    89	            if existing_rows:
+    90	                self.database.rollback()
+    91	
+    92	                return {
+    93	                    "success": False,
+    94	                    "status": "ALREADY_EXISTS",
+    95	                    "message": (
+    96	                        "Metadata records were created "
+    97	                        "by another process."
+    98	                    ),
+    99	                    "metadata_count": 0,
+   100	                    "metadata": existing_rows,
+   101	                }
+   102	
+   103	            for request in normalized_requests:
+   104	                metadata_id = (
+   105	                    self.identifier_engine.generate_for_level(
+   106	                        object_code=self.OBJECT_CODE,
+   107	                        object_level=4,
+   108	                        now=batch_dt,
+   109	                        manage_transaction=False,
+   110	                    )
+   111	                )
+   112	
+   113	                generated_row = {
+   114	                    **request,
+   115	                    "metadata_id": metadata_id,
+   116	                }
+   117	
+   118	                self._insert_metadata(generated_row)
+   119	                generated_rows.append(generated_row)
+   120	
+   121	            self.database.commit()
+   122	
+   123	        except Exception:
+   124	            self.database.rollback()
+   125	            raise
+   126	
+   127	        saved_rows = self._find_metadata_by_ids(
+   128	            [
+   129	                row["metadata_id"]
+   130	                for row in generated_rows
+   131	            ]
+   132	        )
+   133	
+   134	        return {
+   135	            "success": True,
+   136	            "status": "CREATED",
+   137	            "message": (
+   138	                f"{len(saved_rows)} metadata records "
+   139	                "created successfully."
+   140	            ),
+   141	            "metadata_count": len(saved_rows),
+   142	            "metadata": saved_rows,
+   143	        }
+   144	
+   145	    def _normalize_request(
+   146	        self,
+   147	        request: dict[str, Any],
+   148	    ) -> dict[str, Any]:
+   149	        """Metadata Request를 정규화한다."""
+   150	        if not isinstance(request, dict):
+   151	            raise TypeError(
+   152	                "Each metadata request must be a dictionary."
+   153	            )
+   154	
+   155	        normalized = dict(request)
+   156	
+   157	        for field in self.REQUIRED_FIELDS:
+   158	            value = normalized.get(field)
+   159	
+   160	            if value is None or not str(value).strip():
+   161	                raise ValueError(
+   162	                    f"Required metadata field is missing: {field}"
+   163	                )
+   164	
+   165	            normalized[field] = str(value).strip()
+   166	
+   167	        uppercase_fields = (
+   168	            "target_type_code",
+   169	            "metadata_type_code",
+   170	            "metadata_value_type_code",
+   171	            "enabled_yn",
+   172	        )
+   173	
+   174	        for field in uppercase_fields:
+   175	            value = normalized.get(field)
+   176	
+   177	            if value is not None:
+   178	                normalized[field] = (
+   179	                    str(value).strip().upper()
+   180	                )
+   181	
+   182	        normalized.setdefault(
+   183	            "metadata_value_type_code",
+   184	            "STRING",
+   185	        )
+   186	        normalized.setdefault("enabled_yn", "Y")
+   187	        normalized.setdefault("sort_no", 0)
+   188	        normalized.setdefault("created_by", "SYSTEM")
+   189	        normalized.setdefault("updated_by", "SYSTEM")
+   190	        normalized.setdefault(
+   191	            "program_id",
+   192	            "MetadataGenerator",
+   193	        )
+   194	        normalized.setdefault("client_ip", "127.0.0.1")
+   195	
+   196	        return normalized
+   197	
+   198	    def _validate_duplicate_keys(
+   199	        self,
+   200	        requests: list[dict[str, Any]],
+   201	    ) -> None:
+   202	        """동일 Batch 내부 Metadata Key 중복을 검증한다."""
+   203	        keys = [
+   204	            (
+   205	                request["target_type_code"],
+   206	                request["target_id"],
+   207	                request["metadata_key"],
+   208	            )
+   209	            for request in requests
+   210	        ]
+   211	
+   212	        if len(keys) != len(set(keys)):
+   213	            raise ValueError(
+   214	                "Duplicate metadata keys exist in the request."
+   215	            )
+   216	
+   217	    def _find_existing_metadata(
+   218	        self,
+   219	        requests: list[dict[str, Any]],
+   220	    ) -> list[dict[str, Any]]:
+   221	        """기존 Metadata를 조회한다."""
+   222	        rows: list[dict[str, Any]] = []
+   223	
+   224	        sql = """
+   225	            SELECT
+   226	                metadata_id,
+   227	                target_type_code,
+   228	                target_id,
+   229	                metadata_type_code,
+   230	                metadata_key,
+   231	                metadata_value,
+   232	                metadata_value_type_code,
+   233	                metadata_json,
+   234	                enabled_yn,
+   235	                sort_no
+   236	            FROM sp_metadata
+   237	            WHERE target_type_code = %s
+   238	              AND target_id = %s
+   239	              AND metadata_key = %s
+   240	              AND deleted_dt IS NULL
+   241	        """
+   242	
+   243	        for request in requests:
+   244	            row = self.database.fetch_one(
+   245	                sql,
+   246	                (
+   247	                    request["target_type_code"],
+   248	                    request["target_id"],
+   249	                    request["metadata_key"],
+   250	                ),
+   251	            )
+   252	
+   253	            if row:
+   254	                rows.append(row)
+   255	
+   256	        return rows
+   257	
+   258	    def _insert_metadata(
+   259	        self,
+   260	        row: dict[str, Any],
+   261	    ) -> None:
+   262	        """sp_metadata에 Metadata를 저장한다."""
+   263	        sql = """
+   264	            INSERT INTO sp_metadata
+   265	            (
+   266	                metadata_id,
+   267	                target_type_code,
+   268	                target_id,
+   269	                metadata_type_code,
+   270	                metadata_key,
+   271	                metadata_value,
+   272	                metadata_value_type_code,
+   273	                metadata_json,
+   274	                enabled_yn,
+   275	                sort_no,
+   276	                created_by,
+   277	                created_dt,
+   278	                updated_by,
+   279	                updated_dt,
+   280	                client_ip,
+   281	                program_id
+   282	            )
+   283	            VALUES
+   284	            (
+   285	                %s, %s, %s, %s, %s,
+   286	                %s, %s, %s, %s, %s,
+   287	                %s, NOW(), %s, NOW(), %s, %s
+   288	            )
+   289	        """
+   290	
+   291	        affected_rows = self.database.execute(
+   292	            sql,
+   293	            (
+   294	                row["metadata_id"],
+   295	                row["target_type_code"],
+   296	                row["target_id"],
+   297	                row["metadata_type_code"],
+   298	                row["metadata_key"],
+   299	                row.get("metadata_value"),
+   300	                row["metadata_value_type_code"],
+   301	                row.get("metadata_json"),
+   302	                row["enabled_yn"],
+   303	                int(row["sort_no"]),
+   304	                row["created_by"],
+   305	                row["updated_by"],
+   306	                row["client_ip"],
+   307	                row["program_id"],
+   308	            ),
+   309	        )
+   310	
+   311	        if affected_rows != 1:
+   312	            raise RuntimeError(
+   313	                "Metadata insert failed. "
+   314	                f"affected_rows={affected_rows}"
+   315	            )
+   316	
+   317	    def _find_metadata_by_ids(
+   318	        self,
+   319	        metadata_ids: list[str],
+   320	    ) -> list[dict[str, Any]]:
+   321	        """생성된 Metadata를 조회한다."""
+   322	        rows: list[dict[str, Any]] = []
+   323	
+   324	        sql = """
+   325	            SELECT
+   326	                metadata_id,
+   327	                target_type_code,
+   328	                target_id,
+   329	                metadata_type_code,
+   330	                metadata_key,
+   331	                metadata_value,
+   332	                metadata_value_type_code,
+   333	                metadata_json,
+   334	                enabled_yn,
+   335	                sort_no
+   336	            FROM sp_metadata
+   337	            WHERE metadata_id = %s
+   338	              AND deleted_dt IS NULL
+   339	        """
+   340	
+   341	        for metadata_id in metadata_ids:
+   342	            row = self.database.fetch_one(
+   343	                sql,
+   344	                (metadata_id,),
+   345	            )
+   346	
+   347	            if row:
+   348	                rows.append(row)
+   349	
+   350	        return rows

@@ -1,0 +1,239 @@
+==============================================================================
+SPS Generator Integration Refactoring Inventory
+==============================================================================
+
+------------------------------------------------------------------------------
+MODULE : engine/generator/repository_generator.py
+------------------------------------------------------------------------------
+EXISTS     : True
+LINE COUNT : 18
+
+[IMPORTS]
+- NONE
+
+[CLASSES]
+- RepositoryGenerator (line=1, bases=object)
+    · save(self, repository_save_request) line=6
+
+[MODULE FUNCTIONS]
+- NONE
+
+[REFERENCES]
+- /data/vm_project/tools/generator_refactor_inventory.py:14:    "engine/generator/repository_generator.py",
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:3:from engine.generator.repository_generator import RepositoryGenerator
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:109:        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:251:        repository_generator_result = self.repository_generator.save(
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:257:        repository_save_result = repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:261:            repository_generator_result["generator"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:266:            repository_generator_result["status"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:276:        #     repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:281:           repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:351:            repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:688:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:710:                repository_generator_result["status"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:762:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260714_201355:773:            "repository_status": repository_generator_result["status"],
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:3:from engine.generator.repository_generator import RepositoryGenerator
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:97:        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:106:#        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:123:        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:288:        repository_generator_result = self.repository_generator.save(
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:294:        repository_generator_result = self.repository_generator.save(
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:298:        repository_save_result = repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:302:            repository_generator_result["generator"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:307:            repository_generator_result["status"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:317:        #     repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:322:           repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:392:            repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:662:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:677:            "repository_save_status": repository_generator_result["status"],
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:688:#            "repository_save_status": repository_generator_result["status"],
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:740:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_20260711:751:            "repository_status": repository_generator_result["status"],
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:3:from engine.generator.repository_generator import RepositoryGenerator
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:97:        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:106:#        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:123:        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:288:        repository_generator_result = self.repository_generator.save(
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:294:        repository_generator_result = self.repository_generator.save(
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:298:        repository_save_result = repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:302:            repository_generator_result["generator"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:307:            repository_generator_result["status"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:317:        #     repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:322:           repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:392:            repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:662:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:677:            "repository_save_status": repository_generator_result["status"],
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:688:#            "repository_save_status": repository_generator_result["status"],
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:740:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py.bak_202607114_2033:751:            "repository_status": repository_generator_result["status"],
+- /data/vm_project/engine/runtime/object_runtime_engine.py:3:from engine.generator.repository_generator import RepositoryGenerator
+- /data/vm_project/engine/runtime/object_runtime_engine.py:109:        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/engine/runtime/object_runtime_engine.py:251:        repository_generator_result = self.repository_generator.save(
+- /data/vm_project/engine/runtime/object_runtime_engine.py:257:        repository_save_result = repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py:261:            repository_generator_result["generator"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py:266:            repository_generator_result["status"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py:276:        #     repository_generator_result
+- /data/vm_project/engine/runtime/object_runtime_engine.py:281:           repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py:351:            repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py:688:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py:710:                repository_generator_result["status"]
+- /data/vm_project/engine/runtime/object_runtime_engine.py:762:        repository_generator_result,
+- /data/vm_project/engine/runtime/object_runtime_engine.py:773:            "repository_status": repository_generator_result["status"],
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:140:from engine.generator.repository_generator import RepositoryGenerator
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:246:        self.repository_generator = RepositoryGenerator()
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:535:repository_generator.py
+
+------------------------------------------------------------------------------
+MODULE : engine/generator/repository_execution_plan_builder.py
+------------------------------------------------------------------------------
+EXISTS     : True
+LINE COUNT : 218
+
+[IMPORTS]
+- from __future__ import annotations
+- from typing import Any, Mapping
+- from common.database import CommonDatabase
+- from engine.model.repository_execution_plan import RepositoryExecutionPlan
+
+[CLASSES]
+- RepositoryExecutionPlanBuilder (line=35, bases=object)
+    · __init__(self, database) line=38
+    · load_context(self, object_code) line=46
+    · build(self, object_code, operation_code, repository_metadata) line=75
+    · _load_object(self, object_code) line=131
+    · _load_execution_links(self, object_id) line=173
+    · _normalize_code(value, field_name) line=207
+
+[MODULE FUNCTIONS]
+- NONE
+
+[REFERENCES]
+- /data/vm_project/tools/generator_refactor_inventory.py:15:    "engine/generator/repository_execution_plan_builder.py",
+
+------------------------------------------------------------------------------
+MODULE : engine/generator/object_definition_generator.py
+------------------------------------------------------------------------------
+EXISTS     : True
+LINE COUNT : 821
+
+[IMPORTS]
+- from __future__ import annotations
+- re
+- from datetime import datetime
+- from typing import Any
+- from common.database import CommonDatabase
+- from engine.identifier_engine import IdentifierEngine
+
+[CLASSES]
+- ObjectDefinitionGenerator (line=29, bases=object)
+    · __init__(self, database) line=52
+    · create(self, request) line=61
+    · _normalize_request(self, request) line=217
+    · _validate_required_fields(self, request) line=277
+    · _validate_repository_metadata(self, request) line=330
+    · _find_existing_object(self, object_code) line=434
+    · _build_lock_name(normalized, sequence_date) line=464
+    · _acquire_lock(self, lock_name) line=477
+    · _release_lock(self, lock_name) line=489
+    · _ensure_sequence_metadata(self, normalized, blueprint, sequence_date, sequence_length, now) line=499
+    · _allocate_sequence(self, identifier_sequence_id, sequence_length) line=630
+    · _validate_generated_identifier(identifier, blueprint) line=694
+    · _insert_object(self, object_id, request) line=721
+
+[MODULE FUNCTIONS]
+- NONE
+
+[REFERENCES]
+- /data/vm_project/tools/generator_refactor_inventory.py:16:    "engine/generator/object_definition_generator.py",
+- /data/vm_project/result_blueprint_repository_20260714_211606.log:9:engine/generator/object_definition_generator.py:96:        blueprint = self.identifier_engine.load_identifier_blueprint(
+- /data/vm_project/result_blueprint_repository_20260714_211606.log:10:engine/generator/object_definition_generator.py:205:                "blueprint_code": blueprint["blueprint_code"],
+- /data/vm_project/result_blueprint_repository_20260714_211606.log:11:engine/generator/object_definition_generator.py:591:                    'blueprint_code', %s,
+- /data/vm_project/result_blueprint_repository_20260714_211606.log:12:engine/generator/object_definition_generator.py:608:                blueprint["blueprint_code"],
+- /data/vm_project/result_blueprint_repository_20260714_211606.log:13:engine/generator/object_definition_generator.py:711:                f"blueprint={blueprint['blueprint_code']}"
+- /data/vm_project/engine/runtime/object_definition_runtime_adapter.py:20:from engine.generator.object_definition_generator import (
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:512:engine/generator/object_definition_generator.py:57:            database_role="STORY_PLATFORM"
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:533:object_definition_generator.py
+
+------------------------------------------------------------------------------
+MODULE : engine/generator/relationship_generator.py
+------------------------------------------------------------------------------
+EXISTS     : True
+LINE COUNT : 684
+
+[IMPORTS]
+- from __future__ import annotations
+- json
+- from datetime import datetime
+- os
+- re
+- from typing import Any
+- from common.database import CommonDatabase
+- from engine.identifier_engine import IdentifierEngine
+
+[CLASSES]
+- RelationshipGenerator (line=30, bases=object)
+    · __init__(self, database) line=46
+    · create_batch(self, requests) line=55
+    · _normalize_request(self, request) line=201
+    · _validate_request(self, request) line=280
+    · _validate_duplicate_request_codes(requests) line=331
+    · _validate_predicate(self, predicate_code) line=354
+    · _validate_object_type(self, object_type_code) line=380
+    · _load_object_type_metadata(self, object_type_code) line=406
+    · _validate_object_exists(self, object_id, object_type_code) line=462
+    · _find_existing_relationships(self, requests) line=527
+    · _find_relationships_by_codes(self, relationship_codes) line=539
+    · _insert_relationship(self, row) line=579
+
+[MODULE FUNCTIONS]
+- NONE
+
+[REFERENCES]
+- /data/vm_project/tools/generator_refactor_inventory.py:17:    "engine/generator/relationship_generator.py",
+- /data/vm_project/result_blueprint_repository_20260714_211606.log:14:engine/generator/relationship_generator.py:415:                common_code_json
+- /data/vm_project/result_blueprint_repository_20260714_211606.log:15:engine/generator/relationship_generator.py:432:        raw_json = row.get("common_code_json")
+- /data/vm_project/engine/runtime/relationship_runtime_adapter.py:20:from engine.generator.relationship_generator import (
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:513:engine/generator/relationship_generator.py:51:            database_role="STORY_PLATFORM"
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:514:engine/generator/relationship_generator.py:442:            "database_role",
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:515:engine/generator/relationship_generator.py:472:        database_role = str(
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:516:engine/generator/relationship_generator.py:473:            metadata["database_role"]
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:517:engine/generator/relationship_generator.py:481:        database_name = database_map.get(database_role)
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:518:engine/generator/relationship_generator.py:486:                f"database_role={database_role}"
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:534:relationship_generator.py
+
+------------------------------------------------------------------------------
+MODULE : engine/generator/metadata_generator.py
+------------------------------------------------------------------------------
+EXISTS     : True
+LINE COUNT : 350
+
+[IMPORTS]
+- from __future__ import annotations
+- from datetime import datetime
+- from typing import Any
+- from common.database import CommonDatabase
+- from engine.identifier_engine import IdentifierEngine
+
+[CLASSES]
+- MetadataGenerator (line=26, bases=object)
+    · __init__(self, database) line=38
+    · create_batch(self, requests) line=47
+    · _normalize_request(self, request) line=145
+    · _validate_duplicate_keys(self, requests) line=198
+    · _find_existing_metadata(self, requests) line=217
+    · _insert_metadata(self, row) line=258
+    · _find_metadata_by_ids(self, metadata_ids) line=317
+
+[MODULE FUNCTIONS]
+- NONE
+
+[REFERENCES]
+- /data/vm_project/tools/generator_refactor_inventory.py:18:    "engine/generator/metadata_generator.py",
+- /data/vm_project/engine/runtime/metadata_runtime_adapter.py:10:from engine.generator.metadata_generator import MetadataGenerator
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:511:engine/generator/metadata_generator.py:43:            database_role="STORY_PLATFORM"
+- /data/vm_project/result_knowledge_runtime_interfaces_20260714_201355.log:530:metadata_generator.py
+
+==============================================================================
+END
+==============================================================================
