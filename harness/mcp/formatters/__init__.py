@@ -1,9 +1,9 @@
-from .pytest_result_formatter import (
-    PytestCaseResult,
-    PytestResultFormatter,
-)
+"""SPS Harness formatter package."""
+
+from harness.mcp.formatters.git_status_formatter import format_git_status
+from harness.mcp.formatters.pytest_result_formatter import format_pytest_result
 
 __all__ = [
-    "PytestCaseResult",
-    "PytestResultFormatter",
+    "format_git_status",
+    "format_pytest_result",
 ]

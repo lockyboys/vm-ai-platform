@@ -291,3 +291,6 @@ class PytestResultFormatter:
         parent.add_child(child)
 
         return child
+
+# Public formatter API alias
+format_pytest_result = PytestResultFormatter.format

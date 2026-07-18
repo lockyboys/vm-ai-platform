@@ -1,6 +1,25 @@
-# Current Repository Standardization Checkpoint
+# SPS Work Checkpoint
 
-- `cm_data_classification` 검토 완료
-- `cm_data_type`은 폐기 후보이며 최종 검증 대기
-- 다음 검토 대상은 `cm_audit_policy`
-- 완료된 Repository 분석을 처음부터 다시 시작하지 않는다
+## Checkpoint ID
+2026-07-18 05:xx (KST)
+
+## Current Status
+- Harness Read/Write 정상
+- Repository 기반 개발 진행
+- Story Programming Document Framework (SPDF) v0.1 시작
+
+## Development Target
+1. Document Object Model
+2. Document Builder
+3. Numbering Engine
+4. DOCX Generator
+5. TOC Engine
+6. Style Repository
+
+## Checkpoint Policy
+- 모든 체크포인트는 'YYYY-MM-DD HH:MM (KST)' 형식의 날짜/시간을 포함한다.
+- 주요 설계 변경 및 구현 완료 시 새로운 체크포인트를 생성한다.
+- 이전 체크포인트는 변경 이력으로 보존한다.
+
+## Immediate Next Action
+- document.py 구현 시작

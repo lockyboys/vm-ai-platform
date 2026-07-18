@@ -74,6 +74,37 @@ def get_current_checkpoint() -> str:
 
     return checkpoint_file.read_text(encoding="utf-8")
 
+@mcp.tool()
+def update_current_checkpoint(
+    checkpoint_text: str,
+) -> str:
+    """
+    Update the current SPS implementation checkpoint.
+    """
+
+    checkpoint_file = (
+        MEMORY_ROOT
+        / "checkpoints"
+        / "current.md"
+    )
+
+    checkpoint_file.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    checkpoint_file.write_text(
+        checkpoint_text,
+        encoding="utf-8",
+    )
+
+    # return (
+    #     "Current checkpoint updated successfully."
+    # )
+
+    return checkpoint_file.read_text(
+        encoding="utf-8"
+    )
 
 @mcp.tool()
 def list_harness_memory() -> str:

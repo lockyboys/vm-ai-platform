@@ -124,4 +124,4 @@ def test_directory_tree_node_has_directory_suffix() -> None:
         node_type=TreeNodeType.DIRECTORY,
     )
 
-    assert node.display_name == "formatter/"    
+    assert node.display_name == "formatter/"
