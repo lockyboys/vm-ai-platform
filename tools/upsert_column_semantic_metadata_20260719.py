@@ -22,6 +22,30 @@ from tools.register_column_suffix_metadata import ensure_metadata_identifier_seq
 PROGRAM_ID = "upsert_column_semantic_metadata_20260719"
 ACTOR_ID = "SYSTEM"
 CLIENT_IP = "127.0.0.1"
+METADATA_TYPE_CODE = "DATA_TYPE"
+LEGACY_METADATA_TYPE_CODES = (
+    "REQUIRED_SUFFIX_STANDARD",
+    "COLUMN_SUFFIX_STANDARD",
+    "COLUMN_COMPOUND_SUFFIX_STANDARD",
+    "COLUMN_EXACT_STANDARD",
+    "COLUMN_ROOT_STANDARD",
+    "COLUMN_PREFIX_SEMANTIC",
+    "COLUMN_VARCHAR_LENGTH_STANDARD",
+)
+OBSOLETE_LEGACY_KEYS = (
+    "EXACT:message",
+    "EXACT:summary",
+    "EXACT:remark",
+    "EXACT:title",
+    "EXACT:content",
+    "EXACT:note",
+    "EXACT:comment",
+    "EXACT:created_at",
+    "EXACT:updated_at",
+    "EXACT:disposed_at",
+    "EXACT:executed_at",
+    "EXACT:sequence_date",
+)
 
 TYPE_STANDARD_RULES: tuple[dict[str, Any], ...] = (
     # Compound and general suffix rules.
@@ -56,18 +80,10 @@ TYPE_STANDARD_RULES: tuple[dict[str, Any], ...] = (
     {"match_type": "EXACT", "match_key": "code", "sql_type": "VARCHAR(99)", "semantic_role": "CODE", "length": 99, "priority": 1000},
     {"match_type": "EXACT", "match_key": "description", "sql_type": "VARCHAR(2000)", "semantic_role": "DESCRIPTION", "length": 2000, "priority": 1000},
     {"match_type": "EXACT", "match_key": "email", "sql_type": "VARCHAR(500)", "semantic_role": "EMAIL", "length": 500, "priority": 1000},
-    {"match_type": "EXACT", "match_key": "message", "sql_type": "TEXT", "semantic_role": "MESSAGE", "priority": 1000},
-    {"match_type": "EXACT", "match_key": "summary", "sql_type": "VARCHAR(2000)", "semantic_role": "SUMMARY", "length": 2000, "priority": 1000},
-    {"match_type": "EXACT", "match_key": "remark", "sql_type": "VARCHAR(2000)", "semantic_role": "REMARK", "length": 2000, "priority": 1000},
     {"match_type": "EXACT", "match_key": "address", "sql_type": "VARCHAR(500)", "semantic_role": "ADDRESS", "length": 500, "priority": 1000},
     {"match_type": "EXACT", "match_key": "phone", "sql_type": "VARCHAR(50)", "semantic_role": "PHONE", "length": 50, "priority": 1000},
     {"match_type": "EXACT", "match_key": "doi", "sql_type": "VARCHAR(500)", "semantic_role": "DOI", "length": 500, "priority": 1000},
     {"match_type": "EXACT", "match_key": "pmid", "sql_type": "VARCHAR(99)", "semantic_role": "PMID", "length": 99, "priority": 1000},
-    {"match_type": "EXACT", "match_key": "created_at", "sql_type": "DATETIME", "semantic_role": "CREATED_DATETIME", "rename_to": "created_dt", "priority": 1100},
-    {"match_type": "EXACT", "match_key": "updated_at", "sql_type": "DATETIME", "semantic_role": "UPDATED_DATETIME", "rename_to": "updated_dt", "priority": 1100},
-    {"match_type": "EXACT", "match_key": "disposed_at", "sql_type": "DATETIME", "semantic_role": "DISPOSED_DATETIME", "rename_to": "disposed_dt", "priority": 1100},
-    {"match_type": "EXACT", "match_key": "executed_at", "sql_type": "DATETIME", "semantic_role": "EXECUTED_DATETIME", "rename_to": "executed_dt", "priority": 1100},
-    {"match_type": "EXACT", "match_key": "sequence_date", "sql_type": "DATETIME", "semantic_role": "SEQUENCE_DATETIME", "rename_to": "sequence_dt", "priority": 1100},
     {"match_type": "EXACT", "match_key": "generated_identifier", "sql_type": "VARCHAR(99)", "semantic_role": "GENERATED_IDENTIFIER", "length": 99, "priority": 1100},
     {"match_type": "EXACT", "match_key": "knowledge_identifier", "sql_type": "VARCHAR(99)", "semantic_role": "KNOWLEDGE_IDENTIFIER", "length": 99, "priority": 1100},
     {"match_type": "EXACT", "match_key": "identifier_prefix", "sql_type": "VARCHAR(99)", "semantic_role": "IDENTIFIER_PREFIX", "length": 99, "priority": 1100},
@@ -111,14 +127,19 @@ VARCHAR_LENGTH_BUCKET_RULES: tuple[dict[str, Any], ...] = (
 
 
 def metadata_type_code(rule: dict[str, Any]) -> str:
-    if rule["match_type"] == "VARCHAR_LENGTH_BUCKET":
-        return "COLUMN_VARCHAR_LENGTH_STANDARD"
-    if "sql_type" not in rule:
-        return "COLUMN_PREFIX_SEMANTIC"
-    return f"COLUMN_{rule['match_type']}_STANDARD"
+    return METADATA_TYPE_CODE
 
 
 def metadata_key(rule: dict[str, Any]) -> str:
+    if rule["match_type"] == "VARCHAR_LENGTH_BUCKET":
+        return (
+            f"VARCHAR_LENGTH_{rule['minimum_length']}_"
+            f"{rule['maximum_length']}"
+        )
+    return str(rule["match_key"])
+
+
+def legacy_metadata_key(rule: dict[str, Any]) -> str:
     if rule["match_type"] in {"SUFFIX", "COMPOUND_SUFFIX"}:
         return str(rule["match_key"])
     return f"{rule['match_type']}:{rule['match_key']}"
@@ -175,6 +196,177 @@ def resolve_metadata_target(database: CommonDatabase) -> str:
     return str(row["object_id"])
 
 
+def verify_metadata_type_common_code(database: CommonDatabase) -> None:
+    row = database.fetch_one(
+        """
+        SELECT COUNT(*) AS code_count
+        FROM te_common.cm_common_code
+        WHERE group_code IN ('METADATA_TYPE', 'SPS_METADATA_TYPE')
+          AND code = %s
+          AND status_code = 'ACTIVE'
+          AND deleted_dt IS NULL
+        """,
+        (METADATA_TYPE_CODE,),
+    )
+    if not row or int(row["code_count"] or 0) == 0:
+        raise RuntimeError(
+            "DATA_TYPE was not found in the Metadata Type common-code group."
+        )
+
+
+def normalize_legacy_metadata(
+    database: CommonDatabase,
+    target_id: str,
+    rules: tuple[dict[str, Any], ...],
+) -> dict[str, int]:
+    desired_by_legacy = {
+        legacy_metadata_key(rule): metadata_key(rule)
+        for rule in rules
+    }
+    desired_keys = tuple(metadata_key(rule) for rule in rules)
+    desired_placeholders = ", ".join(["%s"] * len(desired_keys))
+    obsolete_placeholders = ", ".join(
+        ["%s"] * len(OBSOLETE_LEGACY_KEYS)
+    )
+    type_placeholders = ", ".join(
+        ["%s"] * len(LEGACY_METADATA_TYPE_CODES)
+    )
+
+    try:
+        database.begin()
+        rows = database.fetch_all(
+            """
+            SELECT metadata_id, metadata_key
+            FROM sp_metadata
+            WHERE target_type_code = 'COLUMN'
+              AND target_id = %s
+              AND program_id = %s
+              AND deleted_dt IS NULL
+            FOR UPDATE
+            """,
+            (target_id, PROGRAM_ID),
+        )
+        active_rows = [dict(row) for row in (rows or [])]
+
+        target_rows = database.fetch_all(
+            f"""
+            SELECT metadata_id, metadata_key
+            FROM sp_metadata
+            WHERE target_type_code = 'COLUMN'
+              AND target_id = %s
+              AND metadata_key IN ({desired_placeholders})
+              AND deleted_dt IS NULL
+            FOR UPDATE
+            """,
+            (target_id, *desired_keys),
+        )
+        target_by_key = {
+            str(row["metadata_key"]): str(row["metadata_id"])
+            for row in (target_rows or [])
+        }
+
+        for row in active_rows:
+            old_key = str(row["metadata_key"])
+            new_key = desired_by_legacy.get(old_key)
+            if not new_key or new_key == old_key:
+                continue
+            conflicting_id = target_by_key.get(new_key)
+            if conflicting_id and conflicting_id != str(row["metadata_id"]):
+                raise RuntimeError(
+                    f"Metadata key migration conflict: {old_key} -> {new_key}"
+                )
+
+        retired_count = database.execute(
+            f"""
+            UPDATE sp_metadata
+            SET enabled_yn = 'N',
+                updated_by = %s,
+                updated_dt = CURRENT_TIMESTAMP,
+                deleted_by = %s,
+                deleted_dt = CURRENT_TIMESTAMP,
+                client_ip = %s,
+                program_id = %s
+            WHERE target_type_code = 'COLUMN'
+              AND target_id = %s
+              AND metadata_key IN ({obsolete_placeholders})
+              AND program_id = %s
+              AND deleted_dt IS NULL
+            """,
+            (
+                ACTOR_ID,
+                ACTOR_ID,
+                CLIENT_IP,
+                PROGRAM_ID,
+                target_id,
+                *OBSOLETE_LEGACY_KEYS,
+                PROGRAM_ID,
+            ),
+        )
+
+        migrated_count = 0
+        for row in active_rows:
+            old_key = str(row["metadata_key"])
+            new_key = desired_by_legacy.get(old_key)
+            if not new_key or new_key == old_key:
+                continue
+            migrated_count += database.execute(
+                """
+                UPDATE sp_metadata
+                SET metadata_key = %s,
+                    metadata_type_code = %s,
+                    metadata_value_type_code = 'STRING',
+                    updated_by = %s,
+                    updated_dt = CURRENT_TIMESTAMP,
+                    client_ip = %s,
+                    program_id = %s
+                WHERE metadata_id = %s
+                  AND deleted_dt IS NULL
+                """,
+                (
+                    new_key,
+                    METADATA_TYPE_CODE,
+                    ACTOR_ID,
+                    CLIENT_IP,
+                    PROGRAM_ID,
+                    row["metadata_id"],
+                ),
+            )
+
+        normalized_type_count = database.execute(
+            f"""
+            UPDATE sp_metadata
+            SET metadata_type_code = %s,
+                metadata_value_type_code = 'STRING',
+                updated_by = %s,
+                updated_dt = CURRENT_TIMESTAMP,
+                client_ip = %s,
+                program_id = %s
+            WHERE target_type_code = 'COLUMN'
+              AND target_id = %s
+              AND metadata_type_code IN ({type_placeholders})
+              AND deleted_dt IS NULL
+            """,
+            (
+                METADATA_TYPE_CODE,
+                ACTOR_ID,
+                CLIENT_IP,
+                PROGRAM_ID,
+                target_id,
+                *LEGACY_METADATA_TYPE_CODES,
+            ),
+        )
+        database.commit()
+    except Exception:
+        database.rollback()
+        raise
+
+    return {
+        "migrated_key_count": int(migrated_count),
+        "retired_duplicate_count": int(retired_count),
+        "normalized_type_count": int(normalized_type_count),
+    }
+
+
 def load_existing(
     database: CommonDatabase,
     target_id: str,
@@ -213,7 +405,7 @@ def update_existing(
                 UPDATE sp_metadata
                 SET metadata_type_code = %s,
                     metadata_value = %s,
-                    metadata_value_type_code = 'JSON',
+                    metadata_value_type_code = 'STRING',
                     metadata_json = %s,
                     enabled_yn = 'Y',
                     sort_no = %s,
@@ -265,7 +457,7 @@ def build_missing_requests(
                     rule.get("sql_type")
                     or rule.get("semantic_role")
                 ),
-                "metadata_value_type_code": "JSON",
+                "metadata_value_type_code": "STRING",
                 "metadata_json": metadata_payload(rule),
                 "enabled_yn": "Y",
                 "sort_no": 1000 + sort_no * 10,
@@ -292,6 +484,7 @@ def verify(
             metadata_type_code,
             metadata_key,
             metadata_value,
+            metadata_value_type_code,
             metadata_json,
             enabled_yn
         FROM sp_metadata
@@ -314,6 +507,8 @@ def verify(
             continue
         if row["metadata_type_code"] != metadata_type_code(rule):
             errors.append(f"{key}: metadata_type_code mismatch")
+        if row["metadata_value_type_code"] != "STRING":
+            errors.append(f"{key}: metadata_value_type_code mismatch")
         try:
             payload = json.loads(row["metadata_json"])
         except (TypeError, json.JSONDecodeError):
@@ -341,6 +536,12 @@ def main() -> int:
     )
     try:
         target_id = resolve_metadata_target(database)
+        verify_metadata_type_common_code(database)
+        migration_result = normalize_legacy_metadata(
+            database,
+            target_id,
+            rules,
+        )
         sequence_result = ensure_metadata_identifier_sequence(database)
         keys = tuple(metadata_key(rule) for rule in rules)
         existing_keys = load_existing(database, target_id, keys)
@@ -378,6 +579,18 @@ def main() -> int:
         print(f"Updated       : {updated_count}")
         print(f"Inserted      : {inserted_count}")
         print(f"Verified      : {len(saved_rows)}")
+        print(
+            "Migrated Keys : "
+            f"{migration_result['migrated_key_count']}"
+        )
+        print(
+            "Retired Rows  : "
+            f"{migration_result['retired_duplicate_count']}"
+        )
+        print(
+            "Type Fixed    : "
+            f"{migration_result['normalized_type_count']}"
+        )
         print(f"Sequence      : {sequence_result.get('status')}")
         print(f"Generator     : {generator_status}")
         print("=" * 80)

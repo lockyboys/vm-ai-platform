@@ -17,7 +17,7 @@ from engine.identifier_engine import IdentifierEngine
 
 
 TARGET_ID = "SP_MT_METADATA_20260714_00001"
-METADATA_TYPE_CODE = "REQUIRED_SUFFIX_STANDARD"
+METADATA_TYPE_CODE = "DATA_TYPE"
 
 STANDARDS = (
     ("_id", "VARCHAR(99)", "VARCHAR", 99, "Identifier"),
@@ -145,7 +145,7 @@ def build_requests(
                 "metadata_type_code": METADATA_TYPE_CODE,
                 "metadata_key": suffix,
                 "metadata_value": sql_type,
-                "metadata_value_type_code": "JSON",
+                "metadata_value_type_code": "STRING",
                 "metadata_json": json.dumps(
                     metadata_json,
                     ensure_ascii=False,

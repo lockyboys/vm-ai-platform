@@ -13,7 +13,7 @@ from common.database import CommonDatabase
 from engine.generator.metadata_generator import MetadataGenerator
 from tools.register_column_suffix_metadata import ensure_metadata_identifier_sequence
 
-METADATA_TYPE_CODE = "REQUIRED_SUFFIX_STANDARD"
+METADATA_TYPE_CODE = "DATA_TYPE"
 PROGRAM_ID = "upsert_column_suffix_metadata_20260719"
 ACTOR_ID = "SYSTEM"
 CLIENT_IP = "127.0.0.1"
@@ -87,7 +87,8 @@ def load_existing(database: CommonDatabase, target_id: str) -> dict[str, dict[st
     placeholders = ", ".join(["%s"] * len(keys))
     rows = database.fetch_all(
         f"""
-        SELECT metadata_id, metadata_key, metadata_value, metadata_json,
+        SELECT metadata_id, metadata_type_code, metadata_key,
+               metadata_value, metadata_value_type_code, metadata_json,
                enabled_yn, sort_no
         FROM sp_metadata
         WHERE target_type_code = 'COLUMN'
@@ -117,7 +118,7 @@ def update_existing(
                 UPDATE sp_metadata
                 SET metadata_type_code = %s,
                     metadata_value = %s,
-                    metadata_value_type_code = 'JSON',
+                    metadata_value_type_code = 'STRING',
                     metadata_json = %s,
                     enabled_yn = 'Y',
                     sort_no = %s,
@@ -166,7 +167,7 @@ def build_missing_requests(
                 "metadata_type_code": METADATA_TYPE_CODE,
                 "metadata_key": standard["suffix"],
                 "metadata_value": standard["sql_type"],
-                "metadata_value_type_code": "JSON",
+                "metadata_value_type_code": "STRING",
                 "metadata_json": metadata_payload(standard),
                 "enabled_yn": "Y",
                 "sort_no": sort_no * 10,
@@ -188,6 +189,10 @@ def verify(database: CommonDatabase, target_id: str) -> list[dict[str, Any]]:
         if not row:
             errors.append(f"{suffix}: missing")
             continue
+        if row["metadata_type_code"] != METADATA_TYPE_CODE:
+            errors.append(f"{suffix}: metadata_type_code mismatch")
+        if row["metadata_value_type_code"] != "STRING":
+            errors.append(f"{suffix}: metadata_value_type_code mismatch")
         if row["metadata_value"] != standard["sql_type"]:
             errors.append(
                 f"{suffix}: expected {standard['sql_type']}, got {row['metadata_value']}"
