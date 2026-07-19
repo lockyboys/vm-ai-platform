@@ -99,3 +99,9 @@ before_*.sql
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# ============================================
+# Applied one-time MCP installation patches
+# ============================================
+/sql/runtime/add_safe_git_mutation_tools_20260719.patch
+/sql/runtime/add_safe_source_patch_20260719.patch
