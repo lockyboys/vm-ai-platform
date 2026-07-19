@@ -21,9 +21,13 @@ Updated: 2026-07-19 KST
   - Orphan relationships: 0
 - Column data type maintenance source is complete.
   - Required suffix standards: 23
-  - Semantic rules: 67 total
-  - Type rules: 58
+  - Semantic rules: 72 total
+  - Type rules: 63
   - Prefix semantic rules: 9
+  - VARCHAR length bucket rules: 4
+  - `_at` is normalized to DATETIME and renamed to `_dt`.
+  - Generic VARCHAR fallback: 1-99→99, 100-150→150, 151-500→500, 501-20000→20000.
+  - Name-based rules take precedence; VARCHAR length buckets are fallback only.
   - Match precedence: EXACT > COMPOUND_SUFFIX > SUFFIX > PREFIX > ROOT
   - ROOT matching is snake_case token-only; substring matching is prohibited.
   - The analyzer reports type compliance and naming recommendations separately.
@@ -33,6 +37,7 @@ Updated: 2026-07-19 KST
   - `1e219be feat(metadata): add semantic column matching standards`
   - `89c11e0 feat(repository): analyze semantic column metadata`
   - `1282a2c chore(metadata): add column maintenance runner`
+  - `10c4b0c feat(metadata): normalize legacy datetime and varchar lengths`
 
 ## Repository Registration Rules
 
