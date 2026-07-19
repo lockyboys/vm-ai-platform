@@ -43,4 +43,5 @@ echo "SUCCESS: Metadata standards were registered and the inventory was rebuilt.
 echo "No physical table ALTER was executed."
 echo "Reports: ${PROJECT_DIR}/outputs/reports/repository_data_type_inventory_20260719.json"
 echo "         ${PROJECT_DIR}/outputs/reports/repository_data_type_inventory_20260719.csv"
+echo "         ${PROJECT_DIR}/outputs/reports/repository_data_type_inventory_20260719_mismatch.csv"
 echo "================================================================================"

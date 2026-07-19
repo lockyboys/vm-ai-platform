@@ -678,7 +678,11 @@ def write_json(path: Path, report: dict[str, Any]) -> None:
     )
 
 
-def write_csv(path: Path, report: dict[str, Any]) -> None:
+def write_csv(
+    path: Path,
+    report: dict[str, Any],
+    rows: list[dict[str, Any]] | None = None,
+) -> None:
     field_names = (
         "database_role",
         "table_schema",
@@ -709,7 +713,8 @@ def write_csv(path: Path, report: dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=field_names)
         writer.writeheader()
-        for item in report["columns"]:
+        output_rows = report["columns"] if rows is None else rows
+        for item in output_rows:
             writer.writerow(
                 {
                     field_name: item.get(field_name)
@@ -751,9 +756,21 @@ def main() -> int:
     report = analyze()
     json_path = output_dir / f"{arguments.basename}.json"
     csv_path = output_dir / f"{arguments.basename}.csv"
+    mismatch_csv_path = (
+        output_dir / f"{arguments.basename}_mismatch.csv"
+    )
 
     write_json(json_path, report)
     write_csv(csv_path, report)
+    write_csv(
+        mismatch_csv_path,
+        report,
+        [
+            item
+            for item in report["columns"]
+            if item["assessment_status"] == "MISMATCH"
+        ],
+    )
 
     summary = report["summary"]
     print("=" * 80)
@@ -765,6 +782,7 @@ def main() -> int:
     print(f"Columns         : {summary['column_count']}")
     print(f"JSON            : {json_path}")
     print(f"CSV             : {csv_path}")
+    print(f"Mismatch CSV    : {mismatch_csv_path}")
     print("-" * 80)
     for role in DATABASE_ROLES:
         item = summary["database_summary"][role]
