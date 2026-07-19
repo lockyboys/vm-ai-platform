@@ -10,13 +10,22 @@ from harness.mcp.tools.source_tools import (
     source_read,
     source_search,
 )
+from harness.mcp.tools.write_tools import source_write
+from harness.mcp.tools.patch_tools import source_patch
 from harness.mcp.tools.repository_tools import (
-    table_schema,
+    repository_foreign_keys,
+    repository_inventory,
+    repository_logical_relations,
     table_data,
+    table_schema,
 )
 from harness.mcp.tools.git_tools import (
     git_diff,
     git_status,
+)
+from harness.mcp.tools.git_mutation_tools import (
+    git_add,
+    git_commit,
 )
 
 PROJECT_ROOT = Path("/data/vm_project")
@@ -152,12 +161,19 @@ def read_harness_memory(relative_path: str) -> str:
 
 mcp.tool()(source_search)
 mcp.tool()(source_read)
+mcp.tool()(source_write)
+mcp.tool()(source_patch)
 
 mcp.tool()(table_schema)
 mcp.tool()(table_data)
+mcp.tool()(repository_inventory)
+mcp.tool()(repository_foreign_keys)
+mcp.tool()(repository_logical_relations)
 
 mcp.tool()(git_status)
 mcp.tool()(git_diff)
+mcp.tool()(git_add)
+mcp.tool()(git_commit)
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
