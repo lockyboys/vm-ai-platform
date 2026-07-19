@@ -25,7 +25,7 @@ CLIENT_IP = "127.0.0.1"
 
 TYPE_STANDARD_RULES: tuple[dict[str, Any], ...] = (
     # Compound and general suffix rules.
-    {"match_type": "COMPOUND_SUFFIX", "match_key": "_ip_address", "sql_type": "VARCHAR(50)", "semantic_role": "IP_ADDRESS", "rename_suffix": "_ip", "priority": 900},
+    {"match_type": "COMPOUND_SUFFIX", "match_key": "_ip_address", "sql_type": "VARCHAR(99)", "semantic_role": "IP_ADDRESS", "rename_suffix": "_ip", "priority": 900},
     {"match_type": "SUFFIX", "match_key": "_at", "sql_type": "DATETIME", "semantic_role": "LEGACY_DATETIME_SUFFIX", "rename_suffix": "_dt", "priority": 800},
     {"match_type": "SUFFIX", "match_key": "_message", "sql_type": "TEXT", "semantic_role": "MESSAGE", "priority": 700},
     {"match_type": "SUFFIX", "match_key": "_summary", "sql_type": "VARCHAR(2000)", "semantic_role": "SUMMARY", "priority": 700},
@@ -67,7 +67,7 @@ TYPE_STANDARD_RULES: tuple[dict[str, Any], ...] = (
     {"match_type": "EXACT", "match_key": "updated_at", "sql_type": "DATETIME", "semantic_role": "UPDATED_DATETIME", "rename_to": "updated_dt", "priority": 1100},
     {"match_type": "EXACT", "match_key": "disposed_at", "sql_type": "DATETIME", "semantic_role": "DISPOSED_DATETIME", "rename_to": "disposed_dt", "priority": 1100},
     {"match_type": "EXACT", "match_key": "executed_at", "sql_type": "DATETIME", "semantic_role": "EXECUTED_DATETIME", "rename_to": "executed_dt", "priority": 1100},
-    {"match_type": "EXACT", "match_key": "sequence_date", "sql_type": "DATE", "semantic_role": "SEQUENCE_DATE", "priority": 1100},
+    {"match_type": "EXACT", "match_key": "sequence_date", "sql_type": "DATETIME", "semantic_role": "SEQUENCE_DATETIME", "rename_to": "sequence_dt", "priority": 1100},
     {"match_type": "EXACT", "match_key": "generated_identifier", "sql_type": "VARCHAR(99)", "semantic_role": "GENERATED_IDENTIFIER", "length": 99, "priority": 1100},
     {"match_type": "EXACT", "match_key": "knowledge_identifier", "sql_type": "VARCHAR(99)", "semantic_role": "KNOWLEDGE_IDENTIFIER", "length": 99, "priority": 1100},
     {"match_type": "EXACT", "match_key": "identifier_prefix", "sql_type": "VARCHAR(99)", "semantic_role": "IDENTIFIER_PREFIX", "length": 99, "priority": 1100},
