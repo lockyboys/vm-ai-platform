@@ -1,8 +1,8 @@
 """SPS Repository Data Type Inventory Analyzer.
 
-Reads column suffix standards from sp_metadata and compares every live column
-across configured Repository database roles. This tool is read-only: it never
-executes ALTER, INSERT, UPDATE, or DELETE.
+Reads exact-name, compound-suffix, suffix, prefix, and root-token rules from
+sp_metadata and compares every live column across configured Repository database
+roles. This tool is read-only: it never executes ALTER, INSERT, UPDATE, or DELETE.
 """
 
 from __future__ import annotations
@@ -29,7 +29,18 @@ DATABASE_ROLES = (
     "STORY_PLATFORM",
     "COMMON",
 )
-METADATA_TYPE_CODE = "REQUIRED_SUFFIX_STANDARD"
+BASE_METADATA_TYPE_CODE = "REQUIRED_SUFFIX_STANDARD"
+SUPPORTED_METADATA_CATEGORIES = {
+    "COLUMN_SUFFIX_STANDARD",
+    "COLUMN_NAMING_AND_DATA_TYPE_STANDARD",
+}
+MATCH_TYPE_RANK = {
+    "EXACT": 5,
+    "COMPOUND_SUFFIX": 4,
+    "SUFFIX": 3,
+    "PREFIX": 2,
+    "ROOT": 1,
+}
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "reports"
 DEFAULT_BASENAME = "repository_data_type_inventory_20260719"
 
@@ -122,7 +133,7 @@ def resolve_metadata_target(database: CommonDatabase) -> str:
     return str(row["object_id"])
 
 
-def load_suffix_standards() -> tuple[str, list[dict[str, Any]]]:
+def load_column_rules() -> tuple[str, list[dict[str, Any]]]:
     database = CommonDatabase(database_role="STORY_PLATFORM")
     try:
         target_id = resolve_metadata_target(database)
@@ -130,6 +141,7 @@ def load_suffix_standards() -> tuple[str, list[dict[str, Any]]]:
             """
             SELECT
                 metadata_id,
+                metadata_type_code,
                 metadata_key,
                 metadata_value,
                 metadata_json,
@@ -137,64 +149,114 @@ def load_suffix_standards() -> tuple[str, list[dict[str, Any]]]:
             FROM sp_metadata
             WHERE target_type_code = 'COLUMN'
               AND target_id = %s
-              AND metadata_type_code = %s
               AND enabled_yn = 'Y'
               AND deleted_dt IS NULL
             ORDER BY
-                CHAR_LENGTH(metadata_key) DESC,
                 sort_no,
                 metadata_key
             """,
-            (target_id, METADATA_TYPE_CODE),
+            (target_id,),
         )
     finally:
         database.close()
 
-    standards: list[dict[str, Any]] = []
-    seen_keys: set[str] = set()
+    rules: list[dict[str, Any]] = []
+    seen_rules: set[tuple[str, str]] = set()
 
     for row in rows or []:
-        suffix = str(row["metadata_key"]).strip().lower()
-        sql_type = str(row["metadata_value"]).strip().upper()
-        if not suffix.startswith("_") or not sql_type:
-            continue
-        if suffix in seen_keys:
-            raise RuntimeError(f"Duplicate suffix Metadata found: {suffix}")
-        seen_keys.add(suffix)
-
         metadata_json: dict[str, Any] = {}
         if row.get("metadata_json"):
             try:
                 metadata_json = json.loads(row["metadata_json"])
             except (TypeError, json.JSONDecodeError) as exc:
                 raise RuntimeError(
-                    f"Invalid metadata_json for suffix {suffix}"
+                    f"Invalid metadata_json for {row['metadata_key']}"
                 ) from exc
 
-        standards.append(
+        metadata_type = str(row["metadata_type_code"]).strip().upper()
+        category = str(metadata_json.get("category") or "").strip().upper()
+        is_base_suffix = metadata_type == BASE_METADATA_TYPE_CODE
+        if (
+            not is_base_suffix
+            and category not in SUPPORTED_METADATA_CATEGORIES
+        ):
+            continue
+
+        match_type = str(
+            metadata_json.get("match_type")
+            or ("SUFFIX" if is_base_suffix else "")
+        ).strip().upper()
+        match_key = str(
+            metadata_json.get("match_key")
+            or metadata_json.get("suffix")
+            or row["metadata_key"]
+        ).strip().lower()
+        if match_type not in MATCH_TYPE_RANK or not match_key:
+            continue
+        if (
+            match_type in {"SUFFIX", "COMPOUND_SUFFIX"}
+            and not match_key.startswith("_")
+        ):
+            raise RuntimeError(
+                f"{match_type} Metadata must start with _: {match_key}"
+            )
+
+        identity = (match_type, match_key)
+        if identity in seen_rules:
+            raise RuntimeError(
+                f"Duplicate column matching Metadata found: {identity}"
+            )
+        seen_rules.add(identity)
+
+        raw_sql_type = (
+            metadata_json.get("sql_type")
+            or (row.get("metadata_value") if is_base_suffix else None)
+        )
+        sql_type = (
+            str(raw_sql_type).strip().upper()
+            if raw_sql_type is not None and str(raw_sql_type).strip()
+            else None
+        )
+        priority = int(
+            metadata_json.get("priority")
+            or (600 if is_base_suffix else 0)
+        )
+
+        rules.append(
             {
                 "metadata_id": row["metadata_id"],
-                "suffix": suffix,
+                "metadata_type_code": metadata_type,
+                "metadata_key": row["metadata_key"],
+                "match_type": match_type,
+                "match_key": match_key,
                 "sql_type": sql_type,
-                "normalized_sql_type": normalize_sql_type(sql_type),
+                "normalized_sql_type": (
+                    normalize_sql_type(sql_type) if sql_type else None
+                ),
+                "semantic_role": metadata_json.get("semantic_role"),
+                "priority": priority,
+                "rename_to": metadata_json.get("rename_to"),
+                "rename_suffix": metadata_json.get("rename_suffix"),
                 "metadata_json": metadata_json,
                 "sort_no": row["sort_no"],
             }
         )
 
-    if not standards:
+    if not any(rule["sql_type"] for rule in rules):
         raise RuntimeError(
-            "No active REQUIRED_SUFFIX_STANDARD rows were found in sp_metadata."
+            "No active column data type standard rows were found in sp_metadata."
         )
 
-    standards.sort(
+    rules.sort(
         key=lambda item: (
-            -len(item["suffix"]),
+            -MATCH_TYPE_RANK[item["match_type"]],
+            -int(item["priority"]),
+            -len(item["match_key"]),
             int(item["sort_no"] or 0),
-            item["suffix"],
+            item["match_key"],
         )
     )
-    return target_id, standards
+    return target_id, rules
 
 
 def load_columns(
@@ -297,14 +359,49 @@ def load_foreign_keys(
     return result
 
 
-def match_standard(
-    column_name: str,
-    standards: list[dict[str, Any]],
-) -> dict[str, Any] | None:
+def rule_matches(column_name: str, rule: dict[str, Any]) -> bool:
     normalized_name = column_name.lower()
-    for standard in standards:
-        if normalized_name.endswith(standard["suffix"]):
-            return standard
+    match_type = rule["match_type"]
+    match_key = rule["match_key"]
+    if match_type == "EXACT":
+        return normalized_name == match_key
+    if match_type in {"COMPOUND_SUFFIX", "SUFFIX"}:
+        return normalized_name.endswith(match_key)
+    if match_type == "PREFIX":
+        return normalized_name.startswith(match_key)
+    if match_type == "ROOT":
+        return match_key in normalized_name.split("_")
+    return False
+
+
+def find_matching_rules(
+    column_name: str,
+    rules: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [rule for rule in rules if rule_matches(column_name, rule)]
+
+
+def match_type_standard(
+    matching_rules: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    return next(
+        (rule for rule in matching_rules if rule["sql_type"]),
+        None,
+    )
+
+
+def recommended_column_name(
+    column_name: str,
+    standard: dict[str, Any] | None,
+) -> str | None:
+    if standard is None:
+        return None
+    if standard.get("rename_to"):
+        return str(standard["rename_to"])
+    rename_suffix = standard.get("rename_suffix")
+    if rename_suffix and column_name.lower().endswith(standard["match_key"]):
+        prefix_length = len(column_name) - len(standard["match_key"])
+        return column_name[:prefix_length] + str(rename_suffix)
     return None
 
 
@@ -314,7 +411,7 @@ def assess_change(
     foreign_keys: list[dict[str, Any]],
 ) -> tuple[str, str, str]:
     if standard is None:
-        return "NO_STANDARD", "NONE", "No suffix Metadata matched."
+        return "NO_STANDARD", "NONE", "No Metadata data type rule matched."
 
     actual = normalize_sql_type(column["column_type"])
     expected = standard["normalized_sql_type"]
@@ -373,7 +470,8 @@ def assess_change(
 
 def analyze() -> dict[str, Any]:
     database_names = resolve_database_names()
-    metadata_target_id, standards = load_suffix_standards()
+    metadata_target_id, rules = load_column_rules()
+    standards = [rule for rule in rules if rule["sql_type"]]
     columns = load_columns(database_names)
     foreign_key_map = load_foreign_keys(database_names)
     role_by_database = {
@@ -383,7 +481,17 @@ def analyze() -> dict[str, Any]:
 
     results: list[dict[str, Any]] = []
     for column in columns:
-        standard = match_standard(str(column["column_name"]), standards)
+        column_name = str(column["column_name"])
+        matching_rules = find_matching_rules(column_name, rules)
+        standard = match_type_standard(matching_rules)
+        recommended_name = recommended_column_name(column_name, standard)
+        semantic_roles = list(
+            dict.fromkeys(
+                str(rule["semantic_role"])
+                for rule in matching_rules
+                if rule.get("semantic_role")
+            )
+        )
         key = (
             str(column["table_schema"]),
             str(column["table_name"]),
@@ -399,7 +507,22 @@ def analyze() -> dict[str, Any]:
                     str(column["table_schema"])
                 ),
                 "matched_suffix": (
-                    standard["suffix"] if standard else None
+                    standard["match_key"]
+                    if standard
+                    and standard["match_type"] in {
+                        "SUFFIX",
+                        "COMPOUND_SUFFIX",
+                    }
+                    else None
+                ),
+                "matched_rule_type": (
+                    standard["match_type"] if standard else None
+                ),
+                "matched_rule_key": (
+                    standard["match_key"] if standard else None
+                ),
+                "match_priority": (
+                    standard["priority"] if standard else None
                 ),
                 "standard_metadata_id": (
                     standard["metadata_id"] if standard else None
@@ -418,6 +541,16 @@ def analyze() -> dict[str, Any]:
                 "assessment_status": status,
                 "change_risk": risk,
                 "assessment_reason": reason,
+                "semantic_roles": semantic_roles,
+                "semantic_role_text": ",".join(semantic_roles),
+                "matching_rule_count": len(matching_rules),
+                "recommended_column_name": recommended_name,
+                "naming_status": (
+                    "RENAME_RECOMMENDED"
+                    if recommended_name
+                    and recommended_name.lower() != column_name.lower()
+                    else "COMPLIANT"
+                ),
                 "foreign_key_count": len(relations),
                 "foreign_keys": relations,
             }
@@ -452,6 +585,10 @@ def analyze() -> dict[str, Any]:
                 item["assessment_status"] == "NO_STANDARD"
                 for item in role_rows
             ),
+            "rename_recommended": sum(
+                item["naming_status"] == "RENAME_RECOMMENDED"
+                for item in role_rows
+            ),
         }
 
     return {
@@ -460,8 +597,15 @@ def analyze() -> dict[str, Any]:
         "database_order": list(DATABASE_ROLES),
         "database_names": database_names,
         "metadata_target_id": metadata_target_id,
-        "metadata_type_code": METADATA_TYPE_CODE,
+        "metadata_type_codes": sorted(
+            {rule["metadata_type_code"] for rule in rules}
+        ),
+        "rule_count": len(rules),
         "standard_count": len(standards),
+        "semantic_only_rule_count": sum(
+            not rule["sql_type"] for rule in rules
+        ),
+        "rules": rules,
         "standards": standards,
         "summary": {
             "column_count": len(results),
@@ -497,6 +641,13 @@ def write_csv(path: Path, report: dict[str, Any]) -> None:
         "column_type",
         "expected_column_type",
         "matched_suffix",
+        "matched_rule_type",
+        "matched_rule_key",
+        "match_priority",
+        "semantic_role_text",
+        "matching_rule_count",
+        "recommended_column_name",
+        "naming_status",
         "assessment_status",
         "change_risk",
         "foreign_key_count",
@@ -521,7 +672,7 @@ def write_csv(path: Path, report: dict[str, Any]) -> None:
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare live Repository columns with sp_metadata suffix standards."
+            "Compare live Repository columns with sp_metadata semantic rules."
         )
     )
     parser.add_argument(
@@ -560,7 +711,8 @@ def main() -> int:
     print("SPS Repository Data Type Inventory SUCCESS")
     print("=" * 80)
     print(f"Metadata target : {report['metadata_target_id']}")
-    print(f"Standards       : {report['standard_count']}")
+    print(f"Rules           : {report['rule_count']}")
+    print(f"Type standards  : {report['standard_count']}")
     print(f"Columns         : {summary['column_count']}")
     print(f"JSON            : {json_path}")
     print(f"CSV             : {csv_path}")
@@ -573,7 +725,8 @@ def main() -> int:
             f"compliant={item['compliant']:<5} "
             f"mismatch={item['mismatch']:<5} "
             f"view={item['view_recreate_required']:<5} "
-            f"no_standard={item['no_standard']:<5}"
+            f"no_standard={item['no_standard']:<5} "
+            f"rename={item['rename_recommended']:<5}"
         )
     print("=" * 80)
     return 0
