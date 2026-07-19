@@ -33,11 +33,16 @@ Updated: 2026-07-19 KST
   - The analyzer reports type compliance and naming recommendations separately.
   - One-command runner: `scripts/run_column_metadata_maintenance.sh`
   - Physical table ALTER is not included in this runner.
+  - Latest pre-change report: MISMATCH 775 (HEALTH_COMPANION 75, STORY_PLATFORM 185, COMMON 515).
+  - Projected after `_ip`/`_date` rule change: MISMATCH 836; rerun is required for confirmation.
+  - The analyzer now creates `repository_data_type_inventory_20260719_mismatch.csv`.
 - Column maintenance commits:
   - `1e219be feat(metadata): add semantic column matching standards`
   - `89c11e0 feat(repository): analyze semantic column metadata`
   - `1282a2c chore(metadata): add column maintenance runner`
   - `10c4b0c feat(metadata): normalize legacy datetime and varchar lengths`
+  - `b1710c8 feat(metadata): standardize ip and date suffixes`
+  - `226ad70 feat(repository): export mismatch-only inventory`
 
 ## Repository Registration Rules
 
@@ -89,9 +94,9 @@ Parent linkage uses `parent_object_id`.
 - `_dt` DATETIME
 - `_yn` CHAR(1)
 - `_by` VARCHAR(99)
-- `_ip` VARCHAR(50)
+- `_ip` VARCHAR(99)
 - `_value` VARCHAR(2000)
-- `_date` DATE
+- `_date` DATETIME; rename suffix to `_dt`
 - `_time` TIME
 - `_count` INT
 - `_length` INT
