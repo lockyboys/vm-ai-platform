@@ -80,15 +80,20 @@ class IdentifierEngine:
             now=generated_dt,
         )
 
-        sequence_no = self.allocate_sequence(
-            identifier_target_code=(
-                object_metadata["identifier_target_code"]
-            ),
-            identifier_prefix=object_metadata["object_code"],
-            sequence_date=sequence_date,
-            sequence_length=sequence_length,
-            manage_transaction=manage_transaction,
-        )
+        # L0 has no sequence token. Do not allocate an unused sequence.
+        identifier_pattern = str(blueprint["identifier_pattern"])
+        sequence_no = 0
+
+        if re.search(r"\{SEQ(?:\d+)?\}", identifier_pattern):
+            sequence_no = self.allocate_sequence(
+                identifier_target_code=(
+                    object_metadata["identifier_target_code"]
+                ),
+                identifier_prefix=object_metadata["object_code"],
+                sequence_date=sequence_date,
+                sequence_length=sequence_length,
+                manage_transaction=manage_transaction,
+            )
 
         return self.render_identifier(
             object_metadata=object_metadata,
@@ -364,6 +369,9 @@ class IdentifierEngine:
         milliseconds = (
             f"{int(now.microsecond / 1000):03d}"
         )
+        centiseconds = (
+            f"{int(now.microsecond / 10000):02d}"
+        )
 
         sequence_value = str(
             sequence_no
@@ -381,6 +389,10 @@ class IdentifierEngine:
             "YYYYMM": now.strftime("%Y%m"),
             "YYYYMMDD": now.strftime("%Y%m%d"),
             "HHMMSS": now.strftime("%H%M%S"),
+            "HHMMSSCC": (
+                now.strftime("%H%M%S") + centiseconds
+            ),
+            "CENTISECOND": centiseconds,
             "HHMMSSMS": (
                 now.strftime("%H%M%S") + milliseconds
             ),
