@@ -22,9 +22,21 @@ EXCLUDED_DIRECTORY_NAMES = {
     ".mypy_cache",
     ".home",
 }
+DENIED_FILE_NAMES = {".env"}
+DENIED_FILE_PREFIXES = (".env.",)
+DENIED_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
 
 DEFAULT_MAX_RESULTS = 100
 MAX_ALLOWED_RESULTS = 500
+
+
+def _is_sensitive_path(path: Path) -> bool:
+    file_name = path.name.lower()
+    return (
+        file_name in DENIED_FILE_NAMES
+        or file_name.startswith(DENIED_FILE_PREFIXES)
+        or path.suffix.lower() in DENIED_SUFFIXES
+    )
 
 
 def source_search(
@@ -62,6 +74,9 @@ def source_search(
             directory_name in EXCLUDED_DIRECTORY_NAMES
             for directory_name in relative_path.parts
         ):
+            continue
+
+        if _is_sensitive_path(relative_path):
             continue
 
         file_type = SEARCH_EXTENSIONS.get(path.suffix.lower())
@@ -127,6 +142,13 @@ def source_read(
 
     if requested_path != project_root and project_root not in requested_path.parents:
         raise ValueError("The requested path is outside the project root.")
+
+    relative_path = requested_path.relative_to(project_root)
+
+    if _is_sensitive_path(relative_path):
+        raise PermissionError(
+            "Reading environment or secret-key files is not allowed."
+        )
 
     if not requested_path.exists():
         raise FileNotFoundError(
