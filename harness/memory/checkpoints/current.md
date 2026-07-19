@@ -39,6 +39,8 @@ Updated: 2026-07-19 KST
   - `metadata_key` stores the raw business key; match mechanics remain in `metadata_json`.
   - `metadata_value_type_code=STRING` because `metadata_value` stores SQL type text.
   - Legacy invented type codes and namespaced keys are normalized transactionally; redundant legacy rows are soft-deleted for audit.
+  - The analyzer recognizes suffix standards by `metadata_json.category=COLUMN_SUFFIX_STANDARD` after type-code normalization.
+  - The intermediate counts COMPLIANT 152 / MISMATCH 742 / NO_STANDARD 393 / VIEW 10 are invalid compatibility-bug output; rerun step 3 after commit `8b4561d`.
 - Column maintenance commits:
   - `1e219be feat(metadata): add semantic column matching standards`
   - `89c11e0 feat(repository): analyze semantic column metadata`
@@ -47,6 +49,7 @@ Updated: 2026-07-19 KST
   - `b1710c8 feat(metadata): standardize ip and date suffixes`
   - `226ad70 feat(repository): export mismatch-only inventory`
   - `157f65c fix(metadata): normalize repository type codes and keys`
+  - `8b4561d fix(repository): load normalized suffix metadata`
 
 ## Repository Registration Rules
 
