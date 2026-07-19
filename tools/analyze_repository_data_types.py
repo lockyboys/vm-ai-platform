@@ -33,6 +33,7 @@ BASE_METADATA_TYPE_CODE = "REQUIRED_SUFFIX_STANDARD"
 SUPPORTED_METADATA_CATEGORIES = {
     "COLUMN_SUFFIX_STANDARD",
     "COLUMN_NAMING_AND_DATA_TYPE_STANDARD",
+    "COLUMN_VARCHAR_LENGTH_STANDARD",
 }
 MATCH_TYPE_RANK = {
     "EXACT": 5,
@@ -40,6 +41,7 @@ MATCH_TYPE_RANK = {
     "SUFFIX": 3,
     "PREFIX": 2,
     "ROOT": 1,
+    "VARCHAR_LENGTH_BUCKET": 0,
 }
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "reports"
 DEFAULT_BASENAME = "repository_data_type_inventory_20260719"
@@ -374,6 +376,27 @@ def rule_matches(column_name: str, rule: dict[str, Any]) -> bool:
     return False
 
 
+def match_varchar_length_standard(
+    column: dict[str, Any],
+    rules: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if str(column.get("data_type") or "").strip().lower() != "varchar":
+        return None
+    raw_length = column.get("character_maximum_length")
+    if raw_length is None:
+        return None
+    current_length = int(raw_length)
+    for rule in rules:
+        if rule["match_type"] != "VARCHAR_LENGTH_BUCKET":
+            continue
+        metadata_json = rule["metadata_json"]
+        minimum_length = int(metadata_json["minimum_length"])
+        maximum_length = int(metadata_json["maximum_length"])
+        if minimum_length <= current_length <= maximum_length:
+            return rule
+    return None
+
+
 def find_matching_rules(
     column_name: str,
     rules: list[dict[str, Any]],
@@ -484,6 +507,11 @@ def analyze() -> dict[str, Any]:
         column_name = str(column["column_name"])
         matching_rules = find_matching_rules(column_name, rules)
         standard = match_type_standard(matching_rules)
+        classification_source = "NAME_RULE" if standard else None
+        if standard is None:
+            standard = match_varchar_length_standard(column, rules)
+            if standard:
+                classification_source = "VARCHAR_LENGTH_BUCKET"
         recommended_name = recommended_column_name(column_name, standard)
         semantic_roles = list(
             dict.fromkeys(
@@ -492,6 +520,12 @@ def analyze() -> dict[str, Any]:
                 if rule.get("semantic_role")
             )
         )
+        if (
+            standard
+            and standard.get("semantic_role")
+            and str(standard["semantic_role"]) not in semantic_roles
+        ):
+            semantic_roles.append(str(standard["semantic_role"]))
         key = (
             str(column["table_schema"]),
             str(column["table_name"]),
@@ -524,6 +558,7 @@ def analyze() -> dict[str, Any]:
                 "match_priority": (
                     standard["priority"] if standard else None
                 ),
+                "classification_source": classification_source,
                 "standard_metadata_id": (
                     standard["metadata_id"] if standard else None
                 ),
@@ -543,7 +578,16 @@ def analyze() -> dict[str, Any]:
                 "assessment_reason": reason,
                 "semantic_roles": semantic_roles,
                 "semantic_role_text": ",".join(semantic_roles),
-                "matching_rule_count": len(matching_rules),
+                "matching_rule_count": (
+                    len(matching_rules)
+                    + (
+                        1
+                        if standard
+                        and standard["match_type"]
+                        == "VARCHAR_LENGTH_BUCKET"
+                        else 0
+                    )
+                ),
                 "recommended_column_name": recommended_name,
                 "naming_status": (
                     "RENAME_RECOMMENDED"
@@ -605,6 +649,10 @@ def analyze() -> dict[str, Any]:
         "semantic_only_rule_count": sum(
             not rule["sql_type"] for rule in rules
         ),
+        "varchar_length_bucket_rule_count": sum(
+            rule["match_type"] == "VARCHAR_LENGTH_BUCKET"
+            for rule in rules
+        ),
         "rules": rules,
         "standards": standards,
         "summary": {
@@ -644,6 +692,7 @@ def write_csv(path: Path, report: dict[str, Any]) -> None:
         "matched_rule_type",
         "matched_rule_key",
         "match_priority",
+        "classification_source",
         "semantic_role_text",
         "matching_rule_count",
         "recommended_column_name",

@@ -26,6 +26,7 @@ CLIENT_IP = "127.0.0.1"
 TYPE_STANDARD_RULES: tuple[dict[str, Any], ...] = (
     # Compound and general suffix rules.
     {"match_type": "COMPOUND_SUFFIX", "match_key": "_ip_address", "sql_type": "VARCHAR(50)", "semantic_role": "IP_ADDRESS", "rename_suffix": "_ip", "priority": 900},
+    {"match_type": "SUFFIX", "match_key": "_at", "sql_type": "DATETIME", "semantic_role": "LEGACY_DATETIME_SUFFIX", "rename_suffix": "_dt", "priority": 800},
     {"match_type": "SUFFIX", "match_key": "_message", "sql_type": "TEXT", "semantic_role": "MESSAGE", "priority": 700},
     {"match_type": "SUFFIX", "match_key": "_summary", "sql_type": "VARCHAR(2000)", "semantic_role": "SUMMARY", "priority": 700},
     {"match_type": "SUFFIX", "match_key": "_score", "sql_type": "DECIMAL(10,4)", "semantic_role": "SCORE", "precision": 10, "scale": 4, "priority": 700},
@@ -101,8 +102,17 @@ PREFIX_SEMANTIC_RULES: tuple[dict[str, Any], ...] = (
     {"match_type": "PREFIX", "match_key": "sequence_", "semantic_role": "SEQUENCE", "priority": 200},
 )
 
+VARCHAR_LENGTH_BUCKET_RULES: tuple[dict[str, Any], ...] = (
+    {"match_type": "VARCHAR_LENGTH_BUCKET", "match_key": "1-99", "sql_type": "VARCHAR(99)", "semantic_role": "GENERIC_VARCHAR", "minimum_length": 1, "maximum_length": 99, "target_length": 99, "priority": 100},
+    {"match_type": "VARCHAR_LENGTH_BUCKET", "match_key": "100-150", "sql_type": "VARCHAR(150)", "semantic_role": "GENERIC_VARCHAR", "minimum_length": 100, "maximum_length": 150, "target_length": 150, "priority": 100},
+    {"match_type": "VARCHAR_LENGTH_BUCKET", "match_key": "151-500", "sql_type": "VARCHAR(500)", "semantic_role": "GENERIC_VARCHAR", "minimum_length": 151, "maximum_length": 500, "target_length": 500, "priority": 100},
+    {"match_type": "VARCHAR_LENGTH_BUCKET", "match_key": "501-20000", "sql_type": "VARCHAR(20000)", "semantic_role": "GENERIC_VARCHAR", "minimum_length": 501, "maximum_length": 20000, "target_length": 20000, "priority": 100},
+)
+
 
 def metadata_type_code(rule: dict[str, Any]) -> str:
+    if rule["match_type"] == "VARCHAR_LENGTH_BUCKET":
+        return "COLUMN_VARCHAR_LENGTH_STANDARD"
     if "sql_type" not in rule:
         return "COLUMN_PREFIX_SEMANTIC"
     return f"COLUMN_{rule['match_type']}_STANDARD"
@@ -116,7 +126,11 @@ def metadata_key(rule: dict[str, Any]) -> str:
 
 def metadata_payload(rule: dict[str, Any]) -> str:
     payload = {
-        "category": "COLUMN_NAMING_AND_DATA_TYPE_STANDARD",
+        "category": (
+            "COLUMN_VARCHAR_LENGTH_STANDARD"
+            if rule["match_type"] == "VARCHAR_LENGTH_BUCKET"
+            else "COLUMN_NAMING_AND_DATA_TYPE_STANDARD"
+        ),
         "requirement": "REQUIRED",
         "match_type": rule["match_type"],
         "match_key": rule["match_key"],
@@ -320,7 +334,11 @@ def verify(
 
 def main() -> int:
     database = CommonDatabase(database_role="STORY_PLATFORM")
-    rules = TYPE_STANDARD_RULES + PREFIX_SEMANTIC_RULES
+    rules = (
+        TYPE_STANDARD_RULES
+        + PREFIX_SEMANTIC_RULES
+        + VARCHAR_LENGTH_BUCKET_RULES
+    )
     try:
         target_id = resolve_metadata_target(database)
         sequence_result = ensure_metadata_identifier_sequence(database)
