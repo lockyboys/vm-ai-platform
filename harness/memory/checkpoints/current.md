@@ -21,9 +21,7 @@ Updated: 2026-07-19 KST
   - Orphan relationships: 0
 - Column data type maintenance source is complete.
   - Required suffix standards: 23
-  - Semantic rules: 72 total
-  - Type rules: 63
-  - Prefix semantic rules: 9
+  - Active semantic rules: 64 total after removing redundant EXACT rules.
   - VARCHAR length bucket rules: 4
   - `_at` is normalized to DATETIME and renamed to `_dt`.
   - Generic VARCHAR fallback: 1-99→99, 100-150→150, 151-500→500, 501-20000→20000.
@@ -36,6 +34,11 @@ Updated: 2026-07-19 KST
   - Latest pre-change report: MISMATCH 775 (HEALTH_COMPANION 75, STORY_PLATFORM 185, COMMON 515).
   - Projected after `_ip`/`_date` rule change: MISMATCH 836; rerun is required for confirmation.
   - The analyzer now creates `repository_data_type_inventory_20260719_mismatch.csv`.
+  - Match evidence is exposed through `matched_rule_type`, `matched_rule_key`, `matched_suffix`, `match_priority`, `classification_source`, and `matching_rule_count`.
+  - Column data-type Metadata now uses common-code `metadata_type_code=DATA_TYPE`.
+  - `metadata_key` stores the raw business key; match mechanics remain in `metadata_json`.
+  - `metadata_value_type_code=STRING` because `metadata_value` stores SQL type text.
+  - Legacy invented type codes and namespaced keys are normalized transactionally; redundant legacy rows are soft-deleted for audit.
 - Column maintenance commits:
   - `1e219be feat(metadata): add semantic column matching standards`
   - `89c11e0 feat(repository): analyze semantic column metadata`
@@ -43,6 +46,7 @@ Updated: 2026-07-19 KST
   - `10c4b0c feat(metadata): normalize legacy datetime and varchar lengths`
   - `b1710c8 feat(metadata): standardize ip and date suffixes`
   - `226ad70 feat(repository): export mismatch-only inventory`
+  - `157f65c fix(metadata): normalize repository type codes and keys`
 
 ## Repository Registration Rules
 
