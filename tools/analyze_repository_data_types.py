@@ -177,7 +177,10 @@ def load_column_rules() -> tuple[str, list[dict[str, Any]]]:
 
         metadata_type = str(row["metadata_type_code"]).strip().upper()
         category = str(metadata_json.get("category") or "").strip().upper()
-        is_base_suffix = metadata_type == BASE_METADATA_TYPE_CODE
+        is_base_suffix = (
+            metadata_type == BASE_METADATA_TYPE_CODE
+            or category == "COLUMN_SUFFIX_STANDARD"
+        )
         if (
             not is_base_suffix
             and category not in SUPPORTED_METADATA_CATEGORIES
