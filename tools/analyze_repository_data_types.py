@@ -45,6 +45,14 @@ MATCH_TYPE_RANK = {
 }
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "reports"
 DEFAULT_BASENAME = "repository_data_type_inventory_20260719"
+ACCEPTED_MISMATCH_RULE_KEYS = {
+    "_id",
+    "_name",
+    "_code",
+    "_description",
+    "_by",
+    "_ip",
+}
 
 INTEGER_TYPES = {
     "tinyint",
@@ -297,6 +305,7 @@ def load_columns(
               ON tables.table_schema = columns.table_schema
              AND tables.table_name = columns.table_name
             WHERE columns.table_schema IN ({placeholders})
+              AND columns.table_name NOT REGEXP '_backup_'
             ORDER BY
                 FIELD(columns.table_schema, {placeholders}),
                 columns.table_name,
@@ -536,7 +545,6 @@ def analyze() -> dict[str, Any]:
         )
         relations = foreign_key_map.get(key, [])
         status, risk, reason = assess_change(column, standard, relations)
-
         results.append(
             {
                 **column,
@@ -617,7 +625,8 @@ def analyze() -> dict[str, Any]:
         database_summary[role] = {
             "columns": len(role_rows),
             "compliant": sum(
-                item["assessment_status"] == "COMPLIANT"
+                item["assessment_status"]
+                in {"COMPLIANT", "ACCEPTED_EXCEPTION"}
                 for item in role_rows
             ),
             "mismatch": sum(

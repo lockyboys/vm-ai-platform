@@ -371,12 +371,12 @@ class ObjectRuntimeEngine:
 
         self.logger.info(
             "Execution Status",
-            execution_history_request["execution_status"]
+            execution_history_request["execution_status_code"]
         )
 
         self.logger.info(
             "History Status",
-            execution_history_request["history_status"]
+            execution_history_request["history_status_code"]
         )
 
         #############################################################
@@ -706,7 +706,7 @@ class ObjectRuntimeEngine:
             "collection_name": (
                 object_metadata["object_code"].lower()
             ),
-            "repository_status": (
+            "repository_status_code": (
                 repository_generator_result["status"]
             ),
             "knowledge_document": knowledge_document,
@@ -770,10 +770,10 @@ class ObjectRuntimeEngine:
             "object_code": object_code,
             "object_id": object_metadata["object_id"],
             "generated_identifier": identifier_result["generated_identifier"],
-            "repository_status": repository_generator_result["status"],
-            "mongodb_status": mongodb_save_request["save_status"],
-            "execution_status": "SUCCESS",
-            "history_status": "READY"
+            "repository_status_code": repository_generator_result["status"],
+            "mongodb_status_code": mongodb_save_request["save_status"],
+            "execution_status_code": "SUCCESS",
+            "history_status_code": "READY"
         }
     
     #################################################################

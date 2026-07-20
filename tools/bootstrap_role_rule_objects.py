@@ -334,7 +334,7 @@ def verify_repository(
             identifier_sequence_id,
             identifier_target_code,
             identifier_prefix,
-            sequence_date,
+            sequence_dt,
             current_sequence_no,
             sequence_length,
             status_code,
@@ -348,7 +348,7 @@ def verify_repository(
           AND deleted_dt IS NULL
         ORDER BY
             identifier_prefix,
-            sequence_date,
+            sequence_dt,
             identifier_sequence_id
         """,
         object_codes,

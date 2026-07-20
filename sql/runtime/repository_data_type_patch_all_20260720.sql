@@ -1,544 +1,51 @@
 /*
 File Name : repository_data_type_patch_all_20260720.sql
 Purpose   : One-time hardcoded full Repository Data Type Patch.
-Tables    : 69
-Columns   : 398
-HOLD      : 20 unsafe columns
+Tables    : 59
+Columns   : 315
+HOLD      : 6 unsafe columns
+FK Rebuild: 23 constraints
 */
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+/* Affected foreign keys: drop before column migration */
+ALTER TABLE `te_common`.`cm_locale` DROP FOREIGN KEY `fk_cm_locale_country`;
+ALTER TABLE `te_common`.`cm_locale` DROP FOREIGN KEY `fk_cm_locale_language`;
+ALTER TABLE `te_common`.`cm_login_history` DROP FOREIGN KEY `fk_cm_login_history_member`;
+ALTER TABLE `te_common`.`cm_member_private` DROP FOREIGN KEY `fk_cm_member_private_member`;
+ALTER TABLE `te_common`.`cm_member_role` DROP FOREIGN KEY `fk_cm_member_role_member`;
+ALTER TABLE `te_common`.`cm_member_role` DROP FOREIGN KEY `fk_cm_member_role_role`;
+ALTER TABLE `te_common`.`cm_role_rule` DROP FOREIGN KEY `fk_cm_role_rule_role`;
+ALTER TABLE `te_common`.`cm_role_rule` DROP FOREIGN KEY `fk_cm_role_rule_rule`;
+ALTER TABLE `te_common`.`cm_sequence_definition` DROP FOREIGN KEY `fk_cm_sequence_definition_format`;
+ALTER TABLE `te_common`.`cm_sequence_definition` DROP FOREIGN KEY `fk_cm_sequence_definition_policy`;
+ALTER TABLE `te_common`.`cm_sequence_rule` DROP FOREIGN KEY `fk_cm_sequence_rule_format`;
+ALTER TABLE `te_common`.`cm_sequence_rule` DROP FOREIGN KEY `fk_cm_sequence_rule_policy`;
+ALTER TABLE `te_common`.`cm_storage_policy` DROP FOREIGN KEY `fk_storage_policy_repository`;
+ALTER TABLE `te_common`.`ev_evidence_reference` DROP FOREIGN KEY `fk_ev_reference_evidence`;
+ALTER TABLE `te_common`.`ev_evidence_version` DROP FOREIGN KEY `fk_ev_version_evidence`;
+ALTER TABLE `te_common`.`rl_rule_action` DROP FOREIGN KEY `fk_rl_action_rule`;
+ALTER TABLE `te_common`.`rl_rule_condition` DROP FOREIGN KEY `fk_rl_condition_rule`;
+ALTER TABLE `te_common`.`rl_rule_evidence` DROP FOREIGN KEY `fk_rl_rule_evidence_evidence`;
+ALTER TABLE `te_common`.`rl_rule_evidence` DROP FOREIGN KEY `fk_rl_rule_evidence_rule`;
+ALTER TABLE `te_story_platform`.`sp_knowledge_hold` DROP FOREIGN KEY `fk_sp_knowledge_type`;
+ALTER TABLE `te_story_platform`.`sp_knowledge_relationship_hold` DROP FOREIGN KEY `fk_sp_knowledge_relationship_source`;
+ALTER TABLE `te_story_platform`.`sp_knowledge_relationship_hold` DROP FOREIGN KEY `fk_sp_knowledge_relationship_target`;
+ALTER TABLE `te_story_platform`.`sp_knowledge_type_hold` DROP FOREIGN KEY `fk_sp_knowledge_type_parent`;
+
 /* =============================================================
 PATCH 001 START
-Database : te_health_companion
-Table    : ac_action
-Columns  : 1
-Rows     : 2
-Backup   : ac_action_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_health_companion`.`ac_action_backup_20260720_01`
-LIKE `te_health_companion`.`ac_action`;
-
-START TRANSACTION;
-
-INSERT INTO `te_health_companion`.`ac_action_backup_20260720_01`
-SELECT *
-FROM `te_health_companion`.`ac_action`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_health_companion`.`ac_action`) AS original_count,
-    (SELECT COUNT(*) FROM `te_health_companion`.`ac_action_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_health_companion`.`ac_action`
-    MODIFY COLUMN `remark` VARCHAR(2000) NULL DEFAULT NULL COMMENT '비고';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_health_companion'
-  AND table_name = 'ac_action'
-  AND column_name IN (
-      'remark'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_health_companion`.`ac_action`;
-
-/* PATCH 001 END */
-
-/* =============================================================
-PATCH 002 START
-Database : te_health_companion
-Table    : at_audit
-Columns  : 8
-Rows     : 1
-Backup   : at_audit_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_health_companion`.`at_audit_backup_20260720_01`
-LIKE `te_health_companion`.`at_audit`;
-
-START TRANSACTION;
-
-INSERT INTO `te_health_companion`.`at_audit_backup_20260720_01`
-SELECT *
-FROM `te_health_companion`.`at_audit`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_health_companion`.`at_audit`) AS original_count,
-    (SELECT COUNT(*) FROM `te_health_companion`.`at_audit_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_health_companion`.`at_audit`
-    MODIFY COLUMN `target_pk_value` VARCHAR(2000) NULL DEFAULT NULL COMMENT '대상 PK 값',
-    MODIFY COLUMN `engine_name` VARCHAR(150) NULL DEFAULT NULL COMMENT '엔진명',
-    MODIFY COLUMN `rule_id` VARCHAR(99) NULL DEFAULT NULL COMMENT '규칙 ID',
-    MODIFY COLUMN `evidence_id` VARCHAR(99) NULL DEFAULT NULL COMMENT '근거 ID',
-    MODIFY COLUMN `audit_result_code` VARCHAR(99) NOT NULL DEFAULT '''SUCCESS''' COMMENT '감사 결과 코드',
-    MODIFY COLUMN `ai_provider_code` VARCHAR(99) NULL DEFAULT NULL COMMENT 'AI 제공자 코드',
-    MODIFY COLUMN `ai_model_name` VARCHAR(150) NULL DEFAULT NULL COMMENT 'AI 모델명',
-    MODIFY COLUMN `remark` VARCHAR(2000) NULL DEFAULT NULL COMMENT '비고';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_health_companion'
-  AND table_name = 'at_audit'
-  AND column_name IN (
-      'target_pk_value',
-      'engine_name',
-      'rule_id',
-      'evidence_id',
-      'audit_result_code',
-      'ai_provider_code',
-      'ai_model_name',
-      'remark'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_health_companion`.`at_audit`;
-
-/* PATCH 002 END */
-
-/* =============================================================
-PATCH 003 START
-Database : te_health_companion
-Table    : dc_decision_detail
-Columns  : 8
-Rows     : 1
-Backup   : dc_decision_detail_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_health_companion`.`dc_decision_detail_backup_20260720_01`
-LIKE `te_health_companion`.`dc_decision_detail`;
-
-START TRANSACTION;
-
-INSERT INTO `te_health_companion`.`dc_decision_detail_backup_20260720_01`
-SELECT *
-FROM `te_health_companion`.`dc_decision_detail`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_health_companion`.`dc_decision_detail`) AS original_count,
-    (SELECT COUNT(*) FROM `te_health_companion`.`dc_decision_detail_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_health_companion`.`dc_decision_detail`
-    MODIFY COLUMN `decision_detail_id` VARCHAR(99) NOT NULL COMMENT '판단 상세 ID',
-    MODIFY COLUMN `rule_id` VARCHAR(99) NULL DEFAULT NULL COMMENT '적용 규칙 ID',
-    MODIFY COLUMN `evidence_id` VARCHAR(99) NULL DEFAULT NULL COMMENT '적용 근거 ID',
-    MODIFY COLUMN `input_field_code` VARCHAR(99) NULL DEFAULT NULL COMMENT '입력 필드 코드',
-    MODIFY COLUMN `input_value` VARCHAR(2000) NULL DEFAULT NULL COMMENT '입력 값',
-    MODIFY COLUMN `condition_result_code` VARCHAR(99) NULL DEFAULT NULL COMMENT '조건 결과 코드',
-    MODIFY COLUMN `detail_summary` VARCHAR(2000) NULL DEFAULT NULL COMMENT '상세 요약',
-    MODIFY COLUMN `remark` VARCHAR(2000) NULL DEFAULT NULL COMMENT '비고';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_health_companion'
-  AND table_name = 'dc_decision_detail'
-  AND column_name IN (
-      'decision_detail_id',
-      'rule_id',
-      'evidence_id',
-      'input_field_code',
-      'input_value',
-      'condition_result_code',
-      'detail_summary',
-      'remark'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_health_companion`.`dc_decision_detail`;
-
-/* PATCH 003 END */
-
-/* =============================================================
-PATCH 004 START
-Database : te_health_companion
-Table    : fb_feedback
-Columns  : 7
-Rows     : 1
-Backup   : fb_feedback_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_health_companion`.`fb_feedback_backup_20260720_01`
-LIKE `te_health_companion`.`fb_feedback`;
-
-START TRANSACTION;
-
-INSERT INTO `te_health_companion`.`fb_feedback_backup_20260720_01`
-SELECT *
-FROM `te_health_companion`.`fb_feedback`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_health_companion`.`fb_feedback`) AS original_count,
-    (SELECT COUNT(*) FROM `te_health_companion`.`fb_feedback_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_health_companion`.`fb_feedback`
-    MODIFY COLUMN `feedback_id` VARCHAR(99) NOT NULL COMMENT '피드백 ID',
-    MODIFY COLUMN `feedback_code` VARCHAR(99) NOT NULL COMMENT '피드백 코드',
-    MODIFY COLUMN `user_id` VARCHAR(99) NOT NULL COMMENT '사용자 ID',
-    MODIFY COLUMN `feedback_type_code` VARCHAR(99) NOT NULL COMMENT '피드백 유형 코드',
-    MODIFY COLUMN `rating_score` DECIMAL(10,4) NULL DEFAULT NULL COMMENT '평점',
-    MODIFY COLUMN `status_code` VARCHAR(99) NOT NULL DEFAULT '''ACTIVE''' COMMENT '상태 코드',
-    MODIFY COLUMN `remark` VARCHAR(2000) NULL DEFAULT NULL COMMENT '비고';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_health_companion'
-  AND table_name = 'fb_feedback'
-  AND column_name IN (
-      'feedback_id',
-      'feedback_code',
-      'user_id',
-      'feedback_type_code',
-      'rating_score',
-      'status_code',
-      'remark'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_health_companion`.`fb_feedback`;
-
-/* PATCH 004 END */
-
-/* =============================================================
-PATCH 005 START
-Database : te_story_platform
-Table    : sp_attribute
-Columns  : 8
-Rows     : 0
-Backup   : sp_attribute_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_attribute_backup_20260720_01`
-LIKE `te_story_platform`.`sp_attribute`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_attribute_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_attribute`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_attribute`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_attribute_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_attribute`
-    MODIFY COLUMN `attribute_id` VARCHAR(99) NOT NULL COMMENT 'Attribute ID. SPS Repository에서 Attribute Knowledge를 고유하게 식별하기 위해 사용한다.',
-    MODIFY COLUMN `entity_id` VARCHAR(99) NOT NULL COMMENT 'Entity ID. Attribute가 어느 Entity에 속하는지 연결하기 위해 사용한다. 참조: te_story_platform.sp_entity.entity_id',
-    MODIFY COLUMN `attribute_name` VARCHAR(150) NOT NULL COMMENT 'Attribute Name. Attribute Knowledge를 사람이 이해할 수 있는 이름으로 표현하기 위해 사용한다.',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By. Attribute를 최초 생성한 주체를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By. Attribute를 마지막으로 수정한 주체를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By. Attribute를 삭제 처리한 주체를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP. Attribute 변경 요청이 발생한 클라이언트 IP를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Program ID. Attribute 변경을 수행한 프로그램 또는 Generator를 추적하기 위해 사용한다.';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_attribute'
-  AND column_name IN (
-      'attribute_id',
-      'entity_id',
-      'attribute_name',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'client_ip',
-      'program_id'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_attribute`;
-
-/* PATCH 005 END */
-
-/* =============================================================
-PATCH 006 START
-Database : te_story_platform
-Table    : sp_business
-Columns  : 7
-Rows     : 5
-Backup   : sp_business_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_business_backup_20260720_01`
-LIKE `te_story_platform`.`sp_business`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_business_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_business`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_business`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_business_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_business`
-    MODIFY COLUMN `business_code` VARCHAR(99) NOT NULL COMMENT 'Business Code',
-    MODIFY COLUMN `business_name` VARCHAR(150) NOT NULL COMMENT 'Business Name',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By',
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Program ID';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_business'
-  AND column_name IN (
-      'business_code',
-      'business_name',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'client_ip',
-      'program_id'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_business`;
-
-/* PATCH 006 END */
-
-/* =============================================================
-PATCH 007 START
-Database : te_story_platform
-Table    : sp_domain
-Columns  : 8
-Rows     : 6
-Backup   : sp_domain_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_domain_backup_20260720_01`
-LIKE `te_story_platform`.`sp_domain`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_domain_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_domain`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_domain`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_domain_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_domain`
-    MODIFY COLUMN `domain_code` VARCHAR(99) NOT NULL COMMENT 'Domain Code',
-    MODIFY COLUMN `business_code` VARCHAR(99) NOT NULL COMMENT 'Business Code',
-    MODIFY COLUMN `domain_name` VARCHAR(150) NOT NULL COMMENT 'Domain Name',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By. 마지막 수정 주체.',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By. 논리 삭제 처리 주체.',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Program Identifier. 변경 수행 프로그램.',
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP. IPv4 또는 IPv6 주소.';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_domain'
-  AND column_name IN (
-      'domain_code',
-      'business_code',
-      'domain_name',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'program_id',
-      'client_ip'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_domain`;
-
-/* PATCH 007 END */
-
-/* =============================================================
-PATCH 008 START
-Database : te_story_platform
-Table    : sp_entity
-Columns  : 10
-Rows     : 0
-Backup   : sp_entity_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_entity_backup_20260720_01`
-LIKE `te_story_platform`.`sp_entity`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_entity_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_entity`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_entity`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_entity_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_entity`
-    MODIFY COLUMN `entity_id` VARCHAR(99) NOT NULL COMMENT 'Entity ID. SPS Repository에서 Entity Knowledge를 고유하게 식별하기 위해 사용한다.',
-    MODIFY COLUMN `entity_name` VARCHAR(150) NOT NULL COMMENT 'Entity Name. Entity Knowledge를 사람이 이해할 수 있는 이름으로 표현하기 위해 사용한다.',
-    MODIFY COLUMN `business_code` VARCHAR(99) NOT NULL COMMENT 'Business Code. Entity가 어느 Business에 속하는지 식별하기 위해 사용한다. 참조: te_story_platform.sp_business.business_code',
-    MODIFY COLUMN `domain_code` VARCHAR(99) NOT NULL COMMENT 'Entity가 어느 SPS Domain 공통코드에 속하는지 식별하기 위해 사용한다. (te_common.cm_common_code, group_code=SPS_DOMAIN)',
-    MODIFY COLUMN `entity_type_code` VARCHAR(99) NOT NULL DEFAULT '''MASTER''' COMMENT 'Entity Type Code. Entity의 성격을 구분하고 Engine과 Generator의 처리 방식을 결정하기 위해 사용한다.',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By. Entity를 최초 생성한 주체를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By. Entity를 마지막으로 수정한 주체를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By. Entity를 삭제 처리한 주체를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP. Entity 변경 요청이 발생한 클라이언트 IP를 추적하기 위해 사용한다.',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Program ID. Entity 변경을 수행한 프로그램 또는 Generator를 추적하기 위해 사용한다.';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_entity'
-  AND column_name IN (
-      'entity_id',
-      'entity_name',
-      'business_code',
-      'domain_code',
-      'entity_type_code',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'client_ip',
-      'program_id'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_entity`;
-
-/* PATCH 008 END */
-
-/* =============================================================
-PATCH 009 START
-Database : te_story_platform
-Table    : sp_erd
-Columns  : 9
-Rows     : 0
-Backup   : sp_erd_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_erd_backup_20260720_01`
-LIKE `te_story_platform`.`sp_erd`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_erd_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_erd`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_erd`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_erd_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_erd`
-    MODIFY COLUMN `erd_id` VARCHAR(99) NOT NULL COMMENT 'ERD ID',
-    MODIFY COLUMN `erd_code` VARCHAR(99) NOT NULL COMMENT 'ERD Code',
-    MODIFY COLUMN `business_code` VARCHAR(99) NOT NULL COMMENT 'Business Code',
-    MODIFY COLUMN `domain_code` VARCHAR(99) NOT NULL COMMENT 'Domain Code',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By',
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Program ID';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_erd'
-  AND column_name IN (
-      'erd_id',
-      'erd_code',
-      'business_code',
-      'domain_code',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'client_ip',
-      'program_id'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_erd`;
-
-/* PATCH 009 END */
-
-/* =============================================================
-PATCH 010 START
 Database : te_story_platform
 Table    : sp_execution_history
-Columns  : 9
+Columns  : 1
 Rows     : 12
 Backup   : sp_execution_history_backup_20260720_01
 ============================================================= */
 
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_execution_history_backup_20260720_01`
-LIKE `te_story_platform`.`sp_execution_history`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_execution_history_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_execution_history`;
-
-COMMIT;
+-- 1. 기존 백업 재사용
+-- CREATE/INSERT 생략
 
 -- 2. 백업 검증
 SELECT
@@ -547,15 +54,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_story_platform`.`sp_execution_history`
-    MODIFY COLUMN `trace_id` VARCHAR(99) NOT NULL,
-    MODIFY COLUMN `engine_code` VARCHAR(99) NOT NULL,
-    MODIFY COLUMN `object_code` VARCHAR(99) NOT NULL,
-    MODIFY COLUMN `object_id` VARCHAR(99) NULL DEFAULT NULL,
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By. 실행 이력 생성 주체.',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By. 실행 이력 수정 주체.',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By. 논리 삭제 처리 주체.',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Program Identifier. 실행 프로그램 또는 Generator.',
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP. IPv4 또는 IPv6 주소.';
+    MODIFY COLUMN `execution_history_id` VARCHAR(99) NOT NULL;
 
 -- 4. 변경 결과 확인
 SELECT column_name, column_type
@@ -563,214 +62,25 @@ FROM information_schema.columns
 WHERE table_schema = 'te_story_platform'
   AND table_name = 'sp_execution_history'
   AND column_name IN (
-      'trace_id',
-      'engine_code',
-      'object_code',
-      'object_id',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'program_id',
-      'client_ip'
+      'execution_history_id'
   )
 ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_execution_history`;
 
-/* PATCH 010 END */
+/* PATCH 001 END */
 
 /* =============================================================
-PATCH 011 START
-Database : te_story_platform
-Table    : sp_identifier_blueprint
-Columns  : 4
-Rows     : 5
-Backup   : sp_identifier_blueprint_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_identifier_blueprint_backup_20260720_01`
-LIKE `te_story_platform`.`sp_identifier_blueprint`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_identifier_blueprint_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_identifier_blueprint`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_identifier_blueprint`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_identifier_blueprint_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_identifier_blueprint`
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Updated By',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Program ID';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_identifier_blueprint'
-  AND column_name IN (
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'program_id'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_identifier_blueprint`;
-
-/* PATCH 011 END */
-
-/* =============================================================
-PATCH 012 START
-Database : te_story_platform
-Table    : sp_identifier_sequence
-Columns  : 9
-Rows     : 20
-Backup   : sp_identifier_sequence_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_identifier_sequence_backup_20260720_01`
-LIKE `te_story_platform`.`sp_identifier_sequence`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_identifier_sequence_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_identifier_sequence`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_identifier_sequence`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_identifier_sequence_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_identifier_sequence`
-    MODIFY COLUMN `identifier_sequence_id` VARCHAR(99) NOT NULL COMMENT 'Identifier Sequence ID. 채번 기준 자체를 식별하는 Repository ID.',
-    MODIFY COLUMN `identifier_target_code` VARCHAR(99) NOT NULL COMMENT '채번 대상 코드. 예: BUSINESS, DOMAIN, OBJECT, ENTITY, ATTRIBUTE, RELATIONSHIP, METADATA, SQL, DOCUMENT, API, GENERATOR, ENGINE.',
-    MODIFY COLUMN `sequence_date` DATETIME NOT NULL COMMENT '채번 기준 일자. YYYYMMDD.',
-    MODIFY COLUMN `status_code` VARCHAR(99) NOT NULL DEFAULT '''ACTIVE''' COMMENT '상태 코드. ACTIVE/INACTIVE.',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT '생성자.',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT '수정자.',
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT '삭제자.',
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT '요청 클라이언트 IP.',
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL COMMENT '요청 프로그램 ID.';
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_identifier_sequence'
-  AND column_name IN (
-      'identifier_sequence_id',
-      'identifier_target_code',
-      'sequence_date',
-      'status_code',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'client_ip',
-      'program_id'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_identifier_sequence`;
-
-/* PATCH 012 END */
-
-/* =============================================================
-PATCH 013 START
-Database : te_story_platform
-Table    : sp_impact_analysis_result
-Columns  : 10
-Rows     : 5
-Backup   : sp_impact_analysis_result_backup_20260720_01
-============================================================= */
-
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_impact_analysis_result_backup_20260720_01`
-LIKE `te_story_platform`.`sp_impact_analysis_result`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_impact_analysis_result_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_impact_analysis_result`;
-
-COMMIT;
-
--- 2. 백업 검증
-SELECT
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_impact_analysis_result`) AS original_count,
-    (SELECT COUNT(*) FROM `te_story_platform`.`sp_impact_analysis_result_backup_20260720_01`) AS backup_count;
-
--- 3. ALTER TABLE 문 실행
-ALTER TABLE `te_story_platform`.`sp_impact_analysis_result`
-    MODIFY COLUMN `impact_analysis_id` VARCHAR(99) NOT NULL,
-    MODIFY COLUMN `change_type_code` VARCHAR(99) NOT NULL,
-    MODIFY COLUMN `affected_object_type_code` VARCHAR(99) NOT NULL,
-    MODIFY COLUMN `affected_object_name` VARCHAR(150) NOT NULL,
-    MODIFY COLUMN `risk_level_code` VARCHAR(99) NOT NULL DEFAULT '''MEDIUM''',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''',
-    MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL,
-    MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL,
-    MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL,
-    MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL;
-
--- 4. 변경 결과 확인
-SELECT column_name, column_type
-FROM information_schema.columns
-WHERE table_schema = 'te_story_platform'
-  AND table_name = 'sp_impact_analysis_result'
-  AND column_name IN (
-      'impact_analysis_id',
-      'change_type_code',
-      'affected_object_type_code',
-      'affected_object_name',
-      'risk_level_code',
-      'created_by',
-      'updated_by',
-      'deleted_by',
-      'client_ip',
-      'program_id'
-  )
-ORDER BY ordinal_position;
-
-SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_impact_analysis_result`;
-
-/* PATCH 013 END */
-
-/* =============================================================
-PATCH 014 START
+PATCH 002 START
 Database : te_story_platform
 Table    : sp_knowledge_hold
-Columns  : 9
+Columns  : 10
 Rows     : 79
 Backup   : sp_knowledge_hold_backup_20260720_01
 ============================================================= */
 
--- 1. 변경 전 백업
-CREATE TABLE `te_story_platform`.`sp_knowledge_hold_backup_20260720_01`
-LIKE `te_story_platform`.`sp_knowledge_hold`;
-
-START TRANSACTION;
-
-INSERT INTO `te_story_platform`.`sp_knowledge_hold_backup_20260720_01`
-SELECT *
-FROM `te_story_platform`.`sp_knowledge_hold`;
-
-COMMIT;
+-- 1. 기존 백업 재사용
+-- CREATE/INSERT 생략
 
 -- 2. 백업 검증
 SELECT
@@ -779,11 +89,12 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_story_platform`.`sp_knowledge_hold`
+    MODIFY COLUMN `knowledge_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `knowledge_identifier` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `knowledge_type_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `knowledge_name` VARCHAR(150) NOT NULL,
     MODIFY COLUMN `knowledge_description` VARCHAR(2000) NULL DEFAULT NULL,
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL,
@@ -795,6 +106,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_story_platform'
   AND table_name = 'sp_knowledge_hold'
   AND column_name IN (
+      'knowledge_id',
       'knowledge_identifier',
       'knowledge_type_id',
       'knowledge_name',
@@ -809,13 +121,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_knowledge_hold`;
 
-/* PATCH 014 END */
+/* PATCH 002 END */
 
 /* =============================================================
-PATCH 015 START
+PATCH 003 START
 Database : te_story_platform
 Table    : sp_knowledge_relationship_hold
-Columns  : 9
+Columns  : 10
 Rows     : 53
 Backup   : sp_knowledge_relationship_hold_backup_20260720_01
 ============================================================= */
@@ -839,11 +151,12 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_story_platform`.`sp_knowledge_relationship_hold`
+    MODIFY COLUMN `knowledge_relationship_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `source_knowledge_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `target_knowledge_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `relationship_type_code` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `relationship_description` VARCHAR(2000) NULL DEFAULT NULL,
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL,
@@ -855,6 +168,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_story_platform'
   AND table_name = 'sp_knowledge_relationship_hold'
   AND column_name IN (
+      'knowledge_relationship_id',
       'source_knowledge_id',
       'target_knowledge_id',
       'relationship_type_code',
@@ -869,13 +183,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_knowledge_relationship_hold`;
 
-/* PATCH 015 END */
+/* PATCH 003 END */
 
 /* =============================================================
-PATCH 016 START
+PATCH 004 START
 Database : te_story_platform
 Table    : sp_knowledge_type_hold
-Columns  : 9
+Columns  : 10
 Rows     : 15
 Backup   : sp_knowledge_type_hold_backup_20260720_01
 ============================================================= */
@@ -899,11 +213,12 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_story_platform`.`sp_knowledge_type_hold`
+    MODIFY COLUMN `knowledge_type_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `knowledge_type_code` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `knowledge_type_name` VARCHAR(150) NOT NULL,
     MODIFY COLUMN `parent_knowledge_type_id` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `knowledge_type_description` VARCHAR(2000) NULL DEFAULT NULL,
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL,
@@ -915,6 +230,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_story_platform'
   AND table_name = 'sp_knowledge_type_hold'
   AND column_name IN (
+      'knowledge_type_id',
       'knowledge_type_code',
       'knowledge_type_name',
       'parent_knowledge_type_id',
@@ -929,10 +245,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_knowledge_type_hold`;
 
-/* PATCH 016 END */
+/* PATCH 004 END */
 
 /* =============================================================
-PATCH 017 START
+PATCH 005 START
 Database : te_story_platform
 Table    : sp_metadata
 Columns  : 5
@@ -959,7 +275,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_story_platform`.`sp_metadata`
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By. Metadata를 최초 생성한 주체.',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM' COMMENT 'Created By. Metadata를 최초 생성한 주체.',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By. Metadata를 마지막으로 수정한 주체.',
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By. Metadata를 삭제 처리한 주체.',
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP. Metadata 변경 요청이 발생한 클라이언트 IP.',
@@ -981,10 +297,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_metadata`;
 
-/* PATCH 017 END */
+/* PATCH 005 END */
 
 /* =============================================================
-PATCH 018 START
+PATCH 006 START
 Database : te_story_platform
 Table    : sp_object
 Columns  : 6
@@ -1012,7 +328,7 @@ SELECT
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_story_platform`.`sp_object`
     MODIFY COLUMN `object_description` VARCHAR(2000) NULL DEFAULT NULL COMMENT 'Object Description. Knowledge Object의 목적, 의미, 범위를 설명하기 위해 사용한다.',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By. Object를 최초 생성한 주체를 추적하기 위해 사용한다.',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM' COMMENT 'Created By. Object를 최초 생성한 주체를 추적하기 위해 사용한다.',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By. Object를 마지막으로 수정한 주체를 추적하기 위해 사용한다.',
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By. Object를 삭제 처리한 주체를 추적하기 위해 사용한다.',
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP. Object 변경 요청이 발생한 클라이언트 IP를 추적하기 위해 사용한다.',
@@ -1035,10 +351,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_object`;
 
-/* PATCH 018 END */
+/* PATCH 006 END */
 
 /* =============================================================
-PATCH 019 START
+PATCH 007 START
 Database : te_story_platform
 Table    : sp_object_execution_link
 Columns  : 5
@@ -1065,7 +381,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_story_platform`.`sp_object_execution_link`
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By. 생성자. 모든 _by 계열 컬럼은 VARCHAR(150)를 표준으로 한다.',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM' COMMENT 'Created By. 생성자. 모든 _by 계열 컬럼은 VARCHAR(150)를 표준으로 한다.',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By. 수정자. 모든 _by 계열 컬럼은 VARCHAR(150)를 표준으로 한다.',
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By. 삭제자. 모든 _by 계열 컬럼은 VARCHAR(150)를 표준으로 한다.',
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP. IPv4/IPv6 주소. _ip 계열 컬럼은 VARCHAR(45)를 표준으로 한다.',
@@ -1087,10 +403,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_object_execution_link`;
 
-/* PATCH 019 END */
+/* PATCH 007 END */
 
 /* =============================================================
-PATCH 020 START
+PATCH 008 START
 Database : te_story_platform
 Table    : sp_object_lifecycle
 Columns  : 9
@@ -1121,7 +437,7 @@ ALTER TABLE `te_story_platform`.`sp_object_lifecycle`
     MODIFY COLUMN `object_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `lifecycle_status_code` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `lifecycle_event_code` VARCHAR(99) NOT NULL,
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL,
@@ -1147,10 +463,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_object_lifecycle`;
 
-/* PATCH 020 END */
+/* PATCH 008 END */
 
 /* =============================================================
-PATCH 021 START
+PATCH 009 START
 Database : te_story_platform
 Table    : sp_relationship_attribute
 Columns  : 9
@@ -1181,7 +497,7 @@ ALTER TABLE `te_story_platform`.`sp_relationship_attribute`
     MODIFY COLUMN `relationship_id` VARCHAR(99) NOT NULL COMMENT 'Relationship Object ID',
     MODIFY COLUMN `source_attribute_id` VARCHAR(99) NOT NULL COMMENT 'Source Attribute ID',
     MODIFY COLUMN `target_attribute_id` VARCHAR(99) NOT NULL COMMENT 'Target Attribute ID',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''' COMMENT 'Created By',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM' COMMENT 'Created By',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Updated By',
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Deleted By',
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL COMMENT 'Client IP',
@@ -1207,10 +523,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_relationship_attribute`;
 
-/* PATCH 021 END */
+/* PATCH 009 END */
 
 /* =============================================================
-PATCH 022 START
+PATCH 010 START
 Database : te_story_platform
 Table    : sp_work_asset
 Columns  : 3
@@ -1255,10 +571,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_work_asset`;
 
-/* PATCH 022 END */
+/* PATCH 010 END */
 
 /* =============================================================
-PATCH 023 START
+PATCH 011 START
 Database : te_story_platform
 Table    : sp_work_item
 Columns  : 3
@@ -1303,10 +619,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_work_item`;
 
-/* PATCH 023 END */
+/* PATCH 011 END */
 
 /* =============================================================
-PATCH 024 START
+PATCH 012 START
 Database : te_story_platform
 Table    : sp_work_session
 Columns  : 3
@@ -1351,10 +667,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_story_platform`.`sp_work_session`;
 
-/* PATCH 024 END */
+/* PATCH 012 END */
 
 /* =============================================================
-PATCH 025 START
+PATCH 013 START
 Database : te_common
 Table    : cm_audit_policy
 Columns  : 3
@@ -1399,10 +715,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_audit_policy`;
 
-/* PATCH 025 END */
+/* PATCH 013 END */
 
 /* =============================================================
-PATCH 026 START
+PATCH 014 START
 Database : te_common
 Table    : cm_business_domain
 Columns  : 3
@@ -1447,13 +763,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_business_domain`;
 
-/* PATCH 026 END */
+/* PATCH 014 END */
 
 /* =============================================================
-PATCH 027 START
+PATCH 015 START
 Database : te_common
 Table    : cm_change_history
-Columns  : 4
+Columns  : 5
 Rows     : 2
 Backup   : cm_change_history_backup_20260720_01
 ============================================================= */
@@ -1477,6 +793,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`cm_change_history`
+    MODIFY COLUMN `change_history_id` VARCHAR(99) NOT NULL COMMENT '변경 이력 ID',
     MODIFY COLUMN `target_database_name` VARCHAR(150) NOT NULL COMMENT '대상 DB명',
     MODIFY COLUMN `target_table_name` VARCHAR(150) NOT NULL COMMENT '대상 테이블명',
     MODIFY COLUMN `target_record_id` VARCHAR(99) NOT NULL COMMENT '대상 레코드 ID',
@@ -1488,6 +805,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'cm_change_history'
   AND column_name IN (
+      'change_history_id',
       'target_database_name',
       'target_table_name',
       'target_record_id',
@@ -1497,10 +815,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_change_history`;
 
-/* PATCH 027 END */
+/* PATCH 015 END */
 
 /* =============================================================
-PATCH 028 START
+PATCH 016 START
 Database : te_common
 Table    : cm_code_inspection_result
 Columns  : 8
@@ -1534,7 +852,7 @@ ALTER TABLE `te_common`.`cm_code_inspection_result`
     MODIFY COLUMN `code_name` VARCHAR(150) NULL DEFAULT NULL,
     MODIFY COLUMN `related_codes` VARCHAR(2000) NULL DEFAULT NULL,
     MODIFY COLUMN `message` TEXT NOT NULL,
-    MODIFY COLUMN `severity_code` VARCHAR(99) NOT NULL DEFAULT '''WARNING''';
+    MODIFY COLUMN `severity_code` VARCHAR(99) NOT NULL DEFAULT 'WARNING';
 
 -- 4. 변경 결과 확인
 SELECT column_name, column_type
@@ -1555,10 +873,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_code_inspection_result`;
 
-/* PATCH 028 END */
+/* PATCH 016 END */
 
 /* =============================================================
-PATCH 029 START
+PATCH 017 START
 Database : te_common
 Table    : cm_common_code
 Columns  : 1
@@ -1599,10 +917,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_common_code`;
 
-/* PATCH 029 END */
+/* PATCH 017 END */
 
 /* =============================================================
-PATCH 030 START
+PATCH 018 START
 Database : te_common
 Table    : cm_common_code_group
 Columns  : 2
@@ -1645,13 +963,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_common_code_group`;
 
-/* PATCH 030 END */
+/* PATCH 018 END */
 
 /* =============================================================
-PATCH 031 START
+PATCH 019 START
 Database : te_common
 Table    : cm_consent_history
-Columns  : 2
+Columns  : 3
 Rows     : 0
 Backup   : cm_consent_history_backup_20260720_01
 ============================================================= */
@@ -1675,6 +993,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`cm_consent_history`
+    MODIFY COLUMN `consent_history_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `user_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `consent_type` VARCHAR(99) NOT NULL;
 
@@ -1684,6 +1003,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'cm_consent_history'
   AND column_name IN (
+      'consent_history_id',
       'user_id',
       'consent_type'
   )
@@ -1691,10 +1011,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_consent_history`;
 
-/* PATCH 031 END */
+/* PATCH 019 END */
 
 /* =============================================================
-PATCH 032 START
+PATCH 020 START
 Database : te_common
 Table    : cm_country
 Columns  : 3
@@ -1739,10 +1059,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_country`;
 
-/* PATCH 032 END */
+/* PATCH 020 END */
 
 /* =============================================================
-PATCH 033 START
+PATCH 021 START
 Database : te_common
 Table    : cm_data_classification
 Columns  : 2
@@ -1785,13 +1105,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_data_classification`;
 
-/* PATCH 033 END */
+/* PATCH 021 END */
 
 /* =============================================================
-PATCH 034 START
+PATCH 022 START
 Database : te_common
 Table    : cm_data_lifecycle_index
-Columns  : 10
+Columns  : 11
 Rows     : 0
 Backup   : cm_data_lifecycle_index_backup_20260720_01
 ============================================================= */
@@ -1815,6 +1135,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`cm_data_lifecycle_index`
+    MODIFY COLUMN `lifecycle_id` VARCHAR(99) NOT NULL COMMENT '생명주기 ID',
     MODIFY COLUMN `user_id` VARCHAR(99) NOT NULL COMMENT '사용자 ID',
     MODIFY COLUMN `data_asset_id` VARCHAR(99) NOT NULL COMMENT '데이터 자산 ID',
     MODIFY COLUMN `data_type` VARCHAR(99) NOT NULL COMMENT '데이터 유형',
@@ -1832,6 +1153,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'cm_data_lifecycle_index'
   AND column_name IN (
+      'lifecycle_id',
       'user_id',
       'data_asset_id',
       'data_type',
@@ -1847,10 +1169,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_data_lifecycle_index`;
 
-/* PATCH 034 END */
+/* PATCH 022 END */
 
 /* =============================================================
-PATCH 035 START
+PATCH 023 START
 Database : te_common
 Table    : cm_data_type
 Columns  : 5
@@ -1899,10 +1221,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_data_type`;
 
-/* PATCH 035 END */
+/* PATCH 023 END */
 
 /* =============================================================
-PATCH 036 START
+PATCH 024 START
 Database : te_common
 Table    : cm_language
 Columns  : 3
@@ -1947,13 +1269,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_language`;
 
-/* PATCH 036 END */
+/* PATCH 024 END */
 
 /* =============================================================
-PATCH 037 START
+PATCH 025 START
 Database : te_common
 Table    : cm_legal_retention_policy
-Columns  : 4
+Columns  : 5
 Rows     : 4
 Backup   : cm_legal_retention_policy_backup_20260720_01
 ============================================================= */
@@ -1977,6 +1299,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`cm_legal_retention_policy`
+    MODIFY COLUMN `legal_retention_policy_id` VARCHAR(99) NOT NULL COMMENT '법적 보존 정책 ID',
     MODIFY COLUMN `data_type` VARCHAR(99) NOT NULL COMMENT '데이터 유형',
     MODIFY COLUMN `legal_basis_code` VARCHAR(99) NOT NULL COMMENT '법적 근거 코드',
     MODIFY COLUMN `retention_reason` VARCHAR(2000) NOT NULL COMMENT '보존 사유',
@@ -1988,6 +1311,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'cm_legal_retention_policy'
   AND column_name IN (
+      'legal_retention_policy_id',
       'data_type',
       'legal_basis_code',
       'retention_reason',
@@ -1997,10 +1321,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_legal_retention_policy`;
 
-/* PATCH 037 END */
+/* PATCH 025 END */
 
 /* =============================================================
-PATCH 038 START
+PATCH 026 START
 Database : te_common
 Table    : cm_locale
 Columns  : 10
@@ -2059,10 +1383,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_locale`;
 
-/* PATCH 038 END */
+/* PATCH 026 END */
 
 /* =============================================================
-PATCH 039 START
+PATCH 027 START
 Database : te_common
 Table    : cm_login_history
 Columns  : 4
@@ -2109,10 +1433,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_login_history`;
 
-/* PATCH 039 END */
+/* PATCH 027 END */
 
 /* =============================================================
-PATCH 040 START
+PATCH 028 START
 Database : te_common
 Table    : cm_member
 Columns  : 5
@@ -2161,10 +1485,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_member`;
 
-/* PATCH 040 END */
+/* PATCH 028 END */
 
 /* =============================================================
-PATCH 041 START
+PATCH 029 START
 Database : te_common
 Table    : cm_member_private
 Columns  : 4
@@ -2211,10 +1535,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_member_private`;
 
-/* PATCH 041 END */
+/* PATCH 029 END */
 
 /* =============================================================
-PATCH 042 START
+PATCH 030 START
 Database : te_common
 Table    : cm_member_role
 Columns  : 3
@@ -2259,10 +1583,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_member_role`;
 
-/* PATCH 042 END */
+/* PATCH 030 END */
 
 /* =============================================================
-PATCH 043 START
+PATCH 031 START
 Database : te_common
 Table    : cm_repository
 Columns  : 11
@@ -2298,7 +1622,7 @@ ALTER TABLE `te_common`.`cm_repository`
     MODIFY COLUMN `data_type_code` VARCHAR(99) NOT NULL COMMENT '자료구분 코드',
     MODIFY COLUMN `data_code` VARCHAR(99) NOT NULL COMMENT '자료 코드',
     MODIFY COLUMN `data_name` VARCHAR(150) NOT NULL COMMENT '자료명',
-    MODIFY COLUMN `data_version` VARCHAR(99) NOT NULL DEFAULT '''v1.0''' COMMENT '자료 버전',
+    MODIFY COLUMN `data_version` VARCHAR(99) NOT NULL DEFAULT 'v1.0' COMMENT '자료 버전',
     MODIFY COLUMN `code_description` VARCHAR(2000) NULL DEFAULT NULL COMMENT '설명';
 
 -- 4. 변경 결과 확인
@@ -2323,10 +1647,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_repository`;
 
-/* PATCH 043 END */
+/* PATCH 031 END */
 
 /* =============================================================
-PATCH 044 START
+PATCH 032 START
 Database : te_common
 Table    : cm_role
 Columns  : 3
@@ -2371,10 +1695,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_role`;
 
-/* PATCH 044 END */
+/* PATCH 032 END */
 
 /* =============================================================
-PATCH 045 START
+PATCH 033 START
 Database : te_common
 Table    : cm_role_rule
 Columns  : 2
@@ -2417,10 +1741,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_role_rule`;
 
-/* PATCH 045 END */
+/* PATCH 033 END */
 
 /* =============================================================
-PATCH 046 START
+PATCH 034 START
 Database : te_common
 Table    : cm_sequence
 Columns  : 9
@@ -2450,12 +1774,12 @@ ALTER TABLE `te_common`.`cm_sequence`
     MODIFY COLUMN `sequence_code` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `sequence_date` DATETIME NOT NULL,
     MODIFY COLUMN `current_value` VARCHAR(2000) NOT NULL DEFAULT '0',
-    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT '''SYSTEM''',
+    MODIFY COLUMN `created_by` VARCHAR(99) NOT NULL DEFAULT 'SYSTEM',
     MODIFY COLUMN `updated_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `deleted_by` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `client_ip` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `program_id` VARCHAR(99) NULL DEFAULT NULL,
-    MODIFY COLUMN `status_code` VARCHAR(99) NOT NULL DEFAULT '''ACTIVE''';
+    MODIFY COLUMN `status_code` VARCHAR(99) NOT NULL DEFAULT 'ACTIVE';
 
 -- 4. 변경 결과 확인
 SELECT column_name, column_type
@@ -2477,10 +1801,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_sequence`;
 
-/* PATCH 046 END */
+/* PATCH 034 END */
 
 /* =============================================================
-PATCH 047 START
+PATCH 035 START
 Database : te_common
 Table    : cm_sequence_definition
 Columns  : 8
@@ -2535,10 +1859,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_sequence_definition`;
 
-/* PATCH 047 END */
+/* PATCH 035 END */
 
 /* =============================================================
-PATCH 048 START
+PATCH 036 START
 Database : te_common
 Table    : cm_sequence_format
 Columns  : 3
@@ -2583,10 +1907,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_sequence_format`;
 
-/* PATCH 048 END */
+/* PATCH 036 END */
 
 /* =============================================================
-PATCH 049 START
+PATCH 037 START
 Database : te_common
 Table    : cm_sequence_format_definition
 Columns  : 4
@@ -2633,10 +1957,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_sequence_format_definition`;
 
-/* PATCH 049 END */
+/* PATCH 037 END */
 
 /* =============================================================
-PATCH 050 START
+PATCH 038 START
 Database : te_common
 Table    : cm_sequence_policy
 Columns  : 3
@@ -2681,10 +2005,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_sequence_policy`;
 
-/* PATCH 050 END */
+/* PATCH 038 END */
 
 /* =============================================================
-PATCH 051 START
+PATCH 039 START
 Database : te_common
 Table    : cm_sequence_policy_definition
 Columns  : 5
@@ -2733,10 +2057,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_sequence_policy_definition`;
 
-/* PATCH 051 END */
+/* PATCH 039 END */
 
 /* =============================================================
-PATCH 052 START
+PATCH 040 START
 Database : te_common
 Table    : cm_sequence_rule
 Columns  : 8
@@ -2791,13 +2115,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_sequence_rule`;
 
-/* PATCH 052 END */
+/* PATCH 040 END */
 
 /* =============================================================
-PATCH 053 START
+PATCH 041 START
 Database : te_common
 Table    : cm_storage_policy
-Columns  : 2
+Columns  : 3
 Rows     : 6
 Backup   : cm_storage_policy_backup_20260720_01
 ============================================================= */
@@ -2821,6 +2145,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`cm_storage_policy`
+    MODIFY COLUMN `policy_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `data_type` VARCHAR(99) NOT NULL COMMENT '데이터유형',
     MODIFY COLUMN `repository_id` VARCHAR(99) NOT NULL COMMENT '저장소ID';
 
@@ -2830,6 +2155,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'cm_storage_policy'
   AND column_name IN (
+      'policy_id',
       'data_type',
       'repository_id'
   )
@@ -2837,10 +2163,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_storage_policy`;
 
-/* PATCH 053 END */
+/* PATCH 041 END */
 
 /* =============================================================
-PATCH 054 START
+PATCH 042 START
 Database : te_common
 Table    : cm_storage_repository
 Columns  : 5
@@ -2889,10 +2215,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_storage_repository`;
 
-/* PATCH 054 END */
+/* PATCH 042 END */
 
 /* =============================================================
-PATCH 055 START
+PATCH 043 START
 Database : te_common
 Table    : cm_verified_sql_query
 Columns  : 17
@@ -2965,10 +2291,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`cm_verified_sql_query`;
 
-/* PATCH 055 END */
+/* PATCH 043 END */
 
 /* =============================================================
-PATCH 056 START
+PATCH 044 START
 Database : te_common
 Table    : ev_evidence
 Columns  : 12
@@ -3031,10 +2357,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`ev_evidence`;
 
-/* PATCH 056 END */
+/* PATCH 044 END */
 
 /* =============================================================
-PATCH 057 START
+PATCH 045 START
 Database : te_common
 Table    : ev_evidence_reference
 Columns  : 12
@@ -3097,10 +2423,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`ev_evidence_reference`;
 
-/* PATCH 057 END */
+/* PATCH 045 END */
 
 /* =============================================================
-PATCH 058 START
+PATCH 046 START
 Database : te_common
 Table    : ev_evidence_version
 Columns  : 6
@@ -3151,10 +2477,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`ev_evidence_version`;
 
-/* PATCH 058 END */
+/* PATCH 046 END */
 
 /* =============================================================
-PATCH 059 START
+PATCH 047 START
 Database : te_common
 Table    : md_relation
 Columns  : 2
@@ -3181,8 +2507,8 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`md_relation`
-    MODIFY COLUMN `direction_code` VARCHAR(99) NOT NULL DEFAULT '''UNI''',
-    MODIFY COLUMN `cardinality_code` VARCHAR(99) NOT NULL DEFAULT '''N:N''';
+    MODIFY COLUMN `direction_code` VARCHAR(99) NOT NULL DEFAULT 'UNI',
+    MODIFY COLUMN `cardinality_code` VARCHAR(99) NOT NULL DEFAULT 'N:N';
 
 -- 4. 변경 결과 확인
 SELECT column_name, column_type
@@ -3197,10 +2523,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`md_relation`;
 
-/* PATCH 059 END */
+/* PATCH 047 END */
 
 /* =============================================================
-PATCH 060 START
+PATCH 048 START
 Database : te_common
 Table    : rl_rule
 Columns  : 6
@@ -3251,10 +2577,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`rl_rule`;
 
-/* PATCH 060 END */
+/* PATCH 048 END */
 
 /* =============================================================
-PATCH 061 START
+PATCH 049 START
 Database : te_common
 Table    : rl_rule_action
 Columns  : 5
@@ -3303,10 +2629,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`rl_rule_action`;
 
-/* PATCH 061 END */
+/* PATCH 049 END */
 
 /* =============================================================
-PATCH 062 START
+PATCH 050 START
 Database : te_common
 Table    : rl_rule_condition
 Columns  : 7
@@ -3359,10 +2685,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`rl_rule_condition`;
 
-/* PATCH 062 END */
+/* PATCH 050 END */
 
 /* =============================================================
-PATCH 063 START
+PATCH 051 START
 Database : te_common
 Table    : rl_rule_evidence
 Columns  : 4
@@ -3409,13 +2735,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`rl_rule_evidence`;
 
-/* PATCH 063 END */
+/* PATCH 051 END */
 
 /* =============================================================
-PATCH 064 START
+PATCH 052 START
 Database : te_common
 Table    : sp_policy_rule_candidate
-Columns  : 6
+Columns  : 7
 Rows     : 9
 Backup   : sp_policy_rule_candidate_backup_20260720_01
 ============================================================= */
@@ -3439,6 +2765,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`sp_policy_rule_candidate`
+    MODIFY COLUMN `rule_candidate_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `policy_id` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `source_document_name` VARCHAR(150) NULL DEFAULT NULL,
     MODIFY COLUMN `matched_keyword_text` TEXT NULL DEFAULT NULL,
@@ -3452,6 +2779,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'sp_policy_rule_candidate'
   AND column_name IN (
+      'rule_candidate_id',
       'policy_id',
       'source_document_name',
       'matched_keyword_text',
@@ -3463,13 +2791,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`sp_policy_rule_candidate`;
 
-/* PATCH 064 END */
+/* PATCH 052 END */
 
 /* =============================================================
-PATCH 065 START
+PATCH 053 START
 Database : te_common
 Table    : sp_policy_rule_keyword
-Columns  : 4
+Columns  : 5
 Rows     : 24
 Backup   : sp_policy_rule_keyword_backup_20260720_01
 ============================================================= */
@@ -3493,6 +2821,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`sp_policy_rule_keyword`
+    MODIFY COLUMN `rule_keyword_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `rule_keyword_text` TEXT NOT NULL,
     MODIFY COLUMN `rule_keyword_category_code` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `rule_keyword_description` VARCHAR(2000) NULL DEFAULT NULL,
@@ -3504,6 +2833,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'sp_policy_rule_keyword'
   AND column_name IN (
+      'rule_keyword_id',
       'rule_keyword_text',
       'rule_keyword_category_code',
       'rule_keyword_description',
@@ -3513,13 +2843,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`sp_policy_rule_keyword`;
 
-/* PATCH 065 END */
+/* PATCH 053 END */
 
 /* =============================================================
-PATCH 066 START
+PATCH 054 START
 Database : te_common
 Table    : sql_guard_execution_log
-Columns  : 3
+Columns  : 4
 Rows     : 0
 Backup   : sql_guard_execution_log_backup_20260720_01
 ============================================================= */
@@ -3543,6 +2873,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`sql_guard_execution_log`
+    MODIFY COLUMN `execution_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `user_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `query_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `crud_type` VARCHAR(99) NOT NULL;
@@ -3553,6 +2884,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'sql_guard_execution_log'
   AND column_name IN (
+      'execution_id',
       'user_id',
       'query_id',
       'crud_type'
@@ -3561,13 +2893,13 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`sql_guard_execution_log`;
 
-/* PATCH 066 END */
+/* PATCH 054 END */
 
 /* =============================================================
-PATCH 067 START
+PATCH 055 START
 Database : te_common
 Table    : sql_guard_verification_log
-Columns  : 2
+Columns  : 3
 Rows     : 0
 Backup   : sql_guard_verification_log_backup_20260720_01
 ============================================================= */
@@ -3591,6 +2923,7 @@ SELECT
 
 -- 3. ALTER TABLE 문 실행
 ALTER TABLE `te_common`.`sql_guard_verification_log`
+    MODIFY COLUMN `log_id` VARCHAR(99) NOT NULL,
     MODIFY COLUMN `query_id` VARCHAR(99) NULL DEFAULT NULL,
     MODIFY COLUMN `check_step` VARCHAR(99) NOT NULL;
 
@@ -3600,6 +2933,7 @@ FROM information_schema.columns
 WHERE table_schema = 'te_common'
   AND table_name = 'sql_guard_verification_log'
   AND column_name IN (
+      'log_id',
       'query_id',
       'check_step'
   )
@@ -3607,10 +2941,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`sql_guard_verification_log`;
 
-/* PATCH 067 END */
+/* PATCH 055 END */
 
 /* =============================================================
-PATCH 068 START
+PATCH 056 START
 Database : te_common
 Table    : system_menu
 Columns  : 2
@@ -3653,10 +2987,10 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`system_menu`;
 
-/* PATCH 068 END */
+/* PATCH 056 END */
 
 /* =============================================================
-PATCH 069 START
+PATCH 057 START
 Database : te_common
 Table    : system_menu_button
 Columns  : 3
@@ -3701,6 +3035,119 @@ ORDER BY ordinal_position;
 
 SELECT COUNT(*) AS row_count FROM `te_common`.`system_menu_button`;
 
-/* PATCH 069 END */
+/* PATCH 057 END */
+
+/* =============================================================
+PATCH 058 START
+Database : te_common
+Table    : system_menu_button_crud_permission
+Columns  : 1
+Rows     : 8
+Backup   : system_menu_button_crud_permission_backup_20260720_01
+============================================================= */
+
+-- 1. 변경 전 백업
+CREATE TABLE `te_common`.`system_menu_button_crud_permission_backup_20260720_01`
+LIKE `te_common`.`system_menu_button_crud_permission`;
+
+START TRANSACTION;
+
+INSERT INTO `te_common`.`system_menu_button_crud_permission_backup_20260720_01`
+SELECT *
+FROM `te_common`.`system_menu_button_crud_permission`;
+
+COMMIT;
+
+-- 2. 백업 검증
+SELECT
+    (SELECT COUNT(*) FROM `te_common`.`system_menu_button_crud_permission`) AS original_count,
+    (SELECT COUNT(*) FROM `te_common`.`system_menu_button_crud_permission_backup_20260720_01`) AS backup_count;
+
+-- 3. ALTER TABLE 문 실행
+ALTER TABLE `te_common`.`system_menu_button_crud_permission`
+    MODIFY COLUMN `permission_id` VARCHAR(99) NOT NULL;
+
+-- 4. 변경 결과 확인
+SELECT column_name, column_type
+FROM information_schema.columns
+WHERE table_schema = 'te_common'
+  AND table_name = 'system_menu_button_crud_permission'
+  AND column_name IN (
+      'permission_id'
+  )
+ORDER BY ordinal_position;
+
+SELECT COUNT(*) AS row_count FROM `te_common`.`system_menu_button_crud_permission`;
+
+/* PATCH 058 END */
+
+/* =============================================================
+PATCH 059 START
+Database : te_common
+Table    : system_user
+Columns  : 1
+Rows     : 2
+Backup   : system_user_backup_20260720_01
+============================================================= */
+
+-- 1. 변경 전 백업
+CREATE TABLE `te_common`.`system_user_backup_20260720_01`
+LIKE `te_common`.`system_user`;
+
+START TRANSACTION;
+
+INSERT INTO `te_common`.`system_user_backup_20260720_01`
+SELECT *
+FROM `te_common`.`system_user`;
+
+COMMIT;
+
+-- 2. 백업 검증
+SELECT
+    (SELECT COUNT(*) FROM `te_common`.`system_user`) AS original_count,
+    (SELECT COUNT(*) FROM `te_common`.`system_user_backup_20260720_01`) AS backup_count;
+
+-- 3. ALTER TABLE 문 실행
+ALTER TABLE `te_common`.`system_user`
+    MODIFY COLUMN `user_id` VARCHAR(99) NOT NULL;
+
+-- 4. 변경 결과 확인
+SELECT column_name, column_type
+FROM information_schema.columns
+WHERE table_schema = 'te_common'
+  AND table_name = 'system_user'
+  AND column_name IN (
+      'user_id'
+  )
+ORDER BY ordinal_position;
+
+SELECT COUNT(*) AS row_count FROM `te_common`.`system_user`;
+
+/* PATCH 059 END */
+
+/* Restore affected foreign keys with their original definitions */
+ALTER TABLE `te_common`.`cm_locale` ADD CONSTRAINT `fk_cm_locale_country` FOREIGN KEY (`country_code`) REFERENCES `te_common`.`cm_country` (`country_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_locale` ADD CONSTRAINT `fk_cm_locale_language` FOREIGN KEY (`language_code`) REFERENCES `te_common`.`cm_language` (`language_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_login_history` ADD CONSTRAINT `fk_cm_login_history_member` FOREIGN KEY (`member_id`) REFERENCES `te_common`.`cm_member` (`member_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_member_private` ADD CONSTRAINT `fk_cm_member_private_member` FOREIGN KEY (`member_id`) REFERENCES `te_common`.`cm_member` (`member_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_member_role` ADD CONSTRAINT `fk_cm_member_role_member` FOREIGN KEY (`member_id`) REFERENCES `te_common`.`cm_member` (`member_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_member_role` ADD CONSTRAINT `fk_cm_member_role_role` FOREIGN KEY (`role_id`) REFERENCES `te_common`.`cm_role` (`role_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_role_rule` ADD CONSTRAINT `fk_cm_role_rule_role` FOREIGN KEY (`role_id`) REFERENCES `te_common`.`cm_role` (`role_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_role_rule` ADD CONSTRAINT `fk_cm_role_rule_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_definition` ADD CONSTRAINT `fk_cm_sequence_definition_format` FOREIGN KEY (`format_code`) REFERENCES `te_common`.`cm_sequence_format_definition` (`format_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_definition` ADD CONSTRAINT `fk_cm_sequence_definition_policy` FOREIGN KEY (`policy_code`) REFERENCES `te_common`.`cm_sequence_policy_definition` (`policy_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_rule` ADD CONSTRAINT `fk_cm_sequence_rule_format` FOREIGN KEY (`format_code`) REFERENCES `te_common`.`cm_sequence_format` (`format_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_rule` ADD CONSTRAINT `fk_cm_sequence_rule_policy` FOREIGN KEY (`policy_code`) REFERENCES `te_common`.`cm_sequence_policy` (`policy_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_storage_policy` ADD CONSTRAINT `fk_storage_policy_repository` FOREIGN KEY (`repository_id`) REFERENCES `te_common`.`cm_storage_repository` (`repository_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`ev_evidence_reference` ADD CONSTRAINT `fk_ev_reference_evidence` FOREIGN KEY (`evidence_id`) REFERENCES `te_common`.`ev_evidence` (`evidence_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`ev_evidence_version` ADD CONSTRAINT `fk_ev_version_evidence` FOREIGN KEY (`evidence_id`) REFERENCES `te_common`.`ev_evidence` (`evidence_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_action` ADD CONSTRAINT `fk_rl_action_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_condition` ADD CONSTRAINT `fk_rl_condition_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_evidence` ADD CONSTRAINT `fk_rl_rule_evidence_evidence` FOREIGN KEY (`evidence_id`) REFERENCES `te_common`.`ev_evidence` (`evidence_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_evidence` ADD CONSTRAINT `fk_rl_rule_evidence_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_hold` ADD CONSTRAINT `fk_sp_knowledge_type` FOREIGN KEY (`knowledge_type_id`) REFERENCES `te_story_platform`.`sp_knowledge_type_hold` (`knowledge_type_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_relationship_hold` ADD CONSTRAINT `fk_sp_knowledge_relationship_source` FOREIGN KEY (`source_knowledge_id`) REFERENCES `te_story_platform`.`sp_knowledge_hold` (`knowledge_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_relationship_hold` ADD CONSTRAINT `fk_sp_knowledge_relationship_target` FOREIGN KEY (`target_knowledge_id`) REFERENCES `te_story_platform`.`sp_knowledge_hold` (`knowledge_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_type_hold` ADD CONSTRAINT `fk_sp_knowledge_type_parent` FOREIGN KEY (`parent_knowledge_type_id`) REFERENCES `te_story_platform`.`sp_knowledge_type_hold` (`knowledge_type_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 SET FOREIGN_KEY_CHECKS = 1;

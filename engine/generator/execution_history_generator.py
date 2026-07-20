@@ -30,10 +30,10 @@ class ExecutionHistoryGenerator:
                 object_code,
                 object_id,
                 generated_identifier,
-                repository_status,
-                mongodb_status,
-                execution_status,
-                history_status,
+                repository_status_code,
+                mongodb_status_code,
+                execution_status_code,
+                history_status_code,
                 created_dt
             )
             VALUES (
@@ -49,9 +49,9 @@ class ExecutionHistoryGenerator:
             execution_history_request["object_code"],
             execution_history_request.get("object_id"),
             execution_history_request.get("generated_identifier"),
-            execution_history_request.get("repository_status"),
-            execution_history_request.get("mongodb_status"),
-            execution_history_request["execution_status"],
+            execution_history_request.get("repository_status_code"),
+            execution_history_request.get("mongodb_status_code"),
+            execution_history_request["execution_status_code"],
             "SAVED",
         )
 

@@ -37,13 +37,13 @@ class IdentifierSequenceAllocator:
                 identifier_sequence_id,
                 identifier_target_code,
                 identifier_prefix,
-                sequence_date,
+                sequence_dt,
                 current_sequence_no,
                 sequence_length
             FROM sp_identifier_sequence
             WHERE identifier_target_code = %s
               AND identifier_prefix = %s
-              AND sequence_date = %s
+              AND sequence_dt = %s
               AND status_code = 'ACTIVE'
               AND deleted_dt IS NULL
             FOR UPDATE
@@ -75,7 +75,7 @@ class IdentifierSequenceAllocator:
                 identifier_sequence_id,
                 identifier_target_code,
                 identifier_prefix,
-                sequence_date,
+                sequence_dt,
                 current_sequence_no,
                 sequence_length,
                 status_code,

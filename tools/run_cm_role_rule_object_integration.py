@@ -163,7 +163,7 @@ def load_sequence_rows(
             identifier_sequence_id,
             identifier_target_code,
             identifier_prefix,
-            sequence_date,
+            sequence_dt,
             current_sequence_no,
             sequence_length,
             status_code,
@@ -176,7 +176,7 @@ def load_sequence_rows(
         WHERE identifier_prefix = %s
           AND deleted_dt IS NULL
         ORDER BY
-            sequence_date DESC,
+            sequence_dt DESC,
             updated_dt DESC,
             identifier_sequence_id DESC
         """,

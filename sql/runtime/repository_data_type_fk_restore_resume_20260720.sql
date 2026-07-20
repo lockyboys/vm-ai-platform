@@ -1,0 +1,20 @@
+ALTER TABLE `te_common`.`cm_role_rule` MODIFY COLUMN `role_id` VARCHAR(99) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Role 식별자. cm_role.role_id 참조';
+ALTER TABLE `te_common`.`cm_role_rule` ADD CONSTRAINT `fk_cm_role_rule_role` FOREIGN KEY (`role_id`) REFERENCES `te_common`.`cm_role` (`role_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_role_rule` ADD CONSTRAINT `fk_cm_role_rule_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_definition` ADD CONSTRAINT `fk_cm_sequence_definition_format` FOREIGN KEY (`format_code`) REFERENCES `te_common`.`cm_sequence_format_definition` (`format_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_definition` ADD CONSTRAINT `fk_cm_sequence_definition_policy` FOREIGN KEY (`policy_code`) REFERENCES `te_common`.`cm_sequence_policy_definition` (`policy_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_rule` ADD CONSTRAINT `fk_cm_sequence_rule_format` FOREIGN KEY (`format_code`) REFERENCES `te_common`.`cm_sequence_format` (`format_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_sequence_rule` ADD CONSTRAINT `fk_cm_sequence_rule_policy` FOREIGN KEY (`policy_code`) REFERENCES `te_common`.`cm_sequence_policy` (`policy_code`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`cm_storage_policy` ADD CONSTRAINT `fk_storage_policy_repository` FOREIGN KEY (`repository_id`) REFERENCES `te_common`.`cm_storage_repository` (`repository_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`ev_evidence_reference` ADD CONSTRAINT `fk_ev_reference_evidence` FOREIGN KEY (`evidence_id`) REFERENCES `te_common`.`ev_evidence` (`evidence_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`ev_evidence_version` ADD CONSTRAINT `fk_ev_version_evidence` FOREIGN KEY (`evidence_id`) REFERENCES `te_common`.`ev_evidence` (`evidence_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_action` ADD CONSTRAINT `fk_rl_action_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_condition` ADD CONSTRAINT `fk_rl_condition_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_evidence` ADD CONSTRAINT `fk_rl_rule_evidence_evidence` FOREIGN KEY (`evidence_id`) REFERENCES `te_common`.`ev_evidence` (`evidence_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_common`.`rl_rule_evidence` ADD CONSTRAINT `fk_rl_rule_evidence_rule` FOREIGN KEY (`rule_id`) REFERENCES `te_common`.`rl_rule` (`rule_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_hold` ADD CONSTRAINT `fk_sp_knowledge_type` FOREIGN KEY (`knowledge_type_id`) REFERENCES `te_story_platform`.`sp_knowledge_type_hold` (`knowledge_type_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_relationship_hold` ADD CONSTRAINT `fk_sp_knowledge_relationship_source` FOREIGN KEY (`source_knowledge_id`) REFERENCES `te_story_platform`.`sp_knowledge_hold` (`knowledge_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_relationship_hold` ADD CONSTRAINT `fk_sp_knowledge_relationship_target` FOREIGN KEY (`target_knowledge_id`) REFERENCES `te_story_platform`.`sp_knowledge_hold` (`knowledge_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+ALTER TABLE `te_story_platform`.`sp_knowledge_type_hold` ADD CONSTRAINT `fk_sp_knowledge_type_parent` FOREIGN KEY (`parent_knowledge_type_id`) REFERENCES `te_story_platform`.`sp_knowledge_type_hold` (`knowledge_type_id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+SET FOREIGN_KEY_CHECKS = 1;

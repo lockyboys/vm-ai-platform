@@ -237,7 +237,7 @@ class IdentifierEngine:
             FROM sp_identifier_sequence
             WHERE identifier_target_code = %s
               AND identifier_prefix = %s
-              AND sequence_date = %s
+              AND sequence_dt = %s
               AND status_code = 'ACTIVE'
               AND deleted_dt IS NULL
             FOR UPDATE
