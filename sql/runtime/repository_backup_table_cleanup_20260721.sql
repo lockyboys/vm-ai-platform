@@ -1,0 +1,347 @@
+-- ============================================================================
+-- SPS Repository Backup Table Cleanup
+-- Date        : 2026-07-21 KST
+-- Scope       : Explicit 95 backup tables across COMMON/STORY/HEALTH
+-- Breakdown   : te_common=64, te_story_platform=25, te_health_companion=6
+-- Created     : 20260720=93, 20260624=2
+-- FK Check    : 0 foreign keys reference or originate from these tables
+-- Warning     : DROP TABLE is DDL and cannot be rolled back by ROLLBACK.
+-- Principle   : Static explicit targets only. No dynamic DROP generation.
+-- ============================================================================
+
+-- 1. Pre-check: expected 95 rows and schema counts 64 / 25 / 6
+SELECT
+    table_schema,
+    COUNT(*) AS existing_backup_table_count
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE'
+  AND (
+        (table_schema = 'te_common' AND table_name IN (
+            'cm_audit_policy_backup_20260720_01',
+            'cm_business_domain_backup_20260720_01',
+            'cm_change_history_backup_20260720_01',
+            'cm_code_inspection_result_backup_20260720_01',
+            'cm_common_code_backup_20260720_01',
+            'cm_common_code_backup_reference_20260720_01',
+            'cm_common_code_group_backup_20260720_01',
+            'cm_common_code_group_backup_reference_20260720_01',
+            'cm_consent_history_backup_20260720_01',
+            'cm_country_backup_20260720_01',
+            'cm_country_backup_common_code_20260720_01',
+            'cm_data_classification_backup_20260720_01',
+            'cm_data_lifecycle_index_backup_20260720_01',
+            'cm_data_lifecycle_index_backup_rename_20260720_01',
+            'cm_data_type_backup_20260720_01',
+            'cm_language_backup_20260720_01',
+            'cm_language_backup_common_code_20260720_01',
+            'cm_legal_retention_policy_backup_20260720_01',
+            'cm_locale_backup_20260720_01',
+            'cm_locale_backup_common_code_20260720_01',
+            'cm_login_history_backup_20260720_01',
+            'cm_member_backup_20260720_01',
+            'cm_member_private_backup_20260720_01',
+            'cm_member_private_backup_rename_20260720_01',
+            'cm_member_role_backup_20260720_01',
+            'cm_repository_backup_20260720_01',
+            'cm_role_backup_20260720_01',
+            'cm_role_rule_backup_20260720_01',
+            'cm_sequence_backup_20260720_01',
+            'cm_sequence_backup_rename_20260720_01',
+            'cm_sequence_definition_backup_20260720_01',
+            'cm_sequence_format_backup_20260720_01',
+            'cm_sequence_format_definition_backup_20260720_01',
+            'cm_sequence_policy_backup_20260720_01',
+            'cm_sequence_policy_backup_rename_20260720_01',
+            'cm_sequence_policy_definition_backup_20260720_01',
+            'cm_sequence_policy_definition_backup_rename_20260720_01',
+            'cm_sequence_rule_backup_20260720_01',
+            'cm_storage_policy_backup_20260720_01',
+            'cm_storage_repository_backup_20260720_01',
+            'cm_verified_sql_query_backup_20260720_01',
+            'cm_verified_sql_query_backup_20260720_final',
+            'cm_verified_sql_query_backup_rename_20260720_01',
+            'ev_evidence_backup_20260720_01',
+            'ev_evidence_reference_backup_20260720_01',
+            'ev_evidence_version_backup_20260720_01',
+            'health_report_backup_20260624',
+            'md_relation_backup_20260720_01',
+            'rl_rule_action_backup_20260720_01',
+            'rl_rule_backup_20260720_01',
+            'rl_rule_condition_backup_20260720_01',
+            'rl_rule_evidence_backup_20260720_01',
+            'sp_policy_rule_candidate_backup_20260720_01',
+            'sp_policy_rule_keyword_backup_20260720_01',
+            'sql_guard_execution_log_backup_20260720_01',
+            'sql_guard_execution_log_backup_rename_20260720_01',
+            'sql_guard_verification_log_backup_20260624',
+            'sql_guard_verification_log_backup_20260720_01',
+            'system_menu_backup_20260720_01',
+            'system_menu_backup_rename_20260720_01',
+            'system_menu_button_backup_20260720_01',
+            'system_menu_button_backup_rename_20260720_01',
+            'system_menu_button_crud_permission_backup_20260720_01',
+            'system_user_backup_20260720_01'
+        ))
+        OR         (table_schema = 'te_health_companion' AND table_name IN (
+            'ac_action_backup_20260720_01',
+            'at_audit_backup_20260720_01',
+            'at_audit_backup_20260720_final',
+            'dc_decision_backup_20260720_01',
+            'dc_decision_detail_backup_20260720_01',
+            'fb_feedback_backup_20260720_01'
+        ))
+        OR         (table_schema = 'te_story_platform' AND table_name IN (
+            'sp_attribute_backup_20260720_01',
+            'sp_business_backup_20260720_01',
+            'sp_domain_backup_20260720_01',
+            'sp_domain_backup_rename_20260720_01',
+            'sp_entity_backup_20260720_01',
+            'sp_erd_backup_20260720_01',
+            'sp_execution_history_backup_20260720_01',
+            'sp_execution_history_backup_rename_20260720_01',
+            'sp_identifier_blueprint_backup_20260720_01',
+            'sp_identifier_sequence_backup_20260720_01',
+            'sp_identifier_sequence_backup_rename_20260720_01',
+            'sp_impact_analysis_result_backup_20260720_01',
+            'sp_knowledge_hold_backup_20260720_01',
+            'sp_knowledge_relationship_hold_backup_20260720_01',
+            'sp_knowledge_type_hold_backup_20260720_01',
+            'sp_knowledge_type_hold_backup_rename_20260720_01',
+            'sp_metadata_backup_20260720_01',
+            'sp_object_backup_20260720_01',
+            'sp_object_execution_link_backup_20260720_01',
+            'sp_object_lifecycle_backup_20260720_01',
+            'sp_relationship_attribute_backup_20260720_01',
+            'sp_relationship_backup_20260720_01',
+            'sp_work_asset_backup_20260720_01',
+            'sp_work_item_backup_20260720_01',
+            'sp_work_session_backup_20260720_01'
+        ))
+  )
+GROUP BY table_schema
+ORDER BY table_schema;
+
+-- 2. Delete the exact resolved backup tables
+-- te_common: 64 tables
+DROP TABLE IF EXISTS
+    `te_common`.`cm_audit_policy_backup_20260720_01`,
+    `te_common`.`cm_business_domain_backup_20260720_01`,
+    `te_common`.`cm_change_history_backup_20260720_01`,
+    `te_common`.`cm_code_inspection_result_backup_20260720_01`,
+    `te_common`.`cm_common_code_backup_20260720_01`,
+    `te_common`.`cm_common_code_backup_reference_20260720_01`,
+    `te_common`.`cm_common_code_group_backup_20260720_01`,
+    `te_common`.`cm_common_code_group_backup_reference_20260720_01`,
+    `te_common`.`cm_consent_history_backup_20260720_01`,
+    `te_common`.`cm_country_backup_20260720_01`,
+    `te_common`.`cm_country_backup_common_code_20260720_01`,
+    `te_common`.`cm_data_classification_backup_20260720_01`,
+    `te_common`.`cm_data_lifecycle_index_backup_20260720_01`,
+    `te_common`.`cm_data_lifecycle_index_backup_rename_20260720_01`,
+    `te_common`.`cm_data_type_backup_20260720_01`,
+    `te_common`.`cm_language_backup_20260720_01`,
+    `te_common`.`cm_language_backup_common_code_20260720_01`,
+    `te_common`.`cm_legal_retention_policy_backup_20260720_01`,
+    `te_common`.`cm_locale_backup_20260720_01`,
+    `te_common`.`cm_locale_backup_common_code_20260720_01`,
+    `te_common`.`cm_login_history_backup_20260720_01`,
+    `te_common`.`cm_member_backup_20260720_01`,
+    `te_common`.`cm_member_private_backup_20260720_01`,
+    `te_common`.`cm_member_private_backup_rename_20260720_01`,
+    `te_common`.`cm_member_role_backup_20260720_01`,
+    `te_common`.`cm_repository_backup_20260720_01`,
+    `te_common`.`cm_role_backup_20260720_01`,
+    `te_common`.`cm_role_rule_backup_20260720_01`,
+    `te_common`.`cm_sequence_backup_20260720_01`,
+    `te_common`.`cm_sequence_backup_rename_20260720_01`,
+    `te_common`.`cm_sequence_definition_backup_20260720_01`,
+    `te_common`.`cm_sequence_format_backup_20260720_01`,
+    `te_common`.`cm_sequence_format_definition_backup_20260720_01`,
+    `te_common`.`cm_sequence_policy_backup_20260720_01`,
+    `te_common`.`cm_sequence_policy_backup_rename_20260720_01`,
+    `te_common`.`cm_sequence_policy_definition_backup_20260720_01`,
+    `te_common`.`cm_sequence_policy_definition_backup_rename_20260720_01`,
+    `te_common`.`cm_sequence_rule_backup_20260720_01`,
+    `te_common`.`cm_storage_policy_backup_20260720_01`,
+    `te_common`.`cm_storage_repository_backup_20260720_01`,
+    `te_common`.`cm_verified_sql_query_backup_20260720_01`,
+    `te_common`.`cm_verified_sql_query_backup_20260720_final`,
+    `te_common`.`cm_verified_sql_query_backup_rename_20260720_01`,
+    `te_common`.`ev_evidence_backup_20260720_01`,
+    `te_common`.`ev_evidence_reference_backup_20260720_01`,
+    `te_common`.`ev_evidence_version_backup_20260720_01`,
+    `te_common`.`health_report_backup_20260624`,
+    `te_common`.`md_relation_backup_20260720_01`,
+    `te_common`.`rl_rule_action_backup_20260720_01`,
+    `te_common`.`rl_rule_backup_20260720_01`,
+    `te_common`.`rl_rule_condition_backup_20260720_01`,
+    `te_common`.`rl_rule_evidence_backup_20260720_01`,
+    `te_common`.`sp_policy_rule_candidate_backup_20260720_01`,
+    `te_common`.`sp_policy_rule_keyword_backup_20260720_01`,
+    `te_common`.`sql_guard_execution_log_backup_20260720_01`,
+    `te_common`.`sql_guard_execution_log_backup_rename_20260720_01`,
+    `te_common`.`sql_guard_verification_log_backup_20260624`,
+    `te_common`.`sql_guard_verification_log_backup_20260720_01`,
+    `te_common`.`system_menu_backup_20260720_01`,
+    `te_common`.`system_menu_backup_rename_20260720_01`,
+    `te_common`.`system_menu_button_backup_20260720_01`,
+    `te_common`.`system_menu_button_backup_rename_20260720_01`,
+    `te_common`.`system_menu_button_crud_permission_backup_20260720_01`,
+    `te_common`.`system_user_backup_20260720_01`;
+
+-- te_health_companion: 6 tables
+DROP TABLE IF EXISTS
+    `te_health_companion`.`ac_action_backup_20260720_01`,
+    `te_health_companion`.`at_audit_backup_20260720_01`,
+    `te_health_companion`.`at_audit_backup_20260720_final`,
+    `te_health_companion`.`dc_decision_backup_20260720_01`,
+    `te_health_companion`.`dc_decision_detail_backup_20260720_01`,
+    `te_health_companion`.`fb_feedback_backup_20260720_01`;
+
+-- te_story_platform: 25 tables
+DROP TABLE IF EXISTS
+    `te_story_platform`.`sp_attribute_backup_20260720_01`,
+    `te_story_platform`.`sp_business_backup_20260720_01`,
+    `te_story_platform`.`sp_domain_backup_20260720_01`,
+    `te_story_platform`.`sp_domain_backup_rename_20260720_01`,
+    `te_story_platform`.`sp_entity_backup_20260720_01`,
+    `te_story_platform`.`sp_erd_backup_20260720_01`,
+    `te_story_platform`.`sp_execution_history_backup_20260720_01`,
+    `te_story_platform`.`sp_execution_history_backup_rename_20260720_01`,
+    `te_story_platform`.`sp_identifier_blueprint_backup_20260720_01`,
+    `te_story_platform`.`sp_identifier_sequence_backup_20260720_01`,
+    `te_story_platform`.`sp_identifier_sequence_backup_rename_20260720_01`,
+    `te_story_platform`.`sp_impact_analysis_result_backup_20260720_01`,
+    `te_story_platform`.`sp_knowledge_hold_backup_20260720_01`,
+    `te_story_platform`.`sp_knowledge_relationship_hold_backup_20260720_01`,
+    `te_story_platform`.`sp_knowledge_type_hold_backup_20260720_01`,
+    `te_story_platform`.`sp_knowledge_type_hold_backup_rename_20260720_01`,
+    `te_story_platform`.`sp_metadata_backup_20260720_01`,
+    `te_story_platform`.`sp_object_backup_20260720_01`,
+    `te_story_platform`.`sp_object_execution_link_backup_20260720_01`,
+    `te_story_platform`.`sp_object_lifecycle_backup_20260720_01`,
+    `te_story_platform`.`sp_relationship_attribute_backup_20260720_01`,
+    `te_story_platform`.`sp_relationship_backup_20260720_01`,
+    `te_story_platform`.`sp_work_asset_backup_20260720_01`,
+    `te_story_platform`.`sp_work_item_backup_20260720_01`,
+    `te_story_platform`.`sp_work_session_backup_20260720_01`;
+
+-- 3. Post-check: remaining_target_count must be 0
+SELECT
+    COUNT(*) AS remaining_target_count
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE'
+  AND (
+        (table_schema = 'te_common' AND table_name IN (
+            'cm_audit_policy_backup_20260720_01',
+            'cm_business_domain_backup_20260720_01',
+            'cm_change_history_backup_20260720_01',
+            'cm_code_inspection_result_backup_20260720_01',
+            'cm_common_code_backup_20260720_01',
+            'cm_common_code_backup_reference_20260720_01',
+            'cm_common_code_group_backup_20260720_01',
+            'cm_common_code_group_backup_reference_20260720_01',
+            'cm_consent_history_backup_20260720_01',
+            'cm_country_backup_20260720_01',
+            'cm_country_backup_common_code_20260720_01',
+            'cm_data_classification_backup_20260720_01',
+            'cm_data_lifecycle_index_backup_20260720_01',
+            'cm_data_lifecycle_index_backup_rename_20260720_01',
+            'cm_data_type_backup_20260720_01',
+            'cm_language_backup_20260720_01',
+            'cm_language_backup_common_code_20260720_01',
+            'cm_legal_retention_policy_backup_20260720_01',
+            'cm_locale_backup_20260720_01',
+            'cm_locale_backup_common_code_20260720_01',
+            'cm_login_history_backup_20260720_01',
+            'cm_member_backup_20260720_01',
+            'cm_member_private_backup_20260720_01',
+            'cm_member_private_backup_rename_20260720_01',
+            'cm_member_role_backup_20260720_01',
+            'cm_repository_backup_20260720_01',
+            'cm_role_backup_20260720_01',
+            'cm_role_rule_backup_20260720_01',
+            'cm_sequence_backup_20260720_01',
+            'cm_sequence_backup_rename_20260720_01',
+            'cm_sequence_definition_backup_20260720_01',
+            'cm_sequence_format_backup_20260720_01',
+            'cm_sequence_format_definition_backup_20260720_01',
+            'cm_sequence_policy_backup_20260720_01',
+            'cm_sequence_policy_backup_rename_20260720_01',
+            'cm_sequence_policy_definition_backup_20260720_01',
+            'cm_sequence_policy_definition_backup_rename_20260720_01',
+            'cm_sequence_rule_backup_20260720_01',
+            'cm_storage_policy_backup_20260720_01',
+            'cm_storage_repository_backup_20260720_01',
+            'cm_verified_sql_query_backup_20260720_01',
+            'cm_verified_sql_query_backup_20260720_final',
+            'cm_verified_sql_query_backup_rename_20260720_01',
+            'ev_evidence_backup_20260720_01',
+            'ev_evidence_reference_backup_20260720_01',
+            'ev_evidence_version_backup_20260720_01',
+            'health_report_backup_20260624',
+            'md_relation_backup_20260720_01',
+            'rl_rule_action_backup_20260720_01',
+            'rl_rule_backup_20260720_01',
+            'rl_rule_condition_backup_20260720_01',
+            'rl_rule_evidence_backup_20260720_01',
+            'sp_policy_rule_candidate_backup_20260720_01',
+            'sp_policy_rule_keyword_backup_20260720_01',
+            'sql_guard_execution_log_backup_20260720_01',
+            'sql_guard_execution_log_backup_rename_20260720_01',
+            'sql_guard_verification_log_backup_20260624',
+            'sql_guard_verification_log_backup_20260720_01',
+            'system_menu_backup_20260720_01',
+            'system_menu_backup_rename_20260720_01',
+            'system_menu_button_backup_20260720_01',
+            'system_menu_button_backup_rename_20260720_01',
+            'system_menu_button_crud_permission_backup_20260720_01',
+            'system_user_backup_20260720_01'
+        ))
+        OR         (table_schema = 'te_health_companion' AND table_name IN (
+            'ac_action_backup_20260720_01',
+            'at_audit_backup_20260720_01',
+            'at_audit_backup_20260720_final',
+            'dc_decision_backup_20260720_01',
+            'dc_decision_detail_backup_20260720_01',
+            'fb_feedback_backup_20260720_01'
+        ))
+        OR         (table_schema = 'te_story_platform' AND table_name IN (
+            'sp_attribute_backup_20260720_01',
+            'sp_business_backup_20260720_01',
+            'sp_domain_backup_20260720_01',
+            'sp_domain_backup_rename_20260720_01',
+            'sp_entity_backup_20260720_01',
+            'sp_erd_backup_20260720_01',
+            'sp_execution_history_backup_20260720_01',
+            'sp_execution_history_backup_rename_20260720_01',
+            'sp_identifier_blueprint_backup_20260720_01',
+            'sp_identifier_sequence_backup_20260720_01',
+            'sp_identifier_sequence_backup_rename_20260720_01',
+            'sp_impact_analysis_result_backup_20260720_01',
+            'sp_knowledge_hold_backup_20260720_01',
+            'sp_knowledge_relationship_hold_backup_20260720_01',
+            'sp_knowledge_type_hold_backup_20260720_01',
+            'sp_knowledge_type_hold_backup_rename_20260720_01',
+            'sp_metadata_backup_20260720_01',
+            'sp_object_backup_20260720_01',
+            'sp_object_execution_link_backup_20260720_01',
+            'sp_object_lifecycle_backup_20260720_01',
+            'sp_relationship_attribute_backup_20260720_01',
+            'sp_relationship_backup_20260720_01',
+            'sp_work_asset_backup_20260720_01',
+            'sp_work_item_backup_20260720_01',
+            'sp_work_session_backup_20260720_01'
+        ))
+  );
+
+-- 4. Discovery check: no backup-named table should remain in the three databases
+SELECT
+    table_schema,
+    table_name,
+    table_rows
+FROM information_schema.tables
+WHERE table_schema IN ('te_common', 'te_story_platform', 'te_health_companion')
+  AND table_type = 'BASE TABLE'
+  AND INSTR(LOWER(table_name), 'backup') > 0
+ORDER BY table_schema, table_name;
