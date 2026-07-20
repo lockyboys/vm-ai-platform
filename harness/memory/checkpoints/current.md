@@ -1,132 +1,36 @@
 # SPS Current Checkpoint
 
-Updated: 2026-07-19 KST
+Updated: 2026-07-20 KST
+
+## Current Task
+
+- Repository 물리 Schema 표준화 결과를 확정한다.
+- Data Type과 TABLE/COLUMN COMMENT 정비는 완료했다.
+- 다음 대상은 `REFERENCE: UNRESOLVED`로 식별된 73개 `_code` 컬럼의 연결 원천 확정이다.
 
 ## Completed
 
-- SPS Harness MCP runs as `sps-harness.service` on `127.0.0.1:8000`.
-- Fixed ngrok tunnel runs as `sps-ngrok.service`.
-- Repository read tools are available: inventory, foreign keys, logical relations, table schema/data, source read/search, Git status/diff.
-- Safe mutation tools installed: source_write, source_patch, git_add, and git_commit.
-- git_push is deliberately not exposed.
-- Word schema artifact generation completed for `cm_common_code`.
-- Initial Repository Knowledge batch committed successfully.
-  - Knowledge Objects: 78
-  - REFERENCES: 40
-  - DISPOSE_AFTER: 2
-  - INTEGRATE_CANDIDATE: 7
-  - MERGE_INTO: 1
-  - REPLACE_BY: 3
-  - Missing identifiers: 0
-  - Orphan relationships: 0
-- Column data type maintenance source is complete.
-  - Required suffix standards: 23
-  - Active semantic rules: 64 total after removing redundant EXACT rules.
-  - VARCHAR length bucket rules: 4
-  - `_at` is normalized to DATETIME and renamed to `_dt`.
-  - Generic VARCHAR fallback: 1-99→99, 100-150→150, 151-500→500, 501-20000→20000.
-  - Name-based rules take precedence; VARCHAR length buckets are fallback only.
-  - Match precedence: EXACT > COMPOUND_SUFFIX > SUFFIX > PREFIX > ROOT
-  - ROOT matching is snake_case token-only; substring matching is prohibited.
-  - The analyzer reports type compliance and naming recommendations separately.
-  - One-command runner: `scripts/run_column_metadata_maintenance.sh`
-  - Physical table ALTER is not included in this runner.
-  - Latest pre-change report: MISMATCH 775 (HEALTH_COMPANION 75, STORY_PLATFORM 185, COMMON 515).
-  - Projected after `_ip`/`_date` rule change: MISMATCH 836; rerun is required for confirmation.
-  - The analyzer now creates `repository_data_type_inventory_20260719_mismatch.csv`.
-  - Match evidence is exposed through `matched_rule_type`, `matched_rule_key`, `matched_suffix`, `match_priority`, `classification_source`, and `matching_rule_count`.
-  - Column data-type Metadata now uses common-code `metadata_type_code=DATA_TYPE`.
-  - `metadata_key` stores the raw business key; match mechanics remain in `metadata_json`.
-  - `metadata_value_type_code=STRING` because `metadata_value` stores SQL type text.
-  - Legacy invented type codes and namespaced keys are normalized transactionally; redundant legacy rows are soft-deleted for audit.
-  - The analyzer recognizes suffix standards by `metadata_json.category=COLUMN_SUFFIX_STANDARD` after type-code normalization.
-  - The intermediate counts COMPLIANT 152 / MISMATCH 742 / NO_STANDARD 393 / VIEW 10 are invalid compatibility-bug output; rerun step 3 after commit `8b4561d`.
-- Column maintenance commits:
-  - `1e219be feat(metadata): add semantic column matching standards`
-  - `89c11e0 feat(repository): analyze semantic column metadata`
-  - `1282a2c chore(metadata): add column maintenance runner`
-  - `10c4b0c feat(metadata): normalize legacy datetime and varchar lengths`
-  - `b1710c8 feat(metadata): standardize ip and date suffixes`
-  - `226ad70 feat(repository): export mismatch-only inventory`
-  - `157f65c fix(metadata): normalize repository type codes and keys`
-  - `8b4561d fix(repository): load normalized suffix metadata`
+- 실제 DB Column 1,285개 Data Type 검증 완료: mismatch 0건.
+- HEALTH_COMPANION 109개, STORY_PLATFORM 378개, COMMON 798개 컬럼이 Metadata Type 표준과 일치한다.
+- `version_no`를 `version_num VARCHAR(99)`로 정비하고 18개 명명 권고를 반영했다.
+- 실운영 75개 Table의 TABLE COMMENT를 Repository Metadata 표준으로 정비했다.
+- 변경 대상 839개 COLUMN COMMENT를 보강했다.
+- 빈 TABLE COMMENT 0건, 빈 COLUMN COMMENT 0건을 확인했다.
+- 영향받는 Foreign Key 22개를 DROP 후 동일 정의로 복원했고 22개 전부 존재함을 확인했다.
+- 공통코드 및 Master Repository 확정 연결을 COLUMN COMMENT에 반영했다.
+- COMMENT 패치 생성기, 실행 SQL, Rollback SQL Commit 완료: `90317dc`.
 
-## Repository Registration Rules
+## Next Task
 
-- Every Table disposition must be registered before physical change.
-- Dispositions include KEEP, MODIFY, MERGE, INTEGRATE, MIGRATE, RENAME, DISPOSE, HOLD, and REDESIGN.
-- Initial Knowledge Objects and Relationships are registered together in one idempotent batch.
-- No DROP, MERGE, RENAME, or migration is executed before registration and verification.
-- `information_schema.tables.table_rows` is an estimate and is not proof that a table is empty.
-- Every change execution must be recorded in `sp_execution_history`.
-- A `sp_knowledge_hold.knowledge_type_id` change must also be recorded in `sp_object_lifecycle`.
-- Verified SQL must be registered in `cm_verified_sql_query`.
-- Batch programs are Objects and must use their own `object_id`.
-- Knowledge, Lifecycle, execution history, verified SQL, and relationships must converge on `object_id`.
+1. 미확정 `_code` 73개를 자체 Object Code, Master Repository Code, 공통코드 Group으로 분류한다.
+2. 공통코드 연결은 실제 `cm_common_code.group_code`와 값 일치 여부를 검증한다.
+3. 확정된 연결을 Metadata와 COLUMN COMMENT에 반영한다.
+4. Analyzer를 재실행하여 `REFERENCE: UNRESOLVED` 잔존 건수를 검증한다.
 
-## Object Hierarchy
+## Decisions
 
-- L0 Platform
-- L1 Database
-- L2 Repository
-- L3 Table/View
-- L4 Column
-- L5 reserved detailed child Object
-
-Parent linkage uses `parent_object_id`.
-
-## Identifier Rules
-
-- L0: `{BUSINESS}_{DOMAIN}_{OBJECT}`
-- L1: `{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYY}_{SEQ5}`
-- L2: `{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMM}_{SEQ5}`
-- L3: `{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMMDD}_{SEQ5}`
-- L4: `{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMMDD}_{HHMMSS}_{SEQ5}`
-- L5: `{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMMDD}_{HHMMSSCC}_{SEQ5}`
-- L5 `CC` is the real centisecond value.
-- Random/RRR tokens are not used.
-- Identifiers must be generated by Repository Metadata and Identifier Engine, not hardcoded SQL.
-
-## Column Data Type Standards
-
-- `_id` VARCHAR(99)
-- `_code` VARCHAR(99)
-- `_name` VARCHAR(150)
-- `_description` VARCHAR(2000)
-- `_json` LONGTEXT
-- `_text` TEXT
-- `_email` VARCHAR(500)
-- `_no` INT
-- `_num` VARCHAR(99)
-- `_dt` DATETIME
-- `_yn` CHAR(1)
-- `_by` VARCHAR(99)
-- `_ip` VARCHAR(99)
-- `_value` VARCHAR(2000)
-- `_date` DATETIME; rename suffix to `_dt`
-- `_time` TIME
-- `_count` INT
-- `_length` INT
-- `_size` BIGINT
-- `_rate` DECIMAL(10,4)
-- `_amount` DECIMAL(18,2)
-- `_url` VARCHAR(2000)
-- `_path` VARCHAR(2000)
-
-## Safe MCP Mutation Tools
-
-- `source_write`: project-relative UTF-8 atomic writes only; project escape and sensitive files blocked.
-- `source_patch`: existing text files only; dry-run first; deletion, rename, binary and mode changes blocked.
-- `git_add`: explicit existing files only; dry-run first.
-- `git_commit`: exact expected staged path set required; dry-run first.
-- `git_push`: not exposed; separate approval workflow required.
-
-## Next Work
-
-1. Run `bash scripts/run_column_metadata_maintenance.sh`.
-2. Verify the regenerated inventory and freeze the remaining NO_STANDARD and mismatch decisions.
-3. Generate safe DDL and impact groups in this order: HEALTH_COMPANION, STORY_PLATFORM, COMMON.
-4. Include HOLD, DISPOSE, backup, MERGE, and INTEGRATE targets in the inventory and migration plan.
-5. Register verified SQL, Batch Object, per-Object execution history, and Lifecycle before physical change.
-6. Execute physical changes only after data profiling, FK/index/view/default/nullability checks, and explicit verification.
-7. Continue L0-L4 live Object registration and initial Lifecycle registration.
+- 완료 판단 기준은 보고서가 아니라 실제 DB 재조회 결과이다.
+- `_no`는 순번 `INT`, `_num`은 문자열 번호 `VARCHAR(99)` 표준을 사용한다.
+- TABLE/COLUMN COMMENT는 사람 설명이 아니라 Generator, Engine 및 AI가 읽는 공식 Repository Metadata다.
+- `_code`는 공통코드 또는 Master Repository 연결 원천을 명시하며, 미확정 연결은 숨기지 않고 `REFERENCE: UNRESOLVED`로 관리한다.
+- 일회성 Migration Batch의 명시적 Hardcoding은 허용하되 Runtime과 Engine의 Hardcoding은 금지한다.
