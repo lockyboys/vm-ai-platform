@@ -27,14 +27,14 @@ AUDIT_COLUMNS = {"created_by", "updated_by", "deleted_by", "client_ip"}
 POLYMORPHIC_COLUMNS = {"source_object_id", "target_object_id", "target_id", "target_record_id", "action_target_id"}
 PREFIX_ALIAS = {"source_", "target_", "parent_", "representative_"}
 DOMAIN_BY_PREFIX = {
-    "cm": "CM", "ev": "EV", "rl": "RL", "sql_guard": "SG",
+    "cm": "CO", "ev": "EV", "rl": "RL", "sql_guard": "SG",
     "system": "SY", "sp_policy": "RL", "ac": "AC", "at": "AT",
     "dc": "DC", "fb": "FB", "sp": "RP", "md": "MT",
 }
 SPECIAL_DOMAIN = {
     ("te_story_platform", "sp_metadata"): "MT",
-    ("te_story_platform", "sp_identifier_blueprint"): "ID",
-    ("te_story_platform", "sp_identifier_sequence"): "ID",
+    ("te_story_platform", "sp_identifier_blueprint"): "RP",
+    ("te_story_platform", "sp_identifier_sequence"): "RP",
 }
 BUSINESS_BY_SCHEMA = {
     "te_common": "CM",

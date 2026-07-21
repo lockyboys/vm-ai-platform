@@ -3,39 +3,35 @@
 Updated: 2026-07-21 KST
 
 ## Current Task
-- Repository Table `_id` Level 4 Migration 완료 후 후속 검증과 Source 정합성을 관리한다.
+- Level 4 ID와 Domain Repository의 Source·DB 정합성을 마무리한다.
 
 ## Completed
-- Level 4 형식 확정: `BUSINESS_DOMAIN_OBJECT_YYYYMMDD_HHMMSS_SEQ5`.
-- 운영 Base Table 72개와 `_id` 컬럼 207개 구조 전수 조사 완료.
-- 값이 존재하며 위반이 있던 98개 컬럼 Migration 완료.
-- 연결군 Migration Map 357건 생성, HOLD 0건.
-- 본 Migration Batch 292문장 SUCCESS.
-- 97개 컬럼 `invalid_count=0` 확인.
-- 최종 `cm_change_history.target_record_id` 3건 변환 SUCCESS.
-- 98개 대상 컬럼 전체 Level 4 위반 0건.
-- Query ID 7건과 Menu/Relationship 참조 6건도 Level 4 유지.
-- Migration 전 Backup Table 44개 보존.
-
-## Artifacts
-- tools/generate_repository_level4_id_migration_20260721.py
-- outputs/reports/repository_level4_id_migration_map_20260721.csv
-- outputs/reports/repository_level4_id_migration_hold_20260721.csv
-- sql/runtime/repository_level4_id_migration_20260721.sql
-- sql/runtime/repository_level4_id_final_3_patch_20260721.sql
-- docs/reports/repository_level4_id_full_audit_20260721.md
+- 모든 Table `_id` Level 4 형식 Migration 완료.
+- 위반 98개 컬럼 전체 형식 위반 0건.
+- 공식 Domain 교정 완료:
+  - CM은 Common Business.
+  - CO는 Common Domain.
+  - SY는 공식 System Domain.
+  - ID는 공식 Domain이 아니므로 Identifier Repository는 SP_RP.
+- System Domain 복원 완료:
+  - CM_SY_USER_LOGIN 2건.
+  - CM_SY_PERMISSION 8건.
+- Domain Field COMMENT Patch 28문장 SUCCESS.
+- 9개 테이블, 18개 Domain 관련 컬럼 COMMENT 반영 및 18/18 검증 완료.
+- COMMENT에 SSOT, 허용 코드, Repository First, Prefix 추론 및 Hardcoding 금지를 명시.
+- Domain COMMENT 변경 전 Backup Table 9개 생성.
 
 ## Next Task
-1. 실제 DB 전체 `_id` 재분석 보고서 생성.
+1. 전체 ID Business/Domain Prefix 전수 대조.
 2. PK/FK 및 논리 참조 고아값 0건 검증.
-3. 신규 입력 Level 4 Validator 적용.
-4. Source Seed/Runtime SQL의 Legacy ID 검색 및 정비.
-5. Backup Table 삭제는 검증과 Commit 이후 별도 Cleanup Batch로 수행.
-6. Git status 검토 후 명시 파일만 Commit/Push.
+3. Source Seed/Runtime SQL Legacy ID 검색 및 정비.
+4. Git status 확인 후 Domain 교정 및 COMMENT 산출물 Commit.
+5. 검증 완료 후 Backup Table Cleanup.
 
 ## Decisions
-- 모든 Table `_id`는 Level 4.
-- Random 금지.
-- PK/FK/논리 참조는 연결군 단위로 함께 Migration.
-- 일회성 Migration Hardcoding 허용.
-- 과거 Snapshot/Backup은 검증 완료 전 보존.
+- Domain 값은 컬럼별 공식 Repository에서 해석한다.
+- sp_* Object Domain SSOT는 sp_domain.
+- business_domain_code SSOT는 cm_business_domain.
+- Common 기능 Domain SSOT는 cm_common_code.CM_DOMAIN.
+- Platform Domain SSOT는 cm_common_code.DOMAIN_CODE.
+- Table Prefix 기반 Domain 추론을 금지한다.
