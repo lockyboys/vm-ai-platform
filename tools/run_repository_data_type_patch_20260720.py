@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -95,6 +96,17 @@ def main() -> None:
             )
 
         database.commit()
+        registry_process = subprocess.run(
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "tools/register_repository_runtime_sql_queries_20260721.py"),
+            ],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        registry_result = json.loads(registry_process.stdout)
         print(
             json.dumps(
                 {
@@ -102,6 +114,7 @@ def main() -> None:
                     "database_role": DATABASE_ROLE,
                     "patch_file": str(PATCH_FILE.relative_to(PROJECT_ROOT)),
                     "statement_count": len(results),
+                    "verified_sql_registry": registry_result,
                     "results": results,
                 },
                 ensure_ascii=False,

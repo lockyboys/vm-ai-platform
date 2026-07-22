@@ -29,6 +29,15 @@ DEFAULT_BASENAME = "repository_common_code_link_audit_20260720"
 NAMESPACE_PREFIX_PATTERN = re.compile(
     r"^(?:AI|AU|CM|DC|EV|HC|HP|HS|MB|OC|RL|SP|SPS|WF)_"
 )
+COMMENT_GROUP_PATTERN = re.compile(
+    r"group_code\s*=\s*([A-Z][A-Z0-9_]*)", re.IGNORECASE
+)
+COMMENT_MASTER_PATTERN = re.compile(
+    r"(?:SSOT|REFERENCE)\s*:\s*"
+    r"((?:te_[a-z0-9_]+\.)?[a-z][a-z0-9_]*"
+    r"(?:\.[a-z][a-z0-9_]*|\([a-z][a-z0-9_]*\)))",
+    re.IGNORECASE,
+)
 
 
 def json_default(value: Any) -> Any:
@@ -91,11 +100,17 @@ def load_common_codes() -> tuple[dict[str, set[str]], dict[str, list[str]]]:
             ORDER BY group_code, code
             """
         )
+        group_rows = database.fetch_all(
+            "SELECT group_code FROM cm_common_code_group "
+            "WHERE deleted_dt IS NULL ORDER BY group_code"
+        )
     finally:
         database.close()
 
     groups: dict[str, set[str]] = defaultdict(set)
     code_groups: dict[str, list[str]] = defaultdict(list)
+    for row in group_rows:
+        groups[str(row["group_code"])]
     for row in rows:
         group = str(row["group_code"])
         code = str(row["code"])
@@ -125,6 +140,18 @@ def normalize_code_root(value: str) -> str:
     return re.sub(r"_CODE$", "", normalized)
 
 
+def comment_link(column_comment: str) -> tuple[str | None, str | None]:
+    """Return an explicit common-code group or master reference from COMMENT."""
+    comment = column_comment or ""
+    group_match = COMMENT_GROUP_PATTERN.search(comment)
+    if group_match:
+        return group_match.group(1).upper(), None
+    master_match = COMMENT_MASTER_PATTERN.search(comment)
+    if master_match:
+        return None, master_match.group(1)
+    return None, None
+
+
 def rank_groups(column_name: str, candidates: list[str]) -> list[str]:
     tokens = semantic_tokens(column_name)
 
@@ -150,8 +177,10 @@ def analyze() -> dict[str, Any]:
             schema = str(column["table_schema"])
             table = str(column["table_name"])
             name = str(column["column_name"])
+            column_comment = str(column.get("column_comment") or "")
             values = distinct_values(connections[role_by_schema[schema]], schema, table, name)
             value_set = set(values)
+            explicit_group, master_reference = comment_link(column_comment)
 
             column_root = normalize_code_root(name)
             name_exact = [
@@ -186,7 +215,22 @@ def analyze() -> dict[str, Any]:
             known_values = {value for value in values if value in code_groups}
             missing = sorted(value_set - known_values)
 
-            if not values and name_exact:
+            if master_reference:
+                status = "MASTER_LINKED"
+                missing = []
+            elif explicit_group and explicit_group not in groups:
+                status = "COMMENT_GROUP_MISSING"
+                missing = sorted(value_set)
+            elif explicit_group and not values:
+                status = "EMPTY_COMMENT_LINKED"
+                missing = []
+            elif explicit_group and value_set <= groups[explicit_group]:
+                status = "COMMENT_CONFIRMED"
+                missing = []
+            elif explicit_group:
+                status = "COMMENT_VALUE_MISSING"
+                missing = sorted(value_set - groups[explicit_group])
+            elif not values and name_exact:
                 status = "EMPTY_NAME_LINKED"
             elif not values:
                 status = "EMPTY_UNRESOLVED"
@@ -205,7 +249,9 @@ def analyze() -> dict[str, Any]:
             else:
                 status = "UNRESOLVED"
 
-            if len(compatible) == 1:
+            if explicit_group:
+                recommended_group = explicit_group
+            elif len(compatible) == 1:
                 recommended_group = compatible[0]
             elif len(ranked_value_exact) == 1:
                 recommended_group = ranked_value_exact[0]
@@ -223,6 +269,8 @@ def analyze() -> dict[str, Any]:
                     "column_root": column_root,
                     "column_type": column["column_type"],
                     "column_comment": column.get("column_comment") or "",
+                    "explicit_comment_group": explicit_group,
+                    "master_reference": master_reference,
                     "status": status,
                     "distinct_value_count": len(values),
                     "distinct_values": values,
@@ -281,6 +329,7 @@ def write_reports(report: dict[str, Any], output_dir: Path, basename: str) -> tu
     fields = [
         "database_role", "table_schema", "table_name", "column_name", "column_root",
         "column_type", "status", "distinct_value_count", "distinct_values",
+        "explicit_comment_group", "master_reference",
         "name_candidate_groups", "name_related_groups", "value_candidate_groups",
         "candidate_groups", "recommended_group", "missing_common_code_values",
         "column_comment",

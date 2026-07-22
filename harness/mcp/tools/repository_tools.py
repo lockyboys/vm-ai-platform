@@ -3,15 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from common.database import CommonDatabase
+from core.database.database_manager import DatabaseManager
 
 
-DEFAULT_DATABASE_ROLE = "STORY_PLATFORM"
-DEFAULT_DATABASE_ROLES = [
-    "COMMON",
-    "STORY_PLATFORM",
-    "HEALTH_COMPANION",
-]
+DEFAULT_DATABASE_ROLE = "STORY"
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
@@ -27,7 +22,7 @@ def _normalize_database_roles(
     roles = (
         database_roles
         if database_roles
-        else DEFAULT_DATABASE_ROLES
+        else DatabaseManager().list_active_database_roles()
     )
 
     normalized_roles = [
@@ -48,24 +43,38 @@ def _resolve_database_names(
     database_roles: list[str],
 ) -> dict[str, str]:
     database_names: dict[str, str] = {}
+    database_manager = DatabaseManager()
 
     for database_role in database_roles:
-        database = CommonDatabase(
-            database_role=database_role
+        database_name = database_manager.get_database_name(
+            database_role
         )
-
-        try:
-            database_names[database.database_name] = (
-                database_role
-            )
-        finally:
-            database.close()
+        database_names[database_name] = database_role
 
     return database_names
 
 
-def _information_schema_database() -> CommonDatabase:
-    return CommonDatabase(database_role="COMMON")
+def _fetch_all(
+    database_role: str,
+    sql: str,
+    params: tuple | None = None,
+) -> list[dict]:
+    database_manager = DatabaseManager()
+    connection = database_manager.get_connection(database_role)
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params or ())
+            return list(cursor.fetchall())
+    finally:
+        connection.close()
+
+
+def _information_schema_fetch_all(
+    sql: str,
+    params: tuple | None = None,
+) -> list[dict]:
+    return _fetch_all("COMMON", sql, params)
 
 
 def table_schema(
@@ -91,19 +100,12 @@ def table_schema(
             "table_name contains invalid characters."
         )
 
-    database = CommonDatabase(
-        database_role=normalized_database_role,
+    sql = (
+        "SHOW CREATE TABLE "
+        f"`{normalized_table_name}`"
     )
 
-    try:
-        sql = (
-            "SHOW CREATE TABLE "
-            f"`{normalized_table_name}`"
-        )
-
-        return database.fetch_all(sql)
-    finally:
-        database.close()
+    return _fetch_all(normalized_database_role, sql)
 
 
 def table_data(
@@ -127,20 +129,13 @@ def table_data(
         min(int(limit), MAX_LIMIT),
     )
 
-    database = CommonDatabase(
-        database_role=database_role.strip().upper(),
+    sql = (
+        "SELECT * "
+        f"FROM `{normalized_table_name}` "
+        f"LIMIT {normalized_limit}"
     )
 
-    try:
-        sql = (
-            "SELECT * "
-            f"FROM `{normalized_table_name}` "
-            f"LIMIT {normalized_limit}"
-        )
-
-        return database.fetch_all(sql)
-    finally:
-        database.close()
+    return _fetch_all(database_role.strip().upper(), sql)
 
 
 def repository_inventory(
@@ -174,15 +169,10 @@ def repository_inventory(
         table_name
     """
 
-    database = _information_schema_database()
-
-    try:
-        rows = database.fetch_all(
-            sql,
-            tuple(database_names),
-        )
-    finally:
-        database.close()
+    rows = _information_schema_fetch_all(
+        sql,
+        tuple(database_names),
+    )
 
     for row in rows:
         row["database_role"] = database_name_map.get(
@@ -229,15 +219,10 @@ def repository_foreign_keys(
         ordinal_position
     """
 
-    database = _information_schema_database()
-
-    try:
-        return database.fetch_all(
-            sql,
-            tuple(database_names),
-        )
-    finally:
-        database.close()
+    return _information_schema_fetch_all(
+        sql,
+        tuple(database_names),
+    )
 
 
 def repository_logical_relations(
@@ -304,12 +289,7 @@ def repository_logical_relations(
         column_name
     """
 
-    database = _information_schema_database()
-
-    try:
-        return database.fetch_all(
-            sql,
-            tuple(database_names),
-        )
-    finally:
-        database.close()
+    return _information_schema_fetch_all(
+        sql,
+        tuple(database_names),
+    )

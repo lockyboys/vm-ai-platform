@@ -51,6 +51,33 @@ class DatabaseManager:
             cursorclass=pymysql.cursors.DictCursor,
         )
 
+    def list_active_database_roles(self) -> list[str]:
+        """Return ACTIVE database role codes from the Repository SSOT."""
+
+        with self._get_bootstrap_connection() as conn:
+            with conn.cursor() as cursor:
+                sql = """
+                    SELECT code
+                    FROM cm_common_code
+                    WHERE group_code = %s
+                      AND status_code = 'ACTIVE'
+                    ORDER BY sort_no, code
+                """
+                cursor.execute(sql, (self.DATABASE_ROLE_GROUP_CODE,))
+                rows = cursor.fetchall()
+
+        roles = [
+            self._normalize_role_code(row["code"])
+            for row in rows
+        ]
+
+        if not roles:
+            raise ValueError(
+                "No ACTIVE database roles are registered in Repository metadata."
+            )
+
+        return roles
+
     def get_database_name(self, database_role_code: str) -> str:
         role_code = self._normalize_role_code(database_role_code)
 
