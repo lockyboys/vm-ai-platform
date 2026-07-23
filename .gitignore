@@ -105,3 +105,10 @@ __pycache__/
 # ============================================
 /sql/runtime/add_safe_git_mutation_tools_20260719.patch
 /sql/runtime/add_safe_source_patch_20260719.patch
+
+# SPS runtime generated artifacts
+output/file_work/
+output/sps_document_generation_standard_v1_0.docx
+output/sps_document_generation_standard_v1_0_report.md
+output/sps_story_document_demo.docx
+output/sps_story_document_demo_report.md
