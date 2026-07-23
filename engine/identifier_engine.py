@@ -19,12 +19,15 @@ import re
 from datetime import datetime
 from typing import Any
 
+from engine.common.object_level_resolver import ObjectLevelResolver
+
 
 class IdentifierEngine:
     """Repository 기반 SPS Identifier Engine."""
 
     def __init__(self, database_manager):
         self.database_manager = database_manager
+        self.object_level_resolver = ObjectLevelResolver(database_manager)
         self.object_cache: dict[str, dict[str, Any]] = {}
         self.blueprint_cache: dict[int, dict[str, Any]] = {}
 
@@ -36,11 +39,11 @@ class IdentifierEngine:
         """
         Object Metadata에 정의된 기본 Level로 Identifier를 생성한다.
         """
-        object_metadata = self.load_object_metadata(object_code)
+        object_level = self.object_level_resolver.resolve_object_level(object_code)
 
         return self.generate_for_level(
             object_code=object_code,
-            object_level=int(object_metadata["object_level"]),
+            object_level=object_level,
             manage_transaction=manage_transaction,
         )
 
@@ -119,7 +122,6 @@ class IdentifierEngine:
                 business_code,
                 domain_code,
                 object_type_code,
-                object_level,
                 identifier_target_code,
                 sequence_scope_code,
                 sequence_length
@@ -146,7 +148,6 @@ class IdentifierEngine:
             "business_code",
             "domain_code",
             "object_code",
-            "object_level",
             "identifier_target_code",
         )
 

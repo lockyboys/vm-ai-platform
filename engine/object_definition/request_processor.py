@@ -13,7 +13,6 @@ class ObjectDefinitionRequestProcessor:
         "business_code",
         "domain_code",
         "object_type_code",
-        "object_level",
         "identifier_target_code",
         "sequence_scope_code",
         "sequence_length",
@@ -125,11 +124,12 @@ class ObjectDefinitionRequestProcessor:
                 "Only uppercase letters, digits, and underscore are allowed."
             )
 
-        object_level = int(request["object_level"])
-        if object_level < 0 or object_level > 4:
-            raise ValueError(
-                "object_level must be between 0 and 4."
-            )
+        if request.get("object_level") is not None:
+            object_level = int(request["object_level"])
+            if object_level < 0 or object_level > 4:
+                raise ValueError(
+                    "object_level must be between 0 and 4."
+                )
 
         sequence_length = int(request["sequence_length"])
         if sequence_length < 1 or sequence_length > 20:
