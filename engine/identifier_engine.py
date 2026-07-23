@@ -354,21 +354,6 @@ class IdentifierEngine:
         """Blueprint Pattern의 Token을 Metadata 값으로 치환한다."""
         pattern = str(blueprint["identifier_pattern"])
 
-        random_length = int(
-            blueprint.get("random_length") or 0
-        )
-
-        random_value = ""
-
-        if random_length > 0:
-            random_value = "".join(
-                str(random.randint(0, 9))
-                for _ in range(random_length)
-            )
-
-        milliseconds = (
-            f"{int(now.microsecond / 1000):03d}"
-        )
         centiseconds = (
             f"{int(now.microsecond / 10000):02d}"
         )
@@ -393,11 +378,6 @@ class IdentifierEngine:
                 now.strftime("%H%M%S") + centiseconds
             ),
             "CENTISECOND": centiseconds,
-            "HHMMSSMS": (
-                now.strftime("%H%M%S") + milliseconds
-            ),
-            "MILLISECOND": milliseconds,
-            "RANDOM": random_value,
             "SEQ": sequence_value,
             "SEQ5": sequence_value,
         }

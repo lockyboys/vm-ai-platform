@@ -263,7 +263,7 @@ class ObjectDefinitionEngine:
 
         normalized.setdefault("status_code", "ACTIVE")
         normalized.setdefault("active_yn", "Y")
-        normalized.setdefault("version_no", "v1.0")
+        normalized.setdefault("version_num", "v1.0")
         normalized.setdefault("sort_no", 0)
         normalized.setdefault("created_by", "OBJECT_DEFINITION_GENERATOR")
         normalized.setdefault("updated_by", "OBJECT_DEFINITION_GENERATOR")

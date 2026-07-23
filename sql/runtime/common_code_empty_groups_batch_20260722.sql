@@ -81,7 +81,7 @@ INSERT INTO tmp_common_code_batch VALUES
 ('SPS_SEQUENCE_FORMAT','PREFIX_NO_DATE_5','Prefix 무기한 5자리 포맷','날짜 구간 없이 Prefix별 연속 Sequence를 생성하는 범용 식별자 포맷.',110,JSON_OBJECT('format_pattern','{PREFIX}_{SEQ:5}','sequence_length',5,'reset_policy_code','NO_RESET','registration_basis','SPS_DESIGNED_EXTENSION')),
 ('SPS_SEQUENCE_FORMAT','SPS_MONTH_5','SPS 연월 5자리 포맷','Business, Domain, Object Token, 연월과 5자리 Sequence로 Level별 식별자를 생성하는 SPS 포맷.',120,JSON_OBJECT('format_pattern','{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMM}_{SEQ:5}','sequence_length',5,'reset_policy_code','MONTHLY','registration_basis','SPS_DESIGNED_EXTENSION')),
 ('SPS_SEQUENCE_FORMAT','SPS_DAY_5','SPS 연월일 5자리 포맷','Business, Domain, Object Token, 연월일과 5자리 Sequence로 Runtime Object 식별자를 생성하는 SPS 포맷.',130,JSON_OBJECT('format_pattern','{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMMDD}_{SEQ:5}','sequence_length',5,'reset_policy_code','DAILY','registration_basis','SPS_DESIGNED_EXTENSION')),
-('SPS_SEQUENCE_FORMAT','SPS_DATETIME_MILLISECOND_5','SPS 밀리초 5자리 포맷','Business, Domain, Object Token, 밀리초 시각과 5자리 Sequence로 실행 결과 식별자를 생성하는 SPS 포맷.',140,JSON_OBJECT('format_pattern','{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMMDD}_{HHMMSSRRR}_{SEQ:5}','sequence_length',5,'reset_policy_code','DAILY','time_precision','MILLISECOND','registration_basis','SPS_DESIGNED_EXTENSION'));
+('SPS_SEQUENCE_FORMAT','SPS_DATETIME_CENTISECOND_5','SPS 센티초 5자리 포맷','Business, Domain, Object Token, 센티초 시각과 5자리 Sequence로 Level 5 실행 식별자를 생성하는 SPS 포맷.',140,JSON_OBJECT('format_pattern','{BUSINESS}_{DOMAIN}_{OBJECT}_{YYYYMMDD}_{HHMMSSCC}_{SEQ:5}','sequence_length',5,'reset_policy_code','DAILY','time_precision','CENTISECOND','registration_basis','SPS_IDENTIFIER_LEVEL5_CONFIRMED'));
 
 INSERT INTO tmp_common_code_batch
 SELECT

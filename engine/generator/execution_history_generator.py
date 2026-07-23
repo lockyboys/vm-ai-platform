@@ -22,9 +22,45 @@ class ExecutionHistoryGenerator:
             "database": os.getenv("STORY_PLATFORM_MARIADB_DATABASE", "te_story_platform"),
         }
 
+    def load_identity_metadata(self, database):
+        """Load the Repository-managed identity metadata for this table."""
+        row = database.fetch_one(
+            """
+            SELECT
+                object_id,
+                object_code,
+                object_name,
+                business_code,
+                domain_code,
+                object_type_code,
+                object_level,
+                identifier_target_code,
+                sequence_scope_code,
+                sequence_length
+            FROM sp_object
+            WHERE target_identifier_field = %s
+              AND object_type_code = 'TABLE'
+              AND active_yn = 'Y'
+              AND status_code = 'ACTIVE'
+              AND deleted_dt IS NULL
+            ORDER BY sort_no, object_code
+            LIMIT 1
+            """,
+            ("execution_history_id",),
+        )
+
+        if not row:
+            raise ValueError(
+                "Execution-history identifier metadata not found. "
+                "Register the sp_execution_history Table Object first."
+            )
+
+        return row
+
     def save(self, execution_history_request, database):
         sql = """
             INSERT INTO sp_execution_history (
+                execution_history_id,
                 trace_id,
                 engine_code,
                 object_code,
@@ -37,13 +73,14 @@ class ExecutionHistoryGenerator:
                 created_dt
             )
             VALUES (
-                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
                 NOW()
             )
         """
 
         params = (
+            execution_history_request["execution_history_id"],
             execution_history_request["trace_id"],
             execution_history_request["engine_code"],
             execution_history_request["object_code"],
@@ -56,10 +93,9 @@ class ExecutionHistoryGenerator:
         )
 
         database.execute(sql, params)
-        execution_history_id = database.last_insert_id()
 
         return {
             "generator": "ExecutionHistoryGenerator",
-            "execution_history_id": execution_history_id,
+            "execution_history_id": execution_history_request["execution_history_id"],
             "status": "SUCCESS",
         }

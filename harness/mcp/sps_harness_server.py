@@ -19,6 +19,12 @@ from harness.mcp.tools.repository_tools import (
     table_data,
     table_schema,
 )
+from harness.mcp.tools.mongodb_tools import (
+    mongodb_collections,
+    mongodb_documents,
+    mongodb_save_document,
+    verified_sql,
+)
 from harness.mcp.tools.git_tools import (
     git_diff,
     git_status,
@@ -169,6 +175,11 @@ mcp.tool()(table_data)
 mcp.tool()(repository_inventory)
 mcp.tool()(repository_foreign_keys)
 mcp.tool()(repository_logical_relations)
+
+mcp.tool()(verified_sql)
+mcp.tool()(mongodb_collections)
+mcp.tool()(mongodb_documents)
+mcp.tool()(mongodb_save_document)
 
 mcp.tool()(git_status)
 mcp.tool()(git_diff)

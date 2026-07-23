@@ -1,20 +1,16 @@
-# SPS Work Checkpoint
+current task
+SPS PDF·이미지 시연의 등록 DOCX 출력물 직접 미리보기·출력 연결.
 
-## Current Task
-- K-디지털 트레이닝 해커톤 시연 준비를 최우선으로 둔다.
-- Rule Repository 및 Identifier DB 구조 정비는 시연 이후 재개한다.
+completed
+- Level 5 Identifier Blueprint를 HHMMSSCC / random_length=0으로 실제 DB 반영 완료.
+- web/document_demo_app.py 완료 화면에 DOCX 미리보기·출력 버튼을 추가.
+- /preview/<work_session_id>/docx 라우트가 현재 로그인 Session의 등록 DOCX만 읽어 브라우저 출력용 리포트 화면으로 렌더링.
+- 기존 DOCX 다운로드, Markdown 실행 리포트 다운로드, 결과 화면 출력은 보존.
 
-## Completed
-- `rl_rule_action`의 의미를 Rule Action이 아니라 Rule Decision으로 정정하기로 결정했다.
-- 동기화 대상은 `rl_rule_decision`, `rl_rule_evidence.rule_decision_id`, Rule Decision 공통코드, `sp_object`, `sp_metadata`, `sp_relationship`, 관련 문서·Generator·Engine 설정으로 확정했다.
-- `ac_action`과 `cm_role_rule`은 변경 대상에서 제외하기로 확정했다.
-- 오늘 DB `ALTER`·`RENAME`·`UPDATE`·실행 및 Git 변경은 수행하지 않았다.
+next task
+- 웹앱 재시작 후 파일 1건 처리 → DOCX 미리보기·출력 → 브라우저 인쇄 미리보기 동작 확인.
 
-## Next Task
-- 시연 종료 후 Rule 관련 테이블 전체 동기화 범위를 최종 확정한다.
-- 원본 보존용 백업을 포함한 정비 SQL을 작성·검토한 뒤 승인된 범위만 적용한다.
-
-## Decisions
-- 테이블명 변경은 단독 변경이 아니라 PK·FK·필드명·`*_code` 공통코드·Repository 메타데이터를 한 묶음으로 동기화한다.
-- 과거 사실인 변경 이력은 소급 수정하지 않고, 정비 사실을 새 변경 이력으로 남긴다.
-- 시연 전에는 위험한 DB 구조 변경을 하지 않는다.
+decisions
+- 결과 화면 출력과 등록 DOCX 출력물 출력은 분리한다.
+- DOCX 미리보기는 Work Session에 등록된 경로만 사용하고 OUTPUT_ROOT 밖의 파일은 차단한다.
+- DB 구조 변경 및 하드코딩 없음.

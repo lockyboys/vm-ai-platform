@@ -13,7 +13,9 @@ from engine.generator.file_storage_generator import FileStorageGenerator
 from engine.generator.mongodb_document_generator import (
     MongoDBDocumentGenerator,
 )
+from engine.generator.knowledge_document_generator import KnowledgeDocumentGenerator
 from engine.identifier_engine import IdentifierEngine
+from engine.identifier.coordinator import IdentifierCoordinator
 
 class ObjectRuntimeIntelligence:
 
@@ -76,7 +78,17 @@ class ObjectRuntimeEngine:
 
         self.identifier_engine = IdentifierEngine(
             database_manager=self.database
-        )       
+        )
+        self.identifier_coordinator = IdentifierCoordinator(
+            self.database
+        )
+        self.logger = ObjectRuntimeLogger()
+        self.pre_identity_intelligence = PreIdentityIntelligence()
+        self.ai_engine = AIEngine()
+        self.execution_history_generator = ExecutionHistoryGenerator()
+        self.mongodb_collection_generator = MongoDBCollectionGenerator()
+        self.mongodb_document_generator = MongoDBDocumentGenerator()
+        self.knowledge_document_generator = KnowledgeDocumentGenerator()
     #################################################################
     # Generate Identifier
     #################################################################
@@ -85,15 +97,39 @@ class ObjectRuntimeEngine:
         self,
         object_metadata: dict,
     ) -> dict:
-        generated_identifier = self.identifier_engine.generate(
-            object_code=object_metadata["object_code"],
+        identifier_request = {
+            **object_metadata,
+            "created_by": "OBJECT_RUNTIME_ENGINE",
+            "updated_by": "OBJECT_RUNTIME_ENGINE",
+            "client_ip": "127.0.0.1",
+            "program_id": "object_runtime_engine.py",
+        }
+        prepared = self.identifier_coordinator.prepare(
+            request=identifier_request,
         )
+        lock_acquired = False
+
+        self.database.begin()
+        try:
+            self.identifier_coordinator.acquire(prepared)
+            lock_acquired = True
+            resolution = self.identifier_coordinator.resolve(
+                request=identifier_request,
+                prepared=prepared,
+            )
+            self.database.commit()
+        except Exception:
+            self.database.rollback()
+            raise
+        finally:
+            if lock_acquired:
+                self.identifier_coordinator.release(prepared)
 
         return {
             "identifier_target_code": (
                 object_metadata["identifier_target_code"]
             ),
-            "generated_identifier": generated_identifier,
+            "generated_identifier": resolution.identifier,
         }
     #######################################################
     # Execute
@@ -275,12 +311,13 @@ class ObjectRuntimeEngine:
         #     identifier_result,
         #     repository_generator_result
         # )
-        mongodb_save_request = self._build_mongodb_save_request(
-            object_metadata,
-            identifier_result,
-           repository_generator_result,
-            input_data
-        )
+        mongodb_save_request = {
+            "mongodb_document_id": identifier_result["generated_identifier"],
+            "object_code": object_metadata["object_code"],
+            "target_collection": object_metadata["object_id"],
+            "repository_status_code": repository_generator_result["status"],
+            "save_status": "READY",
+        }
 
         self.logger.step(7, "Build MongoDB Save Request")
 
@@ -351,6 +388,9 @@ class ObjectRuntimeEngine:
             repository_generator_result,
             mongodb_save_request
         )
+        execution_history_metadata = self.execution_history_generator.load_identity_metadata(self.database)
+        execution_history_identifier_result = self._generate_identifier(execution_history_metadata)
+        execution_history_request["execution_history_id"] = execution_history_identifier_result["generated_identifier"]
 
         self.logger.step(9, "Build Execution History Request")
 
@@ -459,6 +499,18 @@ class ObjectRuntimeEngine:
             "Status",
             mongodb_collection_generator_result["status"]
         )
+        knowledge_document_result = self.knowledge_document_generator.generate(
+            object_metadata=object_metadata,
+            identifier_result=identifier_result,
+            input_data=input_data,
+        )
+        input_data["knowledge_document"] = knowledge_document_result
+        mongodb_document_request = self._build_mongodb_document_request(
+            object_metadata,
+            identifier_result,
+            repository_generator_result,
+            input_data,
+        )
         #############################################################
         # STEP-013 Save MongoDB document
         #############################################################
@@ -557,6 +609,9 @@ class ObjectRuntimeEngine:
                 business_code,
                 domain_code,
                 object_type_code,
+                object_level,
+                sequence_scope_code,
+                sequence_length,
                 identifier_target_code
             FROM sp_object
             WHERE object_code = %s
@@ -703,9 +758,7 @@ class ObjectRuntimeEngine:
             ),
             "object_id": object_metadata["object_id"],
             "object_code": object_metadata["object_code"],
-            "collection_name": (
-                object_metadata["object_code"].lower()
-            ),
+            "collection_name": object_metadata["object_id"],
             "repository_status_code": (
                 repository_generator_result["status"]
             ),
@@ -804,7 +857,7 @@ class ObjectRuntimeEngine:
         return {
             "object_id": object_metadata["object_id"],
             "object_code": object_metadata["object_code"],
-            "collection_name": object_metadata["object_code"].lower(),
+            "collection_name": object_metadata["object_id"],
             "create_if_not_exists": True,
             "request_status": "READY"
         }

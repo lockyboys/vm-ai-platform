@@ -244,6 +244,49 @@ class DocumentModel:
 
         return self
 
+    def add_numbered_heading(
+        self,
+        text: str,
+        level: int = 1,
+        heading_label: str | None = None,
+    ) -> DocumentModel:
+        """계층 번호를 자동 생성하여 Heading Block을 추가한다."""
+
+        normalized_level = int(level)
+
+        if normalized_level < 1 or normalized_level > 9:
+            raise ValueError(
+                "Heading level must be between 1 and 9."
+            )
+
+        counters = self.metadata.attributes.setdefault(
+            "_heading_counters",
+            [0] * 9,
+        )
+        counters[normalized_level - 1] += 1
+
+        for index in range(normalized_level, 9):
+            counters[index] = 0
+
+        number_tokens = [
+            str(counter)
+            for counter in counters[:normalized_level]
+            if counter > 0
+        ]
+        heading_number = ".".join(number_tokens)
+
+        normalized_label = (heading_label or "").strip()
+        heading_text = (
+            f"{normalized_label} {heading_number}. {text}"
+            if normalized_label
+            else f"{heading_number}. {text}"
+        )
+
+        return self.add_heading(
+            text=heading_text,
+            level=normalized_level,
+        )
+
     def add_paragraph(
         self,
         text: str,
