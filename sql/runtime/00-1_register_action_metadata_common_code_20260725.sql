@@ -7,7 +7,6 @@ USE te_common;
 START TRANSACTION;
 
 SET @program_id = 'ACTION_METADATA_COMMON_CODE_20260725';
-SET @client_ip = '127.0.0.1';
 SET @action_code = 'REGISTER_REPOSITORY_OBJECT';
 SET @verified_query_id = 'SP_RP_SQL_QUERY_20260725_REGISTER_REPOSITORY_OBJECT_00001';
 SET @procedure_name = 'sp_register_repository_object';
