@@ -16,6 +16,7 @@ from engine.generator.mongodb_document_generator import (
 from engine.generator.knowledge_document_generator import KnowledgeDocumentGenerator
 from engine.identifier_engine import IdentifierEngine
 from engine.identifier.coordinator import IdentifierCoordinator
+from repository.story.sp_object_metadata_repository import SpObjectMetadataRepository
 
 class ObjectRuntimeIntelligence:
 
@@ -75,6 +76,7 @@ class ObjectRuntimeEngine:
         self.database = CommonDatabase(
             database_role="STORY_PLATFORM"
         )
+        self.object_metadata_repository = SpObjectMetadataRepository(self.database)
 
         self.identifier_engine = IdentifierEngine(
             database_manager=self.database
@@ -597,31 +599,7 @@ class ObjectRuntimeEngine:
     #################################################################
 
     def _load_object_metadata(self, object_code: str):
-        sql = """
-            SELECT
-                object_id,
-                object_code,
-                object_name,
-                business_code,
-                domain_code,
-                object_type_code,
-                object_level,
-                sequence_scope_code,
-                sequence_length,
-                identifier_target_code
-            FROM sp_object
-            WHERE object_code = %s
-            AND active_yn = 'Y'
-            AND status_code = 'ACTIVE'
-            LIMIT 1
-        """
-
-        rows = self.database.fetch_all(sql, (object_code,))
-
-        if not rows:
-            raise RuntimeError(f"Object metadata not found. object_code={object_code}")
-
-        return rows[0]
+        return self.object_metadata_repository.get_active_by_code(object_code)
     #################################################################
     # Build Execution Plan
     #################################################################
