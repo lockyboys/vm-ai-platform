@@ -99,10 +99,6 @@ class ObjectRuntimeEngine:
     ) -> dict:
         identifier_request = {
             **object_metadata,
-            "created_by": "OBJECT_RUNTIME_ENGINE",
-            "updated_by": "OBJECT_RUNTIME_ENGINE",
-            "client_ip": "127.0.0.1",
-            "program_id": "object_runtime_engine.py",
         }
         prepared = self.identifier_coordinator.prepare(
             request=identifier_request,
