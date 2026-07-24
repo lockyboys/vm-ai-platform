@@ -100,6 +100,11 @@ class ObjectRuntimeEngine:
         identifier_request = {
             **object_metadata,
         }
+        required_audit_fields = ("created_by", "updated_by", "program_id", "client_ip")
+        missing_audit_fields = [field for field in required_audit_fields if not identifier_request.get(field)]
+        if missing_audit_fields:
+            raise ValueError("Missing audit context: " + ", ".join(missing_audit_fields))
+
         prepared = self.identifier_coordinator.prepare(
             request=identifier_request,
         )
