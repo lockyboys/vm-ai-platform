@@ -73,6 +73,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
     parser.add_argument(
+        "--table-only",
+        action="store_true",
+        help="Applies only approved table COMMENT changes; does not rerun column DDL.",
+    )
+    parser.add_argument(
         "--approved",
         action="store_true",
         help="Confirms that the current_comment and proposed_comment review was approved.",
@@ -105,14 +110,17 @@ def main() -> None:
         if not args.approved:
             raise PermissionError("--apply requires explicit --approved confirmation.")
 
-        column_statement_count = apply_column_comments(database)
+        column_statement_count = 0 if args.table_only else apply_column_comments(database)
         table_statement_count = apply_table_comments(database, before[1])
         database.commit()
 
         after = run_selects(database, REVIEW_SQL_PATH)
         assert_column_comments_applied(after[0])
         after_summary = review_summary(after)
-        if after_summary["changed_column_count"] or after_summary["changed_table_count"]:
+        pending_comment_count = after_summary["changed_table_count"]
+        if not args.table_only:
+            pending_comment_count += after_summary["changed_column_count"]
+        if pending_comment_count:
             raise RuntimeError("COMMENT post-verification did not reach UNCHANGED state.")
 
         print(json.dumps(
@@ -121,6 +129,7 @@ def main() -> None:
                 "mode": "APPROVED_COMMENT_APPLY",
                 "column_statement_count": column_statement_count,
                 "table_statement_count": table_statement_count,
+                "applied_scope": "TABLE_ONLY" if args.table_only else "COLUMN_AND_TABLE",
                 "before_summary": review_summary(before),
                 "after_summary": after_summary,
                 "before_review": before,
