@@ -79,7 +79,7 @@ SELECT
     JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.procedure_name')) AS procedure_name
 FROM cm_common_code
 WHERE group_code = 'ACTION_TYPE'
-  AND code = @action_code
+  AND code = (CONVERT(@action_code USING utf8mb4) COLLATE utf8mb4_unicode_ci)
   AND status_code = 'ACTIVE'
   AND deleted_dt IS NULL;
 

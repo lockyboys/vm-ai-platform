@@ -77,7 +77,7 @@ SELECT
     'SYSTEM', 'SYSTEM', @program_id, @client_ip, 'ACTIVE'
 FROM cm_common_code c
 WHERE c.group_code = 'ACTION_TYPE'
-  AND c.code = @action_code
+  AND c.code = (CONVERT(@action_code USING utf8mb4) COLLATE utf8mb4_unicode_ci)
   AND c.status_code = 'ACTIVE'
   AND c.deleted_dt IS NULL
   AND JSON_UNQUOTE(JSON_EXTRACT(c.common_code_json, '$.active_yn')) = 'Y';

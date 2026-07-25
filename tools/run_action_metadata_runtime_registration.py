@@ -55,8 +55,13 @@ def execute_batch(database: CommonDatabase, batch: dict[str, object], client_ip:
     with database.connection.cursor() as cursor:
         if client_ip:
             cursor.execute("SET @client_ip = %s", (client_ip,))
-        for statement in statements:
-            cursor.execute(statement)
+        for statement_no, statement in enumerate(statements, start=1):
+            try:
+                cursor.execute(statement)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Registration failed: {relative_path} statement {statement_no}"
+                ) from exc
 
     return {"path": relative_path, "statement_count": len(statements)}
 
