@@ -9,7 +9,7 @@ class ProcedureExecutor:
     def execute(self, verified_query, parameters):
         self._validate_parameters(verified_query["parameter_definition"], parameters)
         database = CommonDatabase(verified_query["database_role"])
-        transaction_required = verified_query.get("transaction_required_yn") == "Y"
+        transaction_required = verified_query["transaction_required"]
 
         try:
             if transaction_required:
@@ -32,7 +32,7 @@ class ProcedureExecutor:
                 database.commit()
             return result_sets[-1] if result_sets else []
         except Exception:
-            if transaction_required and verified_query.get("rollback_policy") == "ROLLBACK_ON_ERROR":
+            if transaction_required and verified_query["rollback_on_error"]:
                 database.rollback()
             raise
         finally:

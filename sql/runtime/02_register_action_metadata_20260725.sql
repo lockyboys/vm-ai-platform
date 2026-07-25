@@ -121,7 +121,9 @@ VALUES
         ),
         'database_role', 'STORY_PLATFORM',
         'transaction_required_yn', 'Y',
+        'transaction_required', TRUE,
         'rollback_policy', 'ROLLBACK_ON_ERROR',
+        'rollback_on_error', TRUE,
         'timeout_seconds', 30
     ),
     'PROCEDURE',

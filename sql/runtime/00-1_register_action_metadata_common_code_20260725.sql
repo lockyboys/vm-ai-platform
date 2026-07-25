@@ -46,7 +46,9 @@ SELECT
             'required', JSON_ARRAY('object_id', 'registered_yn')
         ),
         'transaction_required_yn', 'Y',
+        'transaction_required', TRUE,
         'rollback_policy', 'ROLLBACK_ON_ERROR',
+        'rollback_on_error', TRUE,
         'timeout_seconds', 30,
         'active_yn', 'Y',
         'repository_first', TRUE,
