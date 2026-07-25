@@ -1,14 +1,9 @@
 """SPS PDF/image upload demonstration web application."""
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
 import os
 import secrets
 import tempfile
-import time
 from functools import wraps
 from pathlib import Path
 from typing import Callable, ParamSpec, TypeVar
@@ -17,13 +12,15 @@ from docx import Document
 from flask import Flask, abort, g, redirect, render_template_string, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
-from common.database import CommonDatabase
+from common.auth import AuthenticationError, CommonAuth, CsrfValidationError
 from engine.processor.work.file_work_service import DEFAULT_WORK_OUTPUT_ROOT, FileWorkService
+from work.work_repository import WorkRepository
 
 P = ParamSpec("P")
 R = TypeVar("R")
 OUTPUT_ROOT = Path(DEFAULT_WORK_OUTPUT_ROOT).resolve()
-JWT_COOKIE_NAME = "sps_document_access_token"
+auth = CommonAuth()
+work_repository = WorkRepository()
 
 LOGIN_TEMPLATE = """<!doctype html><html lang="ko"><meta charset="utf-8">
 <title>SPS Document Intelligence</title><style>
@@ -51,84 +48,6 @@ def _required_setting(name: str) -> str:
     return value
 
 
-def _jwt_expire_seconds() -> int:
-    value = _required_setting("SPS_DOCUMENT_DEMO_JWT_EXPIRE_SECONDS")
-    try:
-        seconds = int(value)
-    except ValueError as error:
-        raise RuntimeError("SPS_DOCUMENT_DEMO_JWT_EXPIRE_SECONDS must be an integer.") from error
-    if seconds <= 0:
-        raise RuntimeError("SPS_DOCUMENT_DEMO_JWT_EXPIRE_SECONDS must be positive.")
-    return seconds
-
-
-def _base64url_encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-
-def _base64url_decode(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-
-
-def _jwt_signature(signing_input: str) -> str:
-    return _base64url_encode(
-        hmac.new(
-            _required_setting("SPS_DOCUMENT_DEMO_SECRET_KEY").encode("utf-8"),
-            signing_input.encode("ascii"),
-            hashlib.sha256,
-        ).digest()
-    )
-
-
-def _issue_jwt(user_id: str) -> tuple[str, int]:
-    now = int(time.time())
-    expires_in = _jwt_expire_seconds()
-    header = _base64url_encode(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode("utf-8"))
-    payload = _base64url_encode(
-        json.dumps(
-            {"sub": user_id, "iat": now, "exp": now + expires_in, "jti": secrets.token_urlsafe(24)},
-            separators=(",", ":"),
-        ).encode("utf-8")
-    )
-    signing_input = f"{header}.{payload}"
-    return f"{signing_input}.{_jwt_signature(signing_input)}", expires_in
-
-
-def _verified_jwt_user(token: str | None) -> str | None:
-    if not token:
-        return None
-    try:
-        header_segment, payload_segment, signature = token.split(".")
-        header = json.loads(_base64url_decode(header_segment))
-        payload = json.loads(_base64url_decode(payload_segment))
-        signing_input = f"{header_segment}.{payload_segment}"
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if header != {"alg": "HS256", "typ": "JWT"}:
-        return None
-    if not hmac.compare_digest(signature, _jwt_signature(signing_input)):
-        return None
-    user_id = payload.get("sub")
-    expires_at = payload.get("exp")
-    if not isinstance(user_id, str) or not user_id or not isinstance(expires_at, int) or expires_at <= int(time.time()):
-        return None
-    return user_id
-
-
-def _csrf_token(jwt_token: str) -> str:
-    return hmac.new(
-        _required_setting("SPS_DOCUMENT_DEMO_SECRET_KEY").encode("utf-8"),
-        f"csrf:{jwt_token}".encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-
-def _validate_csrf() -> None:
-    csrf_token = request.form.get("csrf_token", "")
-    if not secrets.compare_digest(csrf_token, _csrf_token(g.jwt_token)):
-        abort(400, "Invalid CSRF token.")
-
-
 def _read_docx_blocks(docx_path: Path) -> list[dict[str, object]]:
     report_document = Document(docx_path)
     blocks: list[dict[str, object]] = []
@@ -149,66 +68,22 @@ def _configured_demo_report() -> tuple[str, Path] | None:
     work_asset_id = os.getenv("SPS_DEMO_REPORT_WORK_ASSET_ID", "").strip()
     if not report_title or not work_asset_id:
         return None
-    database = CommonDatabase(database_role="STORY")
-    try:
-        row = database.fetch_one(
-            """
-            SELECT asset_name, asset_path
-            FROM sp_work_asset
-            WHERE work_asset_id = %s
-              AND asset_type_code = 'DOCX_REPORT'
-              AND asset_status_code = 'STORED'
-              AND deleted_dt IS NULL
-            """,
-            (work_asset_id,),
-        )
-    finally:
-        database.close()
-    if not row:
+    asset = work_repository.get_stored_asset(work_asset_id, "DOCX_REPORT")
+    if not asset:
         return None
-    report_path = Path(str(row["asset_path"])).resolve()
+    report_path = Path(str(asset["asset_path"])).resolve()
     if OUTPUT_ROOT not in report_path.parents or not report_path.is_file():
         return None
     return report_title, report_path
 
 
-def _resolve_owned_work_asset(
-    *,
-    work_session_id: str,
-    asset_type_code: str,
-    requested_by: str,
-) -> Path | None:
-    """JWT 사용자와 Work Session 소유권을 검증한 뒤 Repository 자산을 찾는다."""
-    database = CommonDatabase(database_role="STORY")
-    try:
-        work_session = database.fetch_one(
-            """
-            SELECT work_session_id
-            FROM sp_work_session
-            WHERE work_session_id = %s
-              AND created_by = %s
-              AND work_status_code = 'COMPLETED'
-              AND work_result_code = 'SUCCESS'
-            """,
-            (work_session_id, requested_by),
-        )
-        if not work_session:
-            return None
-        asset = database.fetch_one(
-            """
-            SELECT asset.asset_path
-            FROM sp_work_item work_item
-            JOIN sp_work_asset asset
-              ON asset.work_item_id = work_item.work_item_id
-            WHERE work_item.work_session_id = %s
-              AND asset.asset_type_code = %s
-              AND asset.asset_status_code = 'STORED'
-              AND asset.deleted_dt IS NULL
-            """,
-            (work_session_id, asset_type_code),
-        )
-    finally:
-        database.close()
+def _resolve_owned_work_asset(*, work_session_id: str, user_id: str, asset_type_code: str) -> Path | None:
+    """Demo는 Work Repository의 소유권·자산 조회 결과만 파일 응답으로 변환한다."""
+    asset = work_repository.get_owned_asset(
+        work_session_id=work_session_id,
+        user_id=user_id,
+        asset_type_code=asset_type_code,
+    )
     if not asset:
         return None
     asset_path = Path(str(asset["asset_path"])).resolve()
@@ -220,14 +95,21 @@ def _resolve_owned_work_asset(
 def _require_login(view: Callable[P, R]) -> Callable[P, R]:
     @wraps(view)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
-        jwt_token = request.cookies.get(JWT_COOKIE_NAME)
-        user_id = _verified_jwt_user(jwt_token)
-        if not user_id or not jwt_token:
+        try:
+            g.current_user = auth.require_login(request)
+        except AuthenticationError:
             return redirect(url_for("login"))
-        g.current_user = user_id
-        g.jwt_token = jwt_token
         return view(*args, **kwargs)
     return wrapped
+
+
+def _render_editor(*, error_message: str | None = None, status_code: int = 200):
+    return render_template_string(
+        EDITOR_TEMPLATE,
+        username=g.current_user.user_id,
+        csrf_token=auth.generate_csrf_token(request),
+        error_message=error_message,
+    ), status_code
 
 
 def create_app() -> Flask:
@@ -247,16 +129,12 @@ def create_app() -> Flask:
                 secrets.compare_digest(user_id, _required_setting("SPS_DOCUMENT_DEMO_USERNAME"))
                 and secrets.compare_digest(request.form.get("password", ""), _required_setting("SPS_DOCUMENT_DEMO_PASSWORD"))
             ):
-                jwt_token, expires_in = _issue_jwt(user_id)
                 response = redirect(url_for("editor"))
-                response.set_cookie(
-                    JWT_COOKIE_NAME,
-                    jwt_token,
-                    max_age=expires_in,
-                    httponly=True,
-                    secure=True,
-                    samesite="Lax",
-                    path="/",
+                auth.set_cookie(response=response, token=auth.issue_access_token(user_id))
+                auth.set_cookie(
+                    response=response,
+                    token=auth.issue_refresh_token(user_id),
+                    token_type="refresh",
                 )
                 return response
             return render_template_string(LOGIN_TEMPLATE, error_message="로그인 정보를 확인해 주세요.")
@@ -265,57 +143,40 @@ def create_app() -> Flask:
     @app.get("/logout")
     def logout():
         response = redirect(url_for("login"))
-        response.delete_cookie(JWT_COOKIE_NAME, path="/", secure=True, samesite="Lax")
+        auth.clear_cookie(response=response)
         return response
 
     @app.get("/editor")
     @_require_login
     def editor():
-        return render_template_string(
-            EDITOR_TEMPLATE,
-            username=g.current_user,
-            csrf_token=_csrf_token(g.jwt_token),
-            error_message=None,
-        )
+        return _render_editor()
 
     @app.post("/process-file")
     @_require_login
     def process_file():
-        _validate_csrf()
+        try:
+            auth.verify_csrf_token(request)
+        except CsrfValidationError:
+            abort(400, "Invalid CSRF token.")
         uploaded = request.files.get("source_file")
         filename = secure_filename(uploaded.filename or "") if uploaded else ""
         if not uploaded or not filename:
-            return render_template_string(
-                EDITOR_TEMPLATE,
-                username=g.current_user,
-                csrf_token=_csrf_token(g.jwt_token),
-                error_message="업로드할 파일을 선택해 주세요.",
-            ), 400
+            return _render_editor(error_message="업로드할 파일을 선택해 주세요.", status_code=400)
         suffix = Path(filename).suffix.lower()
         if suffix not in {".pdf", ".jpg", ".jpeg", ".png"}:
-            return render_template_string(
-                EDITOR_TEMPLATE,
-                username=g.current_user,
-                csrf_token=_csrf_token(g.jwt_token),
-                error_message="PDF, JPG, JPEG, PNG 파일만 업로드할 수 있습니다.",
-            ), 400
+            return _render_editor(error_message="PDF, JPG, JPEG, PNG 파일만 업로드할 수 있습니다.", status_code=400)
         with tempfile.TemporaryDirectory(prefix="sps_file_work_") as directory:
             source_path = Path(directory) / filename
             uploaded.save(source_path)
             try:
                 result = service.process(
                     upload_path=source_path,
-                    requested_by=g.current_user,
+                    requested_by=g.current_user.user_id,
                     client_ip=request.remote_addr or "",
                 )
             except Exception:
                 app.logger.exception("File work processing failed")
-                return render_template_string(
-                    EDITOR_TEMPLATE,
-                    username=g.current_user,
-                    csrf_token=_csrf_token(g.jwt_token),
-                    error_message="파일 처리에 실패했습니다. 서버 로그를 확인해 주세요.",
-                ), 500
+                return _render_editor(error_message="파일 처리에 실패했습니다. 서버 로그를 확인해 주세요.", status_code=500)
         return render_template_string(
             RESULT_TEMPLATE,
             work_session_id=result.work_session_id,
@@ -331,8 +192,8 @@ def create_app() -> Flask:
     def preview_docx(work_session_id: str):
         resolved_path = _resolve_owned_work_asset(
             work_session_id=work_session_id,
+            user_id=g.current_user.user_id,
             asset_type_code="DOCX_REPORT",
-            requested_by=g.current_user,
         )
         if resolved_path is None:
             abort(404)
@@ -372,8 +233,8 @@ def create_app() -> Flask:
         asset_type_code = {"docx": "DOCX_REPORT", "report": "MARKDOWN_REPORT"}[artifact]
         resolved_path = _resolve_owned_work_asset(
             work_session_id=work_session_id,
+            user_id=g.current_user.user_id,
             asset_type_code=asset_type_code,
-            requested_by=g.current_user,
         )
         if resolved_path is None:
             abort(404)
