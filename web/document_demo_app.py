@@ -33,7 +33,7 @@ body{margin:0;font-family:"Malgun Gothic",sans-serif;background:#f4f7fb;color:#1
 RESULT_TEMPLATE = """<!doctype html><html lang="ko"><meta charset="utf-8">
 <title>SPS 파일 처리 결과</title><style>
 body{margin:0;font-family:"Malgun Gothic",sans-serif;background:#f4f7fb;color:#182033}header{padding:18px 5%;background:#102a63;color:#fff}main{max-width:820px;margin:34px auto;padding:0 24px}.card{background:#fff;padding:28px;border-radius:16px;box-shadow:0 14px 38px #23396c14}.ok{color:#087443;font-weight:700}.buttons a,.buttons button{display:inline-block;margin:10px 10px 0 0;padding:12px 18px;border:0;border-radius:8px;background:#1d4ed8;color:#fff;text-decoration:none;font:700 16px "Malgun Gothic",sans-serif;cursor:pointer}.buttons .secondary{background:#556274}li{margin:10px 0}code{word-break:break-all}@media print{body{background:#fff}.buttons{display:none}header{padding:0 0 16px;background:#fff;color:#182033}.card{padding:0;box-shadow:none}main{margin:0;max-width:none}}</style>
-<header><strong>SPS Document Intelligence · Result</strong></header><main><div class="card"><h1>파일 처리 및 Repository 저장 완료</h1><p class="ok">원본 업로드 → 텍스트 추출/OCR → sp_work_session → sp_work_item → sp_work_asset → DOCX·리포트</p><h2>공식 저장 식별자</h2><ul><li>Work Session ID: <code>{{work_session_id}}</code></li><li>Work Item ID: <code>{{work_item_id}}</code></li><li>Source Object ID: <code>{{source_object_id}}</code></li><li>추출 텍스트 길이: {{extracted_text_length}}</li></ul><h2>저장 검증</h2><ul><li>sp_work_session 1건 저장</li><li>sp_work_item 1건 저장</li><li>sp_work_asset 4건 저장: 원본·추출 텍스트·DOCX·Markdown</li></ul><div class="buttons">{% if demo_report_available %}<a href="{{url_for('preview_demo_report')}}">{{demo_report_title}} 출력</a>{% endif %}<a href="{{url_for('preview_docx', work_session_id=work_session_id)}}">이번 DOCX 미리보기·출력</a><a href="{{url_for('download', work_session_id=work_session_id, artifact='docx')}}">DOCX 다운로드</a><a href="{{url_for('download', work_session_id=work_session_id, artifact='report')}}">실행 리포트 다운로드</a><button type="button" onclick="window.print()">결과 화면 출력</button><a class="secondary" href="{{url_for('editor')}}">다른 파일 처리</a></div></div></main></html>"""
+<header><strong>SPS Document Intelligence · Result</strong></header><main><div class="card"><h1>파일 처리 및 Repository 저장 완료</h1><p class="ok">원본 업로드 → 텍스트 추출/OCR → sp_work_session → sp_work_item → sp_work_asset → DOCX·리포트</p><h2>공식 저장 식별자</h2><ul><li>Work Session ID: <code>{{work_session_id}}</code></li><li>Work Item ID: <code>{{work_item_id}}</code></li><li>Source Object ID: <code>{{source_object_id}}</code></li><li>추출 텍스트 길이: {{extracted_text_length}}</li></ul><h2>저장 검증</h2><ul><li>sp_work_session 1건 저장</li><li>sp_work_item 1건 저장</li><li>sp_work_asset 4건 저장: 원본·추출 텍스트·DOCX·Markdown</li></ul><div class="buttons">{% if demo_report_available %}<a href="{{url_for('preview_demo_report')}}">{{demo_report_title}} 출력</a>{% endif %}<a href="{{url_for('preview_docx')}}">이번 DOCX 미리보기·출력</a><a href="{{url_for('download', artifact='docx')}}">DOCX 다운로드</a><a href="{{url_for('download', artifact='report')}}">실행 리포트 다운로드</a><button type="button" onclick="window.print()">결과 화면 출력</button><a class="secondary" href="{{url_for('editor')}}">다른 파일 처리</a></div></div></main></html>"""
 
 PRINT_TEMPLATE = """<!doctype html><html lang="ko"><meta charset="utf-8"><title>{{report_title}}</title><style>body{margin:0;font-family:"Malgun Gothic",sans-serif;background:#f4f7fb;color:#182033}.toolbar{padding:16px 5%;background:#102a63;color:#fff;display:flex;gap:10px;align-items:center}.toolbar button,.toolbar a{padding:10px 14px;border:0;border-radius:8px;background:#fff;color:#102a63;text-decoration:none;font:700 15px "Malgun Gothic",sans-serif;cursor:pointer}.document{max-width:820px;margin:34px auto;background:#fff;padding:56px 64px;box-shadow:0 14px 38px #23396c14}.document h1{font-size:28px}.document h2{margin-top:28px;font-size:21px}.document p{line-height:1.8;white-space:pre-wrap}.document table{border-collapse:collapse;width:100%;margin:18px 0}.document th,.document td{border:1px solid #b9c3d3;padding:8px;text-align:left;vertical-align:top}@media print{body{background:#fff}.toolbar{display:none}.document{margin:0;max-width:none;padding:0;box-shadow:none}}</style><div class="toolbar"><strong>{{report_title}}</strong><button type="button" onclick="window.print()">이 리포트 출력</button>{% if download_url %}<a href="{{download_url}}">DOCX 다운로드</a>{% endif %}<a href="{{url_for('editor')}}">파일 처리로 돌아가기</a></div><article class="document">{% for block in blocks %}{% if block.kind == 'title' %}<h1>{{block.text}}</h1>{% elif block.kind == 'heading' %}<h2>{{block.text}}</h2>{% elif block.kind == 'table' %}<table>{% for row in block.rows %}<tr>{% for cell in row %}<td>{{cell}}</td>{% endfor %}</tr>{% endfor %}</table>{% else %}<p>{{block.text}}</p>{% endif %}{% endfor %}</article></html>"""
 
@@ -101,39 +101,50 @@ def _configured_demo_report() -> tuple[str, Path] | None:
     return report_title, report_path
 
 
-def _resolve_work_asset(
+def _resolve_current_user_work_asset(
     *,
-    work_session_id: str,
     asset_type_code: str,
     requested_by: str,
-) -> Path | None:
-    """Repository Work chain에서 현재 로그인 사용자의 저장 자산 경로를 찾는다."""
+) -> tuple[str, Path] | None:
+    """현재 사용자의 최신 완료 Work Session에서 승인된 자산을 Repository로 찾는다."""
     database = CommonDatabase(database_role="STORY")
     try:
-        row = database.fetch_one(
+        work_session = database.fetch_one(
+            """
+            SELECT work_session_id
+            FROM sp_work_session
+            WHERE created_by = %s
+              AND work_status_code = 'COMPLETED'
+              AND work_result_code = 'SUCCESS'
+            ORDER BY completed_dt DESC, work_session_id DESC
+            LIMIT 1
+            """,
+            (requested_by,),
+        )
+        if not work_session:
+            return None
+        work_session_id = str(work_session["work_session_id"])
+        asset = database.fetch_one(
             """
             SELECT asset.asset_path
-            FROM sp_work_session work_session
-            JOIN sp_work_item work_item
-              ON work_item.work_session_id = work_session.work_session_id
+            FROM sp_work_item work_item
             JOIN sp_work_asset asset
               ON asset.work_item_id = work_item.work_item_id
-            WHERE work_session.work_session_id = %s
-              AND work_session.created_by = %s
+            WHERE work_item.work_session_id = %s
               AND asset.asset_type_code = %s
               AND asset.asset_status_code = 'STORED'
               AND asset.deleted_dt IS NULL
             """,
-            (work_session_id, requested_by, asset_type_code),
+            (work_session_id, asset_type_code),
         )
     finally:
         database.close()
-    if not row:
+    if not asset:
         return None
-    asset_path = Path(str(row["asset_path"])).resolve()
+    asset_path = Path(str(asset["asset_path"])).resolve()
     if OUTPUT_ROOT not in asset_path.parents or not asset_path.is_file():
         return None
-    return asset_path
+    return work_session_id, asset_path
 
 
 def _require_login(view: Callable[P, R]) -> Callable[P, R]:
@@ -217,20 +228,20 @@ def create_app() -> Flask:
         )
 
 
-    @app.get("/preview/<work_session_id>/docx")
+    @app.get("/preview/docx")
     @_require_login
-    def preview_docx(work_session_id: str):
-        resolved_path = _resolve_work_asset(
-            work_session_id=work_session_id,
+    def preview_docx():
+        resolved_asset = _resolve_current_user_work_asset(
             asset_type_code="DOCX_REPORT",
             requested_by=session["document_user"],
         )
-        if resolved_path is None:
+        if resolved_asset is None:
             abort(404)
+        _, resolved_path = resolved_asset
         return render_template_string(
             PRINT_TEMPLATE,
-            report_title="이번 파일 처리 DOCX 리포트",
-            download_url=url_for("download", work_session_id=work_session_id, artifact="docx"),
+            report_title="현재 사용자 최신 완료 DOCX 리포트",
+            download_url=url_for("download", artifact="docx"),
             blocks=_read_docx_blocks(resolved_path),
         )
 
@@ -255,19 +266,19 @@ def create_app() -> Flask:
             blocks=blocks,
         )
 
-    @app.get("/download/<work_session_id>/<artifact>")
+    @app.get("/download/<artifact>")
     @_require_login
-    def download(work_session_id: str, artifact: str):
+    def download(artifact: str):
         if artifact not in {"docx", "report"}:
             abort(404)
         asset_type_code = {"docx": "DOCX_REPORT", "report": "MARKDOWN_REPORT"}[artifact]
-        resolved_path = _resolve_work_asset(
-            work_session_id=work_session_id,
+        resolved_asset = _resolve_current_user_work_asset(
             asset_type_code=asset_type_code,
             requested_by=session["document_user"],
         )
-        if resolved_path is None:
+        if resolved_asset is None:
             abort(404)
+        _, resolved_path = resolved_asset
         mimetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if artifact == "docx" else "text/markdown; charset=utf-8"
         return send_file(resolved_path, as_attachment=True, download_name=resolved_path.name, mimetype=mimetype)
 
