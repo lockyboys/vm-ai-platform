@@ -2,6 +2,7 @@
  * Read-only review for Action Metadata Runtime COMMENT changes.
  *
  * Review current_comment and proposed_comment together.
+ * For table comments, preserved_current_comment_yn must be Y.
  * This query does not change the database and does not grant execution approval.
  */
 
@@ -53,18 +54,35 @@ WITH table_proposals AS (
     FROM information_schema.tables
     WHERE table_schema = 'te_common'
       AND table_name IN ('cm_common_code', 'cm_verified_sql_query', 'rl_rule_action')
+),
+table_review AS (
+    SELECT
+        t.table_schema,
+        t.table_name,
+        t.table_comment AS current_comment,
+        p.runtime_addendum,
+        CONCAT(t.table_comment, '\n\n[Action Metadata Runtime]\n', p.runtime_addendum) AS proposed_comment
+    FROM information_schema.tables t
+    JOIN table_proposals p
+      ON p.table_name = t.table_name
+    WHERE t.table_schema = 'te_common'
 )
 SELECT
     'TABLE' AS comment_type,
-    t.table_schema,
-    t.table_name,
-    t.table_name AS target_name,
-    t.table_comment AS current_comment,
-    CONCAT(t.table_comment, '\n\n[Action Metadata Runtime]\n', p.runtime_addendum) AS proposed_comment,
+    table_schema,
+    table_name,
+    table_name AS target_name,
+    current_comment,
+    runtime_addendum,
+    proposed_comment,
+    SHA2(current_comment, 256) AS current_comment_sha256,
+    SHA2(proposed_comment, 256) AS proposed_comment_sha256,
+    CASE
+        WHEN LEFT(proposed_comment, CHAR_LENGTH(current_comment)) <=> current_comment
+        THEN 'Y'
+        ELSE 'N'
+    END AS preserved_current_comment_yn,
     '기존 테이블 COMMENT 보존 후 Runtime 설명 추가' AS change_reason,
     'REVIEW_REQUIRED' AS review_status
-FROM information_schema.tables t
-JOIN table_proposals p
-  ON p.table_name = t.table_name
-WHERE t.table_schema = 'te_common'
-ORDER BY t.table_name;
+FROM table_review
+ORDER BY table_name;
