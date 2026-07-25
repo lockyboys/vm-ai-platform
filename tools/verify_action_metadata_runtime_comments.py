@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from common.comment_verification import summarize_comment_review
+from common.common_function import summarize_comment_review
 from common.database import CommonDatabase
 from tools.run_action_metadata_runtime_registration import split_statements
 
