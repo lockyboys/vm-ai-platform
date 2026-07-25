@@ -36,7 +36,8 @@ def main() -> None:
         ).execute(args.rule_id, parameters)
 
         if not result or any(
-            action["result"][0]["registered_yn"] != "N" for action in result
+            action["result"]["result"][0]["registered_yn"] != "N"
+            for action in result
         ):
             raise RuntimeError("Existing object verification did not return registered_yn=N.")
 

@@ -1,6 +1,4 @@
-"""Repository access for verified Stored Procedure execution contracts."""
-
-import json
+"""Repository access for active verified SQL Query records."""
 
 
 class VerifiedSqlQueryRepository:
@@ -9,7 +7,7 @@ class VerifiedSqlQueryRepository:
 
     def get_verified_query(self, query_id):
         sql = """
-            SELECT query_id, query_description
+            SELECT query_id, query_name, query_description
             FROM cm_verified_sql_query
             WHERE query_id = %s
               AND verified_yn = 'Y'
@@ -19,13 +17,4 @@ class VerifiedSqlQueryRepository:
         row = self.database.fetch_one(sql, (query_id,))
         if not row:
             raise LookupError(f"Active verified query not found: {query_id}")
-
-        try:
-            contract = json.loads(row["query_description"])
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Verified query execution contract must be JSON: {query_id}"
-            ) from exc
-
-        contract["query_id"] = row["query_id"]
-        return contract
+        return row
