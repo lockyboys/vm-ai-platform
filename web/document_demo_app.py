@@ -101,6 +101,41 @@ def _configured_demo_report() -> tuple[str, Path] | None:
     return report_title, report_path
 
 
+def _resolve_work_asset(
+    *,
+    work_session_id: str,
+    asset_type_code: str,
+    requested_by: str,
+) -> Path | None:
+    """Repository Work chain에서 현재 로그인 사용자의 저장 자산 경로를 찾는다."""
+    database = CommonDatabase(database_role="STORY")
+    try:
+        row = database.fetch_one(
+            """
+            SELECT asset.asset_path
+            FROM sp_work_session work_session
+            JOIN sp_work_item work_item
+              ON work_item.work_session_id = work_session.work_session_id
+            JOIN sp_work_asset asset
+              ON asset.work_item_id = work_item.work_item_id
+            WHERE work_session.work_session_id = %s
+              AND work_session.created_by = %s
+              AND asset.asset_type_code = %s
+              AND asset.asset_status_code = 'STORED'
+              AND asset.deleted_dt IS NULL
+            """,
+            (work_session_id, requested_by, asset_type_code),
+        )
+    finally:
+        database.close()
+    if not row:
+        return None
+    asset_path = Path(str(row["asset_path"])).resolve()
+    if OUTPUT_ROOT not in asset_path.parents or not asset_path.is_file():
+        return None
+    return asset_path
+
+
 def _require_login(view: Callable[P, R]) -> Callable[P, R]:
     @wraps(view)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -171,9 +206,6 @@ def create_app() -> Flask:
                 app.logger.exception("File work processing failed")
                 flash(f"파일 처리에 실패했습니다: {error}")
                 return redirect(url_for("editor"))
-        artifacts = session.get("work_artifacts", {})
-        artifacts[result.work_session_id] = {"docx": str(result.docx_path), "report": str(result.report_path)}
-        session["work_artifacts"] = artifacts
         return render_template_string(
             RESULT_TEMPLATE,
             work_session_id=result.work_session_id,
@@ -188,11 +220,12 @@ def create_app() -> Flask:
     @app.get("/preview/<work_session_id>/docx")
     @_require_login
     def preview_docx(work_session_id: str):
-        artifact_path = session.get("work_artifacts", {}).get(work_session_id, {}).get("docx")
-        if not artifact_path:
-            abort(404)
-        resolved_path = Path(artifact_path).resolve()
-        if OUTPUT_ROOT not in resolved_path.parents or not resolved_path.is_file():
+        resolved_path = _resolve_work_asset(
+            work_session_id=work_session_id,
+            asset_type_code="DOCX_REPORT",
+            requested_by=session["document_user"],
+        )
+        if resolved_path is None:
             abort(404)
         return render_template_string(
             PRINT_TEMPLATE,
@@ -227,11 +260,13 @@ def create_app() -> Flask:
     def download(work_session_id: str, artifact: str):
         if artifact not in {"docx", "report"}:
             abort(404)
-        artifact_path = session.get("work_artifacts", {}).get(work_session_id, {}).get(artifact)
-        if not artifact_path:
-            abort(404)
-        resolved_path = Path(artifact_path).resolve()
-        if OUTPUT_ROOT not in resolved_path.parents or not resolved_path.is_file():
+        asset_type_code = {"docx": "DOCX_REPORT", "report": "MARKDOWN_REPORT"}[artifact]
+        resolved_path = _resolve_work_asset(
+            work_session_id=work_session_id,
+            asset_type_code=asset_type_code,
+            requested_by=session["document_user"],
+        )
+        if resolved_path is None:
             abort(404)
         mimetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if artifact == "docx" else "text/markdown; charset=utf-8"
         return send_file(resolved_path, as_attachment=True, download_name=resolved_path.name, mimetype=mimetype)
