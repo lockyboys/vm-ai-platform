@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from common.comment_verification import summarize_comment_review
 from common.database import CommonDatabase
 from tools.run_action_metadata_runtime_registration import split_statements
 
@@ -31,12 +32,14 @@ def main() -> None:
     finally:
         database.close()
 
+    review_summary = summarize_comment_review(result_sets[0], result_sets[1])
     print(
         json.dumps(
             {
                 "status": "SUCCESS",
                 "mode": "READ_ONLY_COMMENT_REVIEW",
                 "sql_path": str(REVIEW_SQL_PATH.relative_to(PROJECT_ROOT)),
+                "review_summary": review_summary,
                 "result_sets": result_sets,
             },
             ensure_ascii=False,

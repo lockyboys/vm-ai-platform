@@ -11,6 +11,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from common.comment_verification import (
+    assert_column_comments_applied,
+    summarize_comment_review,
+)
 from common.database import CommonDatabase
 from tools.run_action_metadata_runtime_registration import split_statements
 
@@ -35,16 +39,8 @@ def apply_comments(database: CommonDatabase) -> int:
     return len(statements)
 
 
-def assert_columns_applied(review_result_sets: list[list[dict[str, object]]]) -> None:
-    column_rows = review_result_sets[0]
-    pending = [
-        row
-        for row in column_rows
-        if row["review_status"] != "UNCHANGED"
-    ]
-    if pending:
-        targets = ", ".join(f"{row['table_name']}.{row['target_name']}" for row in pending)
-        raise RuntimeError(f"COMMENT post-verification failed: {targets}")
+def review_summary(review_result_sets: list[list[dict[str, object]]]) -> dict[str, object]:
+    return summarize_comment_review(review_result_sets[0], review_result_sets[1])
 
 
 def main() -> None:
@@ -68,6 +64,7 @@ def main() -> None:
                 {
                     "status": "DRY_RUN",
                     "mode": "READ_ONLY_COMMENT_REVIEW",
+                    "review_summary": review_summary(before),
                     "review": before,
                     "next_command": (
                         "python tools/apply_action_metadata_runtime_comments.py "
@@ -85,12 +82,14 @@ def main() -> None:
         statement_count = apply_comments(database)
         database.commit()
         after = run_selects(database, REVIEW_SQL_PATH)
-        assert_columns_applied(after)
+        assert_column_comments_applied(after[0])
         print(json.dumps(
             {
                 "status": "SUCCESS",
                 "mode": "APPROVED_COMMENT_APPLY",
                 "statement_count": statement_count,
+                "before_summary": review_summary(before),
+                "after_summary": review_summary(after),
                 "before_review": before,
                 "after_review": after,
             },
