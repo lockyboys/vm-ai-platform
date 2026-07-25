@@ -4,8 +4,10 @@
  * Scope:
  * - Existing `_code` comments and their cm_common_code references are preserved.
  * - Only Runtime execution-contract column comments are clarified.
- * - Table comments are intentionally excluded until the current comments are
- *   read and approved through 03-0_verify_action_metadata_runtime_comments_20260725.sql.
+ * - Before execution, 03-0_verify_action_metadata_runtime_comments_20260725.sql
+ *   must return PASS for every target column and its output must be approved.
+ * - Table comments are intentionally excluded until their current text is read
+ *   and a revised text is separately approved.
  * - No data type, nullability, default, index, key, or data change.
  */
 
