@@ -1,13 +1,13 @@
 /*
- * Action Metadata Runtime COMMENT maintenance
+ * Action Metadata Runtime column COMMENT maintenance
  *
  * Scope:
  * - Existing `_code` comments and their cm_common_code references are preserved.
  * - Only Runtime execution-contract column comments are clarified.
  * - Before execution, review current_comment and proposed_comment from
  *   03-0_verify_action_metadata_runtime_comments_20260725.sql and approve the text.
- * - Table comments are intentionally excluded until their current text and
- *   proposed appended text are separately approved.
+ * - Table COMMENT changes are executed by
+ *   tools/apply_action_metadata_runtime_comments.py from the verified proposed_comment.
  * - No data type, nullability, default, index, key, or data change.
  */
 

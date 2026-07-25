@@ -61,7 +61,17 @@ table_review AS (
         t.table_name,
         t.table_comment AS current_comment,
         p.runtime_addendum,
-        CONCAT(t.table_comment, '\n\n[Action Metadata Runtime]\n', p.runtime_addendum) AS proposed_comment
+        CASE
+            WHEN LOCATE(
+                CONCAT('[Action Metadata Runtime]\n', p.runtime_addendum),
+                t.table_comment
+            ) > 0 THEN t.table_comment
+            ELSE CONCAT(
+                t.table_comment,
+                '\n\n[Action Metadata Runtime]\n',
+                p.runtime_addendum
+            )
+        END AS proposed_comment
     FROM information_schema.tables t
     JOIN table_proposals p
       ON p.table_name = t.table_name
@@ -83,6 +93,6 @@ SELECT
         ELSE 'N'
     END AS preserved_current_comment_yn,
     '기존 테이블 COMMENT 보존 후 Runtime 설명 추가' AS change_reason,
-    'REVIEW_REQUIRED' AS review_status
+    CASE WHEN current_comment <=> proposed_comment THEN 'UNCHANGED' ELSE 'REVIEW_REQUIRED' END AS review_status
 FROM table_review
 ORDER BY table_name;

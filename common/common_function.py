@@ -44,11 +44,16 @@ def summarize_comment_review(
         table_rows: 현재·제안 테이블 COMMENT 비교 결과.
 
     Returns:
-        변경 대상 컬럼 목록·개수와 기존 테이블 COMMENT 보존 여부를 담은 사전.
+        변경 대상 컬럼·테이블 목록과 기존 테이블 COMMENT 보존 여부를 담은 사전.
     """
     changed_columns = [
         f"{row['table_name']}.{row['target_name']}"
         for row in column_rows
+        if row.get("review_status") == "REVIEW_REQUIRED"
+    ]
+    changed_tables = [
+        str(row["table_name"])
+        for row in table_rows
         if row.get("review_status") == "REVIEW_REQUIRED"
     ]
     unpreserved_tables = [
@@ -59,6 +64,8 @@ def summarize_comment_review(
     return {
         "changed_column_targets": changed_columns,
         "changed_column_count": len(changed_columns),
+        "changed_table_targets": changed_tables,
+        "changed_table_count": len(changed_tables),
         "unpreserved_table_targets": unpreserved_tables,
         "table_comment_preserved": not unpreserved_tables,
     }
