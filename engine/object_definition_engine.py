@@ -80,21 +80,6 @@ class ObjectDefinitionEngine:
         self._validate_required_fields(normalized)
         self._validate_repository_metadata(normalized)
 
-        existing = self._find_existing_object(
-            normalized["object_code"]
-        )
-
-        if existing:
-            return {
-                "success": False,
-                "status": "ALREADY_EXISTS",
-                "message": (
-                    "Object already exists. "
-                    f"object_code={normalized['object_code']}"
-                ),
-                "object": existing,
-            }
-
         blueprint = self.identifier_engine.load_identifier_blueprint(
             int(normalized["object_level"])
         )
@@ -141,7 +126,14 @@ class ObjectDefinitionEngine:
             )
 
             if existing:
-                self.database.rollback()
+                self._ensure_sequence_metadata(
+                    normalized=normalized,
+                    blueprint=blueprint,
+                    sequence_date=sequence_date,
+                    sequence_length=sequence_length,
+                    now=now,
+                )
+                self.database.commit()
 
                 return {
                     "success": False,

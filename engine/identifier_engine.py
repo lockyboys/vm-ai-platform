@@ -39,7 +39,8 @@ class IdentifierEngine:
         """
         Object Metadata에 정의된 기본 Level로 Identifier를 생성한다.
         """
-        object_level = self.object_level_resolver.resolve_object_level(object_code)
+        object_metadata = self.load_object_metadata(object_code)
+        object_level = int(object_metadata["object_level"])
 
         return self.generate_for_level(
             object_code=object_code,
@@ -122,6 +123,7 @@ class IdentifierEngine:
                 business_code,
                 domain_code,
                 object_type_code,
+                object_level,
                 identifier_target_code,
                 sequence_scope_code,
                 sequence_length
@@ -148,6 +150,7 @@ class IdentifierEngine:
             "business_code",
             "domain_code",
             "object_code",
+            "object_level",
             "identifier_target_code",
         )
 
