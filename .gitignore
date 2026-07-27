@@ -72,6 +72,7 @@ video_frames/
 # Temporary
 # ============================================
 .runtime/
+.npm-cache/
 tmp/
 temp/
 *.tmp
