@@ -60,10 +60,15 @@ class BusinessDomainRepositorySyncBatch:
     def run(self, *, apply: bool = False) -> dict[str, Any]:
         domains = self._load_business_domains()
         self._validate_business()
-        self._validate_identifier_metadata()
         tables = self._load_tables(domains)
         columns = self._load_columns({row["table_name"] for row in tables})
         foreign_keys = self._load_foreign_keys({row["table_name"] for row in tables})
+        required_identifier_buckets = self._required_identifier_buckets(
+            tables=tables,
+            columns=columns,
+            foreign_keys=foreign_keys,
+        )
+        self._validate_identifier_metadata(required_identifier_buckets)
 
         plan = {
             "source_database_role": self.source.database_role,
@@ -73,6 +78,10 @@ class BusinessDomainRepositorySyncBatch:
             "table_count": len(tables),
             "column_count": len(columns),
             "foreign_key_count": len(foreign_keys),
+            "required_identifier_object_codes": [
+                self.IDENTIFIER_OBJECT_CODES[bucket]
+                for bucket in required_identifier_buckets
+            ],
             "apply": apply,
         }
         if not apply:
@@ -147,9 +156,26 @@ class BusinessDomainRepositorySyncBatch:
                 f"business_code={self.business_code}"
             )
 
-    def _validate_identifier_metadata(self) -> None:
+    @staticmethod
+    def _required_identifier_buckets(
+        *,
+        tables: list[dict[str, Any]],
+        columns: list[dict[str, Any]],
+        foreign_keys: list[dict[str, Any]],
+    ) -> tuple[str, ...]:
+        required = []
+        if tables:
+            required.extend(("table", "entity", "erd"))
+        if columns:
+            required.append("attribute")
+        if foreign_keys:
+            required.append("relationship")
+        return tuple(required)
+
+    def _validate_identifier_metadata(self, buckets: Iterable[str]) -> None:
         missing = []
-        for object_code in self.IDENTIFIER_OBJECT_CODES.values():
+        for bucket in buckets:
+            object_code = self.IDENTIFIER_OBJECT_CODES[bucket]
             try:
                 self.identifier.load_object_metadata(object_code)
             except ValueError:
