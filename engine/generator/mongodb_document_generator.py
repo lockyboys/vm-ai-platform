@@ -12,39 +12,27 @@ Principle:
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
-from dotenv import load_dotenv
-from pymongo import MongoClient
+from common.database import CommonDatabase
 
 
 class MongoDBDocumentGenerator:
     """Knowledge Document를 MongoDB에 저장한다."""
 
     def __init__(self) -> None:
-        load_dotenv()
-
-        self.mongodb_uri = os.getenv("MONGODB_URI")
-        self.mongodb_database = os.getenv("MONGODB_DATABASE")
-
-        if not self.mongodb_uri:
-            raise RuntimeError(
-                "MONGODB_URI metadata is not configured."
-            )
-
-        if not self.mongodb_database:
-            raise RuntimeError(
-                "MONGODB_DATABASE metadata is not configured."
-            )
+        self.database = CommonDatabase(
+            database_role="STORY",
+            connect_mariadb=False,
+            connect_mongodb=True,
+        )
+        self.mongodb_database = self.database.get_mongodb_database().name
 
     def save(
         self,
         mongodb_document_request: dict[str, Any],
     ) -> dict[str, Any]:
         """Knowledge Document 한 건을 MongoDB에 저장한다."""
-        client = None
-
         try:
             collection_name = mongodb_document_request.get(
                 "collection_name"
@@ -63,16 +51,9 @@ class MongoDBDocumentGenerator:
                     "knowledge_document is required."
                 )
 
-            client = MongoClient(
-                self.mongodb_uri,
-                serverSelectionTimeoutMS=5000,
-            )
-
-            database = client[self.mongodb_database]
-            collection = database[collection_name]
-
-            insert_result = collection.insert_one(
-                knowledge_document
+            insert_result = self.database.insert_one(
+                collection_name=collection_name,
+                document=knowledge_document,
             )
 
             return {
@@ -107,6 +88,5 @@ class MongoDBDocumentGenerator:
                 "message": str(error),
             }
 
-        finally:
-            if client is not None:
-                client.close()
+    def close(self) -> None:
+        self.database.close()

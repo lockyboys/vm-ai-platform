@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
 from bson import ObjectId
-from pymongo import MongoClient
 
-from core.database.database_manager import DatabaseManager
+from common.database import CommonDatabase
 
 
 DEFAULT_LIMIT = 20
@@ -27,22 +25,6 @@ def _validate_collection_name(collection_name: str) -> str:
 
 def _normalize_limit(limit: int) -> int:
     return max(1, min(int(limit), MAX_LIMIT))
-
-
-def _get_mongodb_database() -> tuple[MongoClient, Any]:
-    mongodb_uri = os.getenv("MONGODB_URI")
-    mongodb_database = os.getenv("MONGODB_DATABASE")
-
-    if not mongodb_uri or not mongodb_database:
-        raise RuntimeError(
-            "MONGODB_URI and MONGODB_DATABASE must be configured."
-        )
-
-    client = MongoClient(
-        mongodb_uri,
-        serverSelectionTimeoutMS=5000,
-    )
-    return client, client[mongodb_database]
 
 
 def _normalize_mongodb_value(value: Any) -> Any:
@@ -86,15 +68,19 @@ def _parse_json_object(
 def mongodb_collections() -> list[dict[str, Any]]:
     """List MongoDB collections resolved from Harness environment metadata."""
 
-    client, database = _get_mongodb_database()
+    database = CommonDatabase(
+        database_role="COMMON",
+        connect_mariadb=False,
+        connect_mongodb=True,
+    )
 
     try:
         return [
             {"collection_name": name}
-            for name in sorted(database.list_collection_names())
+            for name in database.list_collection_names()
         ]
     finally:
-        client.close()
+        database.close()
 
 
 def mongodb_documents(
@@ -112,19 +98,24 @@ def mongodb_documents(
         "filter_json",
     )
     normalized_limit = _normalize_limit(limit)
-    client, database = _get_mongodb_database()
+    database = CommonDatabase(
+        database_role="COMMON",
+        connect_mariadb=False,
+        connect_mongodb=True,
+    )
 
     try:
-        documents = database[normalized_collection_name].find(
-            filter_document
-        ).limit(normalized_limit)
-
+        documents = database.find(
+            collection_name=normalized_collection_name,
+            filter_document=filter_document,
+            limit=normalized_limit,
+        )
         return [
             _normalize_mongodb_value(document)
             for document in documents
         ]
     finally:
-        client.close()
+        database.close()
 
 
 def mongodb_save_document(
@@ -145,18 +136,24 @@ def mongodb_save_document(
         document_json,
         "document_json",
     )
-    client, database = _get_mongodb_database()
+    database = CommonDatabase(
+        database_role="COMMON",
+        connect_mariadb=False,
+        connect_mongodb=True,
+    )
 
     try:
-        result = database[normalized_collection_name].insert_one(document)
-
+        result = database.insert_one(
+            collection_name=normalized_collection_name,
+            document=document,
+        )
         return {
             "collection_name": normalized_collection_name,
             "mongodb_document_id": str(result.inserted_id),
             "acknowledged": bool(result.acknowledged),
         }
     finally:
-        client.close()
+        database.close()
 
 
 def verified_sql(
@@ -196,12 +193,8 @@ def verified_sql(
 
     sql += " ORDER BY query_id"
 
-    database_manager = DatabaseManager()
-    connection = database_manager.get_connection("COMMON")
-
+    database = CommonDatabase(database_role="COMMON")
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, params)
-            return list(cursor.fetchall())
+        return database.fetch_all(sql, params)
     finally:
-        connection.close()
+        database.close()
