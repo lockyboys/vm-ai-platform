@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERD Interactive Viewer</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #f4f5f7;
+        }
+
+        #viewer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+
+        #viewer.dragging {
+            cursor: grabbing;
+        }
+
+        #diagram {
+            position: absolute;
+            top: 0;
+            left: 0;
+            max-width: none;
+            transform-origin: 0 0;
+            will-change: transform;
+            pointer-events: none;
+        }
+
+        #toolbar {
+            position: absolute;
+            z-index: 10;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            gap: 6px;
+            padding: 8px;
+            border: 1px solid #cfd3d8;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.94);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        #toolbar button {
+            min-width: 40px;
+            height: 34px;
+            padding: 0 10px;
+            border: 1px solid #b8bec6;
+            border-radius: 7px;
+            background: #ffffff;
+            color: #202124;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        #toolbar button:hover {
+            background: #eef1f4;
+        }
+
+        #status {
+            position: absolute;
+            z-index: 10;
+            right: 12px;
+            bottom: 12px;
+            padding: 6px 10px;
+            border-radius: 7px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333333;
+            font-size: 13px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            html,
+            body {
+                background: #17191c;
+            }
+
+            #toolbar,
+            #status {
+                border-color: #444b54;
+                background: rgba(32, 35, 39, 0.94);
+                color: #f1f3f4;
+            }
+
+            #toolbar button {
+                border-color: #59616b;
+                background: #292d32;
+                color: #f1f3f4;
+            }
+
+            #toolbar button:hover {
+                background: #363b42;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main id="viewer" aria-label="ERD 확대·축소 및 이동 화면">
+        <nav id="toolbar" aria-label="ERD 화면 제어">
+            <button id="zoom-in" type="button" title="확대">＋</button>
+            <button id="zoom-out" type="button" title="축소">－</button>
+            <button id="fit" type="button" title="화면 맞춤">맞춤</button>
+            <button id="reset" type="button" title="100% 초기화">100%</button>
+        </nav>
+        <img id="diagram" alt="Story Programming Framework ERD">
+        <output id="status" aria-live="polite">불러오는 중</output>
+    </main>
+
+    <script>
+        const viewer = document.getElementById('viewer');
+        const diagram = document.getElementById('diagram');
+        const status = document.getElementById('status');
+        const zoomInButton = document.getElementById('zoom-in');
+        const zoomOutButton = document.getElementById('zoom-out');
+        const fitButton = document.getElementById('fit');
+        const resetButton = document.getElementById('reset');
+
+        const currentFileName = decodeURIComponent(location.pathname.split('/').pop() || '');
+        const svgFileName = currentFileName.replace(/_viewer\.html$/i, '.svg');
+        diagram.src = svgFileName;
+
+        const state = {
+            scale: 1,
+            x: 0,
+            y: 0,
+            dragging: false,
+            pointerId: null,
+            startPointerX: 0,
+            startPointerY: 0,
+            startX: 0,
+            startY: 0
+        };
+
+        const MIN_SCALE = 0.1;
+        const MAX_SCALE = 8;
+        const SCALE_STEP = 1.2;
+
+        function clampScale(value) {
+            return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+        }
+
+        function render() {
+            diagram.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+            status.value = `${Math.round(state.scale * 100)}% · 드래그 이동 · 휠 확대/축소`;
+        }
+
+        function zoomAt(nextScale, centerX, centerY) {
+            const clampedScale = clampScale(nextScale);
+            const ratio = clampedScale / state.scale;
+
+            state.x = centerX - (centerX - state.x) * ratio;
+            state.y = centerY - (centerY - state.y) * ratio;
+            state.scale = clampedScale;
+            render();
+        }
+
+        function zoomFromCenter(multiplier) {
+            const bounds = viewer.getBoundingClientRect();
+            zoomAt(
+                state.scale * multiplier,
+                bounds.width / 2,
+                bounds.height / 2
+            );
+        }
+
+        function fitToScreen() {
+            if (!diagram.naturalWidth || !diagram.naturalHeight) {
+                return;
+            }
+
+            const padding = 32;
+            const availableWidth = Math.max(1, viewer.clientWidth - padding * 2);
+            const availableHeight = Math.max(1, viewer.clientHeight - padding * 2);
+            state.scale = clampScale(Math.min(
+                availableWidth / diagram.naturalWidth,
+                availableHeight / diagram.naturalHeight
+            ));
+            state.x = (viewer.clientWidth - diagram.naturalWidth * state.scale) / 2;
+            state.y = (viewer.clientHeight - diagram.naturalHeight * state.scale) / 2;
+            render();
+        }
+
+        function resetView() {
+            state.scale = 1;
+            state.x = 24;
+            state.y = 24;
+            render();
+        }
+
+        viewer.addEventListener('pointerdown', (event) => {
+            if (event.target.closest('#toolbar')) {
+                return;
+            }
+
+            state.dragging = true;
+            state.pointerId = event.pointerId;
+            state.startPointerX = event.clientX;
+            state.startPointerY = event.clientY;
+            state.startX = state.x;
+            state.startY = state.y;
+            viewer.classList.add('dragging');
+            viewer.setPointerCapture(event.pointerId);
+        });
+
+        viewer.addEventListener('pointermove', (event) => {
+            if (!state.dragging || event.pointerId !== state.pointerId) {
+                return;
+            }
+
+            state.x = state.startX + event.clientX - state.startPointerX;
+            state.y = state.startY + event.clientY - state.startPointerY;
+            render();
+        });
+
+        function stopDragging(event) {
+            if (!state.dragging || event.pointerId !== state.pointerId) {
+                return;
+            }
+
+            state.dragging = false;
+            state.pointerId = null;
+            viewer.classList.remove('dragging');
+        }
+
+        viewer.addEventListener('pointerup', stopDragging);
+        viewer.addEventListener('pointercancel', stopDragging);
+
+        viewer.addEventListener('wheel', (event) => {
+            event.preventDefault();
+            const bounds = viewer.getBoundingClientRect();
+            const centerX = event.clientX - bounds.left;
+            const centerY = event.clientY - bounds.top;
+            const multiplier = event.deltaY < 0 ? SCALE_STEP : 1 / SCALE_STEP;
+            zoomAt(state.scale * multiplier, centerX, centerY);
+        }, { passive: false });
+
+        zoomInButton.addEventListener('click', () => zoomFromCenter(SCALE_STEP));
+        zoomOutButton.addEventListener('click', () => zoomFromCenter(1 / SCALE_STEP));
+        fitButton.addEventListener('click', fitToScreen);
+        resetButton.addEventListener('click', resetView);
+
+        viewer.addEventListener('dblclick', fitToScreen);
+
+        window.addEventListener('keydown', (event) => {
+            if (event.key === '+' || event.key === '=') {
+                zoomFromCenter(SCALE_STEP);
+            } else if (event.key === '-') {
+                zoomFromCenter(1 / SCALE_STEP);
+            } else if (event.key === '0') {
+                resetView();
+            }
+        });
+
+        window.addEventListener('resize', fitToScreen);
+
+        diagram.addEventListener('load', fitToScreen);
+        diagram.addEventListener('error', () => {
+            status.value = `SVG를 불러오지 못했습니다: ${svgFileName}`;
+        });
+    </script>
+</body>
+</html>
