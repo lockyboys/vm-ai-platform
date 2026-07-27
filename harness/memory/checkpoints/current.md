@@ -1,23 +1,25 @@
 Current Task:
-- Identifier → Runtime Object Level Resolver 리팩터링 완료 및 저장소 정리
+- cm_business_domain SSOT 기반 Repository 전체 동기화 배치 구현 완료
 
 Completed:
-- object_level_resolver.py 생성
-- IdentifierEngine ObjectLevelResolver 연동
-- IdentifierEngine object_level 직접 조회 의존 제거
-- request_processor object_level 필수 입력 의존 제거
-- Identifier 및 Runtime 영향 범위 정리
-- Integration Test 완료
-- Resolver 관련 소스 Commit 완료
-- Runtime 생성 결과물 .gitignore 등록
+- engine/batch/business_domain_repository_sync_batch.py 생성
+- Table → Entity → Attribute → ERD → Relationship 동기화 구현
+- Repository 역할 기반 DB 연결
+- IdentifierEngine 기반 ID 발행
+- 기본 dry-run 및 --apply DML 실행 분리
+- 트랜잭션 commit/rollback 적용
+- 커밋 fd07ad7 완료
+- Git working tree clean 확인
 
 Next Task:
-- 해커톤 Demo 전체 흐름 최종 점검
-- 로그인 → 파일 입력 → Repository 라우팅 → OCR → Token → MongoDB 저장·확인
-- DOCX 및 실행 리포트 출력 검증
+- 서버에서 dry-run 실행
+- 실제 Repository Table 구조 및 저장 행 검증
+- 멱등성 검증: --apply 2회 실행 후 신규 중복 0 확인
+- 필요 시 검증 결과 기반 보완 커밋
 
 Decisions:
-- Repository First / Resolver First 유지
-- DB 구조 변경 및 하드코딩 금지
-- Runtime 생성 결과물은 Git 관리 대상에서 제외
-- 기능 단위 완료 후 Commit 및 Push
+- cm_business_domain을 Domain SSOT로 사용
+- DB 구조 변경 금지
+- 물리 Database 명 하드코딩 금지
+- 기존 Repository ID 유지
+- 실행 전 dry-run 기본값 유지
