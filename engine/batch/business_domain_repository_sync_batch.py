@@ -10,6 +10,11 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, Iterable
 
+from common.common_function import (
+    load_rule_common_code_contract,
+    resolve_attribute_names,
+    validate_common_code_value,
+)
 from common.database import CommonDatabase
 from engine.identifier_engine import IdentifierEngine
 
@@ -29,19 +34,12 @@ class BusinessDomainRepositorySyncBatch:
     """Idempotent Table → Entity → Attribute → ERD → Relationship batch."""
 
     PROGRAM_ID = "business_domain_repository_sync_batch.py"
-    IDENTIFIER_OBJECT_CODES = {
-        "table": "TABLE",
-        "entity": "ENTITY",
-        "attribute": "ATTRIBUTE",
-        "erd": "ERD",
-        "relationship": "RELATIONSHIP",
-    }
-
     def __init__(
         self,
         source_database: CommonDatabase,
         *,
         business_code: str,
+        rule_code: str,
         common_database: CommonDatabase | None = None,
         repository_database: CommonDatabase | None = None,
         actor_id: str = "SYSTEM",
@@ -53,6 +51,9 @@ class BusinessDomainRepositorySyncBatch:
             database_role="STORY_PLATFORM"
         )
         self.business_code = business_code.strip().upper()
+        self.rule_code = rule_code.strip().upper()
+        self.repository_contract: dict[str, Any] = {}
+        self.identifier_object_codes: dict[str, str] = {}
         self.actor_id = actor_id
         self.client_ip = client_ip
         self.identifier = IdentifierEngine(self.repository)
@@ -60,6 +61,7 @@ class BusinessDomainRepositorySyncBatch:
     def run(self, *, apply: bool = False) -> dict[str, Any]:
         domains = self._load_business_domains()
         self._validate_business()
+        self._load_repository_contract()
         tables = self._load_tables(domains)
         columns = self._load_columns({row["table_name"] for row in tables})
         foreign_keys = self._load_foreign_keys({row["table_name"] for row in tables})
@@ -79,7 +81,7 @@ class BusinessDomainRepositorySyncBatch:
             "column_count": len(columns),
             "foreign_key_count": len(foreign_keys),
             "required_identifier_object_codes": [
-                self.IDENTIFIER_OBJECT_CODES[bucket]
+                self.identifier_object_codes[bucket]
                 for bucket in required_identifier_buckets
             ],
             "apply": apply,
@@ -91,12 +93,22 @@ class BusinessDomainRepositorySyncBatch:
         self.repository.begin()
         try:
             entity_by_table: dict[str, str] = {}
+            attribute_by_column: dict[tuple[str, str], str] = {}
             erd_by_domain: dict[str, str] = {}
             for table in tables:
-                self._sync_table_object(table, columns, counts)
-                entity_id = self._sync_entity(table, counts)
-                entity_by_table[table["table_name"]] = entity_id
-                self._sync_attributes(entity_id, table["table_name"], columns, counts)
+                table_object_id = self._sync_table_object(table, columns, counts)
+                entity_ids = self._sync_entities(table_object_id, table, counts)
+                physical_entity_id = entity_ids["physical"]
+                entity_by_table[table["table_name"]] = physical_entity_id
+                attribute_by_column.update(
+                    self._sync_attributes(
+                        table_object_id,
+                        physical_entity_id,
+                        table["table_name"],
+                        columns,
+                        counts,
+                    )
+                )
                 domain_code = table["domain_code"]
                 if domain_code not in erd_by_domain:
                     erd_by_domain[domain_code] = self._sync_erd(
@@ -108,13 +120,27 @@ class BusinessDomainRepositorySyncBatch:
                 target_entity_id = entity_by_table.get(foreign_key["target_table"])
                 if source_entity_id and target_entity_id:
                     domain_code = self._domain_code(foreign_key["source_table"], domains)
-                    self._sync_fk_relationship(
+                    relationship_id = self._sync_fk_relationship(
                         foreign_key,
                         erd_by_domain[domain_code],
                         source_entity_id,
                         target_entity_id,
                         counts,
                     )
+                    source_attribute_id = attribute_by_column.get(
+                        (foreign_key["source_table"], foreign_key["source_column"])
+                    )
+                    target_attribute_id = attribute_by_column.get(
+                        (foreign_key["target_table"], foreign_key["target_column"])
+                    )
+                    if source_attribute_id and target_attribute_id:
+                        self._sync_relationship_attribute(
+                            relationship_id,
+                            source_attribute_id,
+                            target_attribute_id,
+                            int(foreign_key["ordinal_position"]),
+                            counts,
+                        )
             self.repository.commit()
         except Exception:
             self.repository.rollback()
@@ -156,6 +182,37 @@ class BusinessDomainRepositorySyncBatch:
                 f"business_code={self.business_code}"
             )
 
+    def _load_repository_contract(self) -> None:
+        contract = load_rule_common_code_contract(self.common, self.rule_code)
+        identifier_object_codes = contract.get("identifier_object_codes")
+        if not isinstance(identifier_object_codes, dict):
+            raise ValueError(
+                "Repository Rule common-code contract requires identifier_object_codes."
+            )
+        required = {"table", "entity", "attribute", "erd", "relationship"}
+        missing = sorted(required.difference(identifier_object_codes))
+        if missing:
+            raise ValueError(
+                f"Repository Rule common-code contract is incomplete: {missing}"
+            )
+
+        entity_type_group_code = str(contract["entity_type_group_code"])
+        contract["logical_entity_type_code"] = validate_common_code_value(
+            self.common,
+            entity_type_group_code,
+            str(contract["logical_entity_type_code"]),
+        )
+        contract["physical_entity_type_code"] = validate_common_code_value(
+            self.common,
+            entity_type_group_code,
+            str(contract["physical_entity_type_code"]),
+        )
+        self.repository_contract = contract
+        self.identifier_object_codes = {
+            str(bucket): str(object_code)
+            for bucket, object_code in identifier_object_codes.items()
+        }
+
     @staticmethod
     def _required_identifier_buckets(
         *,
@@ -175,7 +232,7 @@ class BusinessDomainRepositorySyncBatch:
     def _validate_identifier_metadata(self, buckets: Iterable[str]) -> None:
         missing = []
         for bucket in buckets:
-            object_code = self.IDENTIFIER_OBJECT_CODES[bucket]
+            object_code = self.identifier_object_codes[bucket]
             try:
                 self.identifier.load_object_metadata(object_code)
             except ValueError:
@@ -233,7 +290,7 @@ class BusinessDomainRepositorySyncBatch:
                    kcu.column_name AS source_column,
                    kcu.referenced_table_name AS target_table,
                    kcu.referenced_column_name AS target_column,
-                   rc.update_rule, rc.delete_rule
+                   kcu.ordinal_position, rc.update_rule, rc.delete_rule
             FROM information_schema.key_column_usage kcu
             JOIN information_schema.referential_constraints rc
               ON rc.constraint_schema = kcu.constraint_schema
@@ -269,7 +326,7 @@ class BusinessDomainRepositorySyncBatch:
 
     def _generate_id(self, bucket: str) -> str:
         return self.identifier.generate(
-            self.IDENTIFIER_OBJECT_CODES[bucket],
+            self.identifier_object_codes[bucket],
             manage_transaction=False,
         )
 
@@ -304,7 +361,7 @@ class BusinessDomainRepositorySyncBatch:
              active_yn, target_identifier_field, created_by, updated_by,
              client_ip, program_id)
             VALUES
-            (%s, %s, %s, %s, %s, 'TABLE', %s, 3, 'ACTIVE', 'Y', %s,
+            (%s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE', 'Y', %s,
              %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 object_name = VALUES(object_name),
@@ -326,7 +383,9 @@ class BusinessDomainRepositorySyncBatch:
                 f"{self.source.database_name}.{table['table_name']}",
                 self.business_code,
                 table["domain_code"],
+                str(self.repository_contract["object_type_code"]),
                 table.get("table_comment") or None,
+                int(self.repository_contract["object_level"]),
                 target_field,
                 self.actor_id,
                 self.actor_id,
@@ -337,63 +396,90 @@ class BusinessDomainRepositorySyncBatch:
         counts.add("table", created)
         return object_id
 
-    def _sync_entity(self, table: dict[str, Any], counts: SyncCounts) -> str:
-        entity_name = f"{self.source.database_name}.{table['table_name']}"
-        existing = self.repository.fetch_one(
-            "SELECT entity_id FROM sp_entity WHERE entity_name = %s",
-            (entity_name,),
+    def _sync_entities(
+        self,
+        object_id: str,
+        table: dict[str, Any],
+        counts: SyncCounts,
+    ) -> dict[str, str]:
+        result: dict[str, str] = {}
+        entity_types = (
+            ("logical", str(self.repository_contract["logical_entity_type_code"])),
+            ("physical", str(self.repository_contract["physical_entity_type_code"])),
         )
-        created = not bool(existing)
-        entity_id = (
-            str(existing["entity_id"]) if existing else self._generate_id("entity")
-        )
-        self.repository.execute(
-            """
-            INSERT INTO sp_entity
-            (entity_id, entity_name, business_code, domain_code, entity_comment,
-             entity_type_code, enabled_yn, created_by, updated_by, client_ip, program_id)
-            VALUES (%s, %s, %s, %s, %s, 'MASTER', 'Y', %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                business_code = VALUES(business_code),
-                domain_code = VALUES(domain_code),
-                entity_comment = VALUES(entity_comment),
-                enabled_yn = 'Y',
-                deleted_by = NULL,
-                deleted_dt = NULL,
-                updated_by = VALUES(updated_by),
-                client_ip = VALUES(client_ip),
-                program_id = VALUES(program_id)
-            """,
-            (
-                entity_id,
-                entity_name,
-                self.business_code,
-                table["domain_code"],
-                table.get("table_comment") or None,
-                self.actor_id,
-                self.actor_id,
-                self.client_ip,
-                self.PROGRAM_ID,
-            ),
-        )
-        counts.add("entity", created)
-        return entity_id
+        for key, entity_type_code in entity_types:
+            entity_name = (
+                f"{self.source.database_name}.{table['table_name']}#{entity_type_code}"
+            )
+            existing = self.repository.fetch_one(
+                """
+                SELECT entity_id
+                FROM sp_entity
+                WHERE object_id = %s
+                  AND entity_type_code = %s
+                """,
+                (object_id, entity_type_code),
+            )
+            created = not bool(existing)
+            entity_id = (
+                str(existing["entity_id"])
+                if existing
+                else self._generate_id("entity")
+            )
+            self.repository.execute(
+                """
+                INSERT INTO sp_entity
+                (entity_id, object_id, entity_name, business_code, domain_code,
+                 entity_comment, entity_type_code, enabled_yn, created_by,
+                 updated_by, client_ip, program_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'Y', %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    entity_name = VALUES(entity_name),
+                    business_code = VALUES(business_code),
+                    domain_code = VALUES(domain_code),
+                    entity_comment = VALUES(entity_comment),
+                    enabled_yn = 'Y',
+                    deleted_by = NULL,
+                    deleted_dt = NULL,
+                    updated_by = VALUES(updated_by),
+                    client_ip = VALUES(client_ip),
+                    program_id = VALUES(program_id)
+                """,
+                (
+                    entity_id,
+                    object_id,
+                    entity_name,
+                    self.business_code,
+                    table["domain_code"],
+                    table.get("table_comment") or None,
+                    entity_type_code,
+                    self.actor_id,
+                    self.actor_id,
+                    self.client_ip,
+                    self.PROGRAM_ID,
+                ),
+            )
+            counts.add("entity", created)
+            result[key] = entity_id
+        return result
 
     def _sync_attributes(
         self,
+        object_id: str,
         entity_id: str,
         table_name: str,
         columns: list[dict[str, Any]],
         counts: SyncCounts,
-    ) -> None:
+    ) -> dict[tuple[str, str], str]:
+        attribute_by_column: dict[tuple[str, str], str] = {}
         for column in (row for row in columns if row["table_name"] == table_name):
             existing = self.repository.fetch_one(
                 """
                 SELECT attribute_id
                 FROM sp_attribute
-                WHERE entity_id = %s AND attribute_name = %s
+                WHERE object_id = %s AND column_name = %s
                 """,
-                (entity_id, column["column_name"]),
+                (object_id, column["column_name"]),
             )
             created = not bool(existing)
             attribute_id = (
@@ -401,16 +487,26 @@ class BusinessDomainRepositorySyncBatch:
                 if existing
                 else self._generate_id("attribute")
             )
+            attribute_name_ko, attribute_name_en, column_name = resolve_attribute_names(
+                str(column["column_name"]),
+                column.get("column_comment"),
+            )
             self.repository.execute(
                 """
                 INSERT INTO sp_attribute
-                (attribute_id, entity_id, attribute_name, data_type, length_no,
-                 scale_no, nullable_yn, primary_key_yn, unique_yn, default_value,
-                 attribute_comment, sort_no, created_by, updated_by, client_ip, program_id)
+                (attribute_id, object_id, entity_id, attribute_name,
+                 attribute_name_ko, attribute_name_en, column_name, data_type,
+                 length_no, scale_no, nullable_yn, primary_key_yn, unique_yn,
+                 default_value, attribute_comment, sort_no, created_by,
+                 updated_by, client_ip, program_id)
                 VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                 %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
+                    entity_id = VALUES(entity_id),
+                    attribute_name = VALUES(attribute_name),
+                    attribute_name_ko = VALUES(attribute_name_ko),
+                    attribute_name_en = VALUES(attribute_name_en),
                     data_type = VALUES(data_type),
                     length_no = VALUES(length_no),
                     scale_no = VALUES(scale_no),
@@ -428,8 +524,12 @@ class BusinessDomainRepositorySyncBatch:
                 """,
                 (
                     attribute_id,
+                    object_id,
                     entity_id,
-                    column["column_name"],
+                    column_name,
+                    attribute_name_ko,
+                    attribute_name_en,
+                    column_name,
                     str(column["data_type"]).upper(),
                     column.get("character_maximum_length"),
                     column.get("numeric_scale"),
@@ -446,6 +546,8 @@ class BusinessDomainRepositorySyncBatch:
                 ),
             )
             counts.add("attribute", created)
+            attribute_by_column[(table_name, column["column_name"])] = attribute_id
+        return attribute_by_column
 
     def _sync_erd(
         self,
@@ -507,11 +609,11 @@ class BusinessDomainRepositorySyncBatch:
         source_entity_id: str,
         target_entity_id: str,
         counts: SyncCounts,
-    ) -> None:
+    ) -> str:
         code = (
             f"FK_{self.source.database_name}_{foreign_key['constraint_name']}"
         ).upper()
-        self._upsert_relationship(
+        return self._upsert_relationship(
             code=code,
             name=str(foreign_key["constraint_name"]),
             description=(
@@ -544,7 +646,7 @@ class BusinessDomainRepositorySyncBatch:
         delete_rule_code: str | None,
         update_rule_code: str | None,
         counts: SyncCounts,
-    ) -> None:
+    ) -> str:
         existing = self.repository.fetch_one(
             "SELECT relationship_id FROM sp_relationship WHERE relationship_code = %s",
             (code,),
@@ -600,6 +702,61 @@ class BusinessDomainRepositorySyncBatch:
             ),
         )
         counts.add("relationship", created)
+        return relationship_id
+
+    def _sync_relationship_attribute(
+        self,
+        relationship_id: str,
+        source_attribute_id: str,
+        target_attribute_id: str,
+        sort_no: int,
+        counts: SyncCounts,
+    ) -> None:
+        existing = self.repository.fetch_one(
+            """
+            SELECT relationship_attribute_id
+            FROM sp_relationship_attribute
+            WHERE relationship_id = %s
+              AND source_attribute_id = %s
+              AND target_attribute_id = %s
+            """,
+            (relationship_id, source_attribute_id, target_attribute_id),
+        )
+        created = not bool(existing)
+        relationship_attribute_id = (
+            str(existing["relationship_attribute_id"])
+            if existing
+            else self._generate_id("relationship")
+        )
+        self.repository.execute(
+            """
+            INSERT INTO sp_relationship_attribute
+            (relationship_attribute_id, relationship_id, source_attribute_id,
+             target_attribute_id, enabled_yn, sort_no, created_by, updated_by,
+             client_ip, program_id)
+            VALUES (%s, %s, %s, %s, 'Y', %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                enabled_yn = 'Y',
+                sort_no = VALUES(sort_no),
+                deleted_by = NULL,
+                deleted_dt = NULL,
+                updated_by = VALUES(updated_by),
+                client_ip = VALUES(client_ip),
+                program_id = VALUES(program_id)
+            """,
+            (
+                relationship_attribute_id,
+                relationship_id,
+                source_attribute_id,
+                target_attribute_id,
+                sort_no,
+                self.actor_id,
+                self.actor_id,
+                self.client_ip,
+                self.PROGRAM_ID,
+            ),
+        )
+        counts.add("relationship_attribute", created)
 
 
 def _parse_target(value: str) -> tuple[str, str]:
@@ -619,6 +776,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         help="Repeatable DATABASE_ROLE:BUSINESS_CODE target.",
     )
     parser.add_argument(
+        "--rule-code",
+        required=True,
+        help="Active Repository Rule code that selects the ACTION_TYPE contract.",
+    )
+    parser.add_argument(
         "--apply",
         action="store_true",
         help="Apply repository DML. Without this flag the batch is read-only.",
@@ -635,6 +797,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 batch = BusinessDomainRepositorySyncBatch(
                     source,
                     business_code=business_code,
+                    rule_code=arguments.rule_code,
                     common_database=common,
                     repository_database=repository,
                 )

@@ -1,8 +1,102 @@
-"""여러 도구에서 공통으로 사용하는 COMMENT 검토·검증 함수 모음."""
+"""Story Programming에서 여러 Runtime과 도구가 공유하는 공통 함수."""
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
+
+
+def load_rule_common_code_contract(
+    common_database: Any,
+    rule_code: str,
+) -> dict[str, Any]:
+    """활성 Rule Action이 선택한 ACTION_TYPE 공통코드 계약을 읽는다."""
+    row = common_database.fetch_one(
+        """
+        SELECT r.rule_id,
+               r.rule_code,
+               a.rule_action_id,
+               a.action_type_code,
+               c.common_code_json
+        FROM rl_rule r
+        JOIN rl_rule_action a
+          ON a.rule_id = r.rule_id
+         AND a.status_code = 'ACTIVE'
+         AND a.deleted_dt IS NULL
+        JOIN cm_common_code c
+          ON c.group_code = 'ACTION_TYPE'
+         AND c.code = a.action_type_code
+         AND c.status_code = 'ACTIVE'
+         AND c.deleted_dt IS NULL
+        WHERE r.rule_code = %s
+          AND r.status_code = 'ACTIVE'
+          AND r.deleted_dt IS NULL
+        ORDER BY a.sort_no, a.rule_action_id
+        LIMIT 1
+        """,
+        (rule_code,),
+    )
+    if not row:
+        raise ValueError(f"Active Rule common-code contract not found: {rule_code}")
+
+    try:
+        contract = json.loads(row.get("common_code_json") or "")
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "ACTION_TYPE common_code_json must be valid JSON. "
+            f"rule_code={rule_code}, action_type_code={row['action_type_code']}"
+        ) from exc
+    if not isinstance(contract, dict) or not contract:
+        raise ValueError(
+            "ACTION_TYPE common-code contract is empty. "
+            f"rule_code={rule_code}, action_type_code={row['action_type_code']}"
+        )
+    return {**dict(row), **contract}
+
+
+def validate_common_code_value(
+    common_database: Any,
+    group_code: str,
+    code: str,
+) -> str:
+    """활성 공통코드 값인지 검증하고 정규화된 Code를 반환한다."""
+    row = common_database.fetch_one(
+        """
+        SELECT code
+        FROM cm_common_code
+        WHERE group_code = %s
+          AND code = %s
+          AND status_code = 'ACTIVE'
+          AND deleted_dt IS NULL
+        """,
+        (group_code, code),
+    )
+    if not row:
+        raise ValueError(
+            f"Active common code not found: group_code={group_code}, code={code}"
+        )
+    return str(row["code"])
+
+
+def physical_name_to_english_name(physical_name: str) -> str:
+    """snake_case 물리명을 사람이 읽는 표준 영문명으로 변환한다."""
+    words = [word for word in re.split(r"_+", physical_name.strip()) if word]
+    return " ".join(
+        word.upper() if len(word) <= 2 else word.capitalize()
+        for word in words
+    )
+
+
+def resolve_attribute_names(
+    column_name: str,
+    column_comment: str | None,
+) -> tuple[str, str, str]:
+    """물리 Column에서 한글명·영문명·물리명을 공통 방식으로 구성한다."""
+    physical_name = column_name.strip()
+    comment = (column_comment or "").strip()
+    korean_name = re.split(r"[.。\n]", comment, maxsplit=1)[0].strip() or physical_name
+    return korean_name, physical_name_to_english_name(physical_name), physical_name
 
 
 def comment_review_status(current_comment: str | None, proposed_comment: str | None) -> str:
