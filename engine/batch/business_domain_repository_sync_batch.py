@@ -92,14 +92,21 @@ class BusinessDomainRepositorySyncBatch:
         counts = SyncCounts()
         self.repository.begin()
         try:
-            entity_by_table: dict[str, str] = {}
+            entity_by_erd_table: dict[tuple[str, str], str] = {}
+            object_by_table: dict[str, str] = {}
+            table_by_name = {str(row["table_name"]): row for row in tables}
             attribute_by_column: dict[tuple[str, str], str] = {}
-            erd_by_domain: dict[str, str] = {}
+            erd_by_domain = {
+                domain_code: self._sync_erd(domain_code, domains, counts)
+                for domain_code in sorted({str(row["domain_code"]) for row in tables})
+            }
             for table in tables:
                 table_object_id = self._sync_table_object(table, columns, counts)
-                entity_ids = self._sync_entities(table_object_id, table, counts)
+                object_by_table[str(table["table_name"])] = table_object_id
+                erd_id = erd_by_domain[str(table["domain_code"])]
+                entity_ids = self._sync_entities(erd_id, table_object_id, table, counts)
                 physical_entity_id = entity_ids["physical"]
-                entity_by_table[table["table_name"]] = physical_entity_id
+                entity_by_erd_table[(erd_id, str(table["table_name"]))] = physical_entity_id
                 attribute_by_column.update(
                     self._sync_attributes(
                         table_object_id,
@@ -109,20 +116,25 @@ class BusinessDomainRepositorySyncBatch:
                         counts,
                     )
                 )
-                domain_code = table["domain_code"]
-                if domain_code not in erd_by_domain:
-                    erd_by_domain[domain_code] = self._sync_erd(
-                        domain_code, domains, counts
-                    )
-
             for foreign_key in foreign_keys:
-                source_entity_id = entity_by_table.get(foreign_key["source_table"])
-                target_entity_id = entity_by_table.get(foreign_key["target_table"])
+                domain_code = self._domain_code(foreign_key["source_table"], domains)
+                erd_id = erd_by_domain[domain_code]
+                source_key = (erd_id, str(foreign_key["source_table"]))
+                target_key = (erd_id, str(foreign_key["target_table"]))
+                source_entity_id = entity_by_erd_table.get(source_key)
+                target_entity_id = entity_by_erd_table.get(target_key)
+                if not target_entity_id:
+                    target_table = table_by_name.get(str(foreign_key["target_table"]))
+                    target_object_id = object_by_table.get(str(foreign_key["target_table"]))
+                    if target_table and target_object_id:
+                        target_entity_id = self._sync_entities(
+                            erd_id, target_object_id, target_table, counts
+                        )["physical"]
+                        entity_by_erd_table[target_key] = target_entity_id
                 if source_entity_id and target_entity_id:
-                    domain_code = self._domain_code(foreign_key["source_table"], domains)
                     relationship_id = self._sync_fk_relationship(
                         foreign_key,
-                        erd_by_domain[domain_code],
+                        erd_id,
                         source_entity_id,
                         target_entity_id,
                         counts,
@@ -398,6 +410,7 @@ class BusinessDomainRepositorySyncBatch:
 
     def _sync_entities(
         self,
+        erd_id: str,
         object_id: str,
         table: dict[str, Any],
         counts: SyncCounts,
@@ -415,10 +428,11 @@ class BusinessDomainRepositorySyncBatch:
                 """
                 SELECT entity_id
                 FROM sp_entity
-                WHERE object_id = %s
+                WHERE erd_id = %s
+                  AND object_id = %s
                   AND entity_type_code = %s
                 """,
-                (object_id, entity_type_code),
+                (erd_id, object_id, entity_type_code),
             )
             created = not bool(existing)
             entity_id = (
@@ -429,10 +443,10 @@ class BusinessDomainRepositorySyncBatch:
             self.repository.execute(
                 """
                 INSERT INTO sp_entity
-                (entity_id, object_id, entity_name, business_code, domain_code,
+                (erd_id, entity_id, object_id, entity_name, business_code, domain_code,
                  entity_comment, entity_type_code, enabled_yn, created_by,
                  updated_by, client_ip, program_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'Y', %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Y', %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     entity_name = VALUES(entity_name),
                     business_code = VALUES(business_code),
@@ -446,6 +460,7 @@ class BusinessDomainRepositorySyncBatch:
                     program_id = VALUES(program_id)
                 """,
                 (
+                    erd_id,
                     entity_id,
                     object_id,
                     entity_name,
