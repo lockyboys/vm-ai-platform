@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 
 from urllib.parse import quote_plus
+from common.database import CommonDatabase
 from core.database.database_manager import DatabaseManager
-from core.identifier.identifier_engine import IdentifierEngine
+from engine.identifier_engine import IdentifierEngine
 from core.transaction.sps_distributed_transaction import SpsDistributedTransaction
 
 
@@ -96,17 +97,9 @@ def main():
     mariadb_conn = database_manager.get_connection("STORY")
     mongo_client = get_mongodb_client()
 
-    identifier_engine = IdentifierEngine(
-        sequence_database_role_code="STORY",
-        block_size=10,
-        database_manager=database_manager,
-    )
-
-    object_attempt_id = identifier_engine.generate_identifier(
-        identifier_target_code="OBJECT",
-        created_by="SYSTEM",
-        program_id="test_sps_distributed_transaction.py",
-    )
+    identifier_database = CommonDatabase(database_role="STORY_PLATFORM")
+    identifier_engine = IdentifierEngine(identifier_database)
+    object_attempt_id = identifier_engine.generate("OBJECT")
 
     object_id = "OB_2026_00001"
 
