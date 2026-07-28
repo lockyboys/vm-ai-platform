@@ -1,25 +1,23 @@
 Current Task:
-- cm_business_domain SSOT 기반 Repository 전체 동기화 배치 구현 완료
+- COMMON:CM Repository 동기화 작업 Git 마무리
 
 Completed:
-- engine/batch/business_domain_repository_sync_batch.py 생성
-- Table → Entity → Attribute → ERD → Relationship 동기화 구현
-- Repository 역할 기반 DB 연결
-- IdentifierEngine 기반 ID 발행
-- 기본 dry-run 및 --apply DML 실행 분리
-- 트랜잭션 commit/rollback 적용
-- 커밋 fd07ad7 완료
-- Git working tree clean 확인
+- sp_entity/sp_attribute Object 연결 및 명칭 분리 구조 SQL 적용
+- ACTION_TYPE REGISTER_REPOSITORY_OBJECT 공통코드 계약 적용
+- TABLE·ENTITY·ATTRIBUTE·ERD·RELATIONSHIP Identifier Object Definition 등록 및 당일 Sequence Metadata 보장
+- COMMON:CM Dry Run 성공: Table 7, Column 126, FK 6
+- COMMON:CM 1차 적용 성공: Table 7, Entity 14, Attribute 126, ERD 2, Relationship 6, Relationship Attribute 6
+- COMMON:CM 2차 적용 성공: inserted 없음, 기존 데이터 멱등 갱신
+- 구현·Migration 8개 파일 커밋 완료: 8b4fb69 feat: synchronize repository objects from rule metadata
 
 Next Task:
-- 서버에서 dry-run 실행
-- 실제 Repository Table 구조 및 저장 행 검증
-- 멱등성 검증: --apply 2회 실행 후 신규 중복 0 확인
-- 필요 시 검증 결과 기반 보완 커밋
+- 체크포인트 current.md 커밋
+- feature/spds-v0.1 브랜치 push
+- 다음 Repository 대상 동기화 범위 결정
 
 Decisions:
-- cm_business_domain을 Domain SSOT로 사용
-- DB 구조 변경 금지
-- 물리 Database 명 하드코딩 금지
-- 기존 Repository ID 유지
-- 실행 전 dry-run 기본값 유지
+- Rule → 공통코드 → ObjectDefinitionEngine → IdentifierEngine 경로만 사용한다
+- Object ID 직접 생성 및 sp_object 직접 INSERT를 금지한다
+- Identifier Object 정의값은 ACTION_TYPE 공통코드 JSON을 SSOT로 사용한다
+- Repository 동기화는 재실행 시 신규 중복 INSERT 없이 멱등 처리한다
+- 출처 불명 0바이트 파일 32는 Git에서 제외하고 보존한다
