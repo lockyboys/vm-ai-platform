@@ -1,20 +1,19 @@
 Current Task:
-- Identifier Engine 단일 구현 경로 통합 Git 마무리
+- ERD Entity 범위 이관 및 Relationship 복합 FK Git 마무리
 
 Completed:
-- core/identifier/identifier_engine.py를 canonical engine 호환 모듈로 정리
-- Identifier Engine 단위 테스트 및 caller import 계약 정비
-- Identifier 테스트: 7 passed, 20 subtests passed
-- 전체 테스트: 44 passed, 20 subtests passed, 실패 0
-- 요청한 4개 파일만 stage 및 commit 완료
-- Commit: fe24506 refactor: unify identifier engine callers
+- sp_entity를 ERD 범위로 이관하고 기존 Entity 14건을 연결
+- COMMON:CM Repository Sync Batch Apply 완료: Table 7, Entity 16, Attribute 126, Relationship 6
+- sp_relationship의 Source/Target Entity 복합 FK 적용 및 6건 검증 완료
+- Batch 재실행 안정성 검증 완료: inserted 없음
+- Commit: c0e8a74 feat(erd): scope entities by ERD and enforce relationship references
+- feature/spds-v0.1 원격 push 완료
 
 Next Task:
-- feature/spds-v0.1 브랜치 push
-- push 결과 확인 후 다음 Identifier Engine 작업 결정
+- 다음 Repository/ERD 확장 작업 결정
 
 Decisions:
-- canonical 구현은 engine.identifier_engine.IdentifierEngine을 사용한다
-- legacy core.identifier 경로는 호환 import만 제공한다
-- DB 구조를 변경하지 않는다
-- Identifier Metadata를 하드코딩하지 않는다
+- DB 구조 변경은 이번 ERD 범위 이관과 복합 FK 적용으로 완료했다
+- Entity는 erd_id 범위에서 관리한다
+- Relationship Source/Target은 동일 erd_id의 Entity만 참조한다
+- Repository First, Metadata Driven, 하드코딩 금지 원칙을 유지한다
