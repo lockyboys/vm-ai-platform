@@ -280,7 +280,7 @@ class BusinessDomainRepositorySyncBatch:
         placeholders = ", ".join(["%s"] * len(table_names))
         return self.source.fetch_all(
             f"""
-            SELECT table_name, column_name, data_type, character_maximum_length,
+            SELECT table_name, column_name, data_type, column_type, character_maximum_length,
                    numeric_scale, is_nullable, column_key, column_default,
                    column_comment, ordinal_position
             FROM information_schema.columns
@@ -478,6 +478,14 @@ class BusinessDomainRepositorySyncBatch:
             result[key] = entity_id
         return result
 
+    @staticmethod
+    def _declared_character_length(column: dict[str, Any]) -> int | None:
+        """Return only an explicitly declared character length from source metadata."""
+        character_maximum_length = column.get("character_maximum_length")
+        if character_maximum_length is None or "(" not in str(column["column_type"]):
+            return None
+        return int(character_maximum_length)
+
     def _sync_attributes(
         self,
         object_id: str,
@@ -546,7 +554,7 @@ class BusinessDomainRepositorySyncBatch:
                     attribute_name_en,
                     column_name,
                     str(column["data_type"]).upper(),
-                    column.get("character_maximum_length"),
+                    self._declared_character_length(column),
                     column.get("numeric_scale"),
                     "Y" if column["is_nullable"] == "YES" else "N",
                     "Y" if column["column_key"] == "PRI" else "N",
