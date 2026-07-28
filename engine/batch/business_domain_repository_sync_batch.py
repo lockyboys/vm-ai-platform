@@ -16,7 +16,7 @@ from common.common_function import (
     validate_common_code_value,
 )
 from common.database import CommonDatabase
-from engine.identifier_engine import IdentifierEngine
+from engine.identifier import IdentifierCoordinator
 
 
 @dataclass(slots=True)
@@ -54,9 +54,11 @@ class BusinessDomainRepositorySyncBatch:
         self.rule_code = rule_code.strip().upper()
         self.repository_contract: dict[str, Any] = {}
         self.identifier_object_codes: dict[str, str] = {}
+        self.table_prefix_domain_code_map: dict[str, str] = {}
+        self.table_identifier_metadata: dict[str, dict[str, str]] = {}
         self.actor_id = actor_id
         self.client_ip = client_ip
-        self.identifier = IdentifierEngine(self.repository)
+        self.identifier_coordinator = IdentifierCoordinator(self.repository)
 
     def run(self, *, apply: bool = False) -> dict[str, Any]:
         domains = self._load_business_domains()
@@ -80,6 +82,8 @@ class BusinessDomainRepositorySyncBatch:
             "table_count": len(tables),
             "column_count": len(columns),
             "foreign_key_count": len(foreign_keys),
+            "table_prefix_domain_code_map": self.table_prefix_domain_code_map,
+            "table_identifier_metadata": self.table_identifier_metadata,
             "required_identifier_object_codes": [
                 self.identifier_object_codes[bucket]
                 for bucket in required_identifier_buckets
@@ -219,11 +223,46 @@ class BusinessDomainRepositorySyncBatch:
             entity_type_group_code,
             str(contract["physical_entity_type_code"]),
         )
+        table_prefix_domain_code_map = contract.get("table_prefix_domain_code_map")
+        if not isinstance(table_prefix_domain_code_map, dict):
+            raise ValueError(
+                "Repository Rule common-code contract requires table_prefix_domain_code_map."
+            )
+        table_identifier_metadata = contract.get("table_identifier_metadata")
+        if not isinstance(table_identifier_metadata, dict):
+            raise ValueError(
+                "Repository Rule common-code contract requires table_identifier_metadata."
+            )
+        normalized_table_identifier_metadata: dict[str, dict[str, str]] = {}
+        for table_name, metadata in table_identifier_metadata.items():
+            if not isinstance(metadata, dict):
+                raise ValueError(
+                    "table_identifier_metadata values must be JSON objects. "
+                    f"table_name={table_name}"
+                )
+            missing_metadata_keys = {
+                "target_identifier_field",
+                "identifier_target_code",
+            }.difference(metadata)
+            if missing_metadata_keys:
+                raise ValueError(
+                    "table_identifier_metadata is incomplete. "
+                    f"table_name={table_name}, missing={sorted(missing_metadata_keys)}"
+                )
+            normalized_table_identifier_metadata[str(table_name).lower()] = {
+                "target_identifier_field": str(metadata["target_identifier_field"]),
+                "identifier_target_code": str(metadata["identifier_target_code"]),
+            }
         self.repository_contract = contract
         self.identifier_object_codes = {
             str(bucket): str(object_code)
             for bucket, object_code in identifier_object_codes.items()
         }
+        self.table_prefix_domain_code_map = {
+            str(prefix).upper(): str(domain_code).upper()
+            for prefix, domain_code in table_prefix_domain_code_map.items()
+        }
+        self.table_identifier_metadata = normalized_table_identifier_metadata
 
     @staticmethod
     def _required_identifier_buckets(
@@ -246,7 +285,9 @@ class BusinessDomainRepositorySyncBatch:
         for bucket in buckets:
             object_code = self.identifier_object_codes[bucket]
             try:
-                self.identifier.load_object_metadata(object_code)
+                self.identifier_coordinator.identifier_engine.load_object_metadata(
+                    object_code
+                )
             except ValueError:
                 missing.append(object_code)
         if missing:
@@ -320,14 +361,22 @@ class BusinessDomainRepositorySyncBatch:
             ),
         )
 
-    @staticmethod
     def _domain_code(
+        self,
         table_name: str,
         domains: dict[str, dict[str, Any]],
         *,
         strict: bool = True,
     ) -> str | None:
         prefix = table_name.split("_", 1)[0].upper()
+        mapped_domain_code = self.table_prefix_domain_code_map.get(prefix)
+        if mapped_domain_code:
+            if mapped_domain_code in domains:
+                return mapped_domain_code
+            raise ValueError(
+                "Table prefix domain mapping is not registered in cm_business_domain: "
+                f"table_name={table_name}, prefix={prefix}, domain_code={mapped_domain_code}"
+            )
         if prefix in domains:
             return prefix
         if strict:
@@ -337,10 +386,30 @@ class BusinessDomainRepositorySyncBatch:
         return None
 
     def _generate_id(self, bucket: str) -> str:
-        return self.identifier.generate(
-            self.identifier_object_codes[bucket],
-            manage_transaction=False,
+        object_code = self.identifier_object_codes[bucket]
+        request = dict(
+            self.identifier_coordinator.identifier_engine.load_object_metadata(
+                object_code
+            )
         )
+        request.update(
+            {
+                "created_by": self.actor_id,
+                "updated_by": self.actor_id,
+                "client_ip": self.client_ip,
+                "program_id": self.PROGRAM_ID,
+            }
+        )
+        prepared = self.identifier_coordinator.prepare(request=request)
+        self.identifier_coordinator.acquire(prepared)
+        try:
+            return self.identifier_coordinator.resolve(
+                request=request,
+                prepared=prepared,
+                maximum_length=99,
+            ).identifier
+        finally:
+            self.identifier_coordinator.release(prepared)
 
     def _sync_table_object(
         self,
@@ -356,7 +425,32 @@ class BusinessDomainRepositorySyncBatch:
             for row in columns
             if row["table_name"] == table["table_name"] and row["column_key"] == "PRI"
         ]
-        target_field = primary_keys[0] if len(primary_keys) == 1 else None
+        table_identifier_metadata = self.table_identifier_metadata.get(
+            str(table["table_name"]).lower(),
+            {},
+        )
+        target_field = table_identifier_metadata.get(
+            "target_identifier_field",
+            primary_keys[0] if len(primary_keys) == 1 else None,
+        )
+        table_column_names = {
+            str(row["column_name"])
+            for row in columns
+            if row["table_name"] == table["table_name"]
+        }
+        if target_field and target_field not in table_column_names:
+            raise ValueError(
+                "Table identifier target field is not a source table column: "
+                f"table_name={table['table_name']}, target_identifier_field={target_field}"
+            )
+        identifier_target_code = table_identifier_metadata.get(
+            "identifier_target_code",
+            str(
+                self.repository_contract["identifier_object_definitions"]["table"][
+                    "identifier_target_code"
+                ]
+            ),
+        )
         existing = self.repository.fetch_one(
             "SELECT object_id FROM sp_object WHERE object_code = %s",
             (object_code,),
@@ -370,10 +464,11 @@ class BusinessDomainRepositorySyncBatch:
             INSERT INTO sp_object
             (object_id, object_code, object_name, business_code, domain_code,
              object_type_code, object_description, object_level, status_code,
-             active_yn, target_identifier_field, created_by, updated_by,
+             active_yn, target_identifier_field, identifier_target_code,
+             sequence_scope_code, sequence_length, created_by, updated_by,
              client_ip, program_id)
             VALUES
-            (%s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE', 'Y', %s,
+            (%s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE', 'Y', %s, %s, %s, %s,
              %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 object_name = VALUES(object_name),
@@ -383,6 +478,9 @@ class BusinessDomainRepositorySyncBatch:
                 status_code = 'ACTIVE',
                 active_yn = 'Y',
                 target_identifier_field = VALUES(target_identifier_field),
+                identifier_target_code = VALUES(identifier_target_code),
+                sequence_scope_code = VALUES(sequence_scope_code),
+                sequence_length = VALUES(sequence_length),
                 deleted_by = NULL,
                 deleted_dt = NULL,
                 updated_by = VALUES(updated_by),
@@ -399,6 +497,9 @@ class BusinessDomainRepositorySyncBatch:
                 table.get("table_comment") or None,
                 int(self.repository_contract["object_level"]),
                 target_field,
+                identifier_target_code,
+                self.repository_contract["sequence_scope_code"],
+                self.repository_contract["sequence_length"],
                 self.actor_id,
                 self.actor_id,
                 self.client_ip,
