@@ -94,27 +94,54 @@ class CommonAuth:
             hmac.new(self._secret_key.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
         )
 
-    def _issue_token(self, user: str | Mapping[str, Any], *, token_type: str, expires_in: int) -> str:
-        now = int(time.time())
+    def issue_token(
+        self,
+        user: str | Mapping[str, Any],
+        *,
+        token_type: str,
+        expires_in: int,
+        additional_claims: Mapping[str, Any] | None = None,
+        issued_at: int | None = None,
+    ) -> str:
+        """Issue a signed JWT for a named SPS token contract."""
+        if expires_in <= 0:
+            raise ValueError("expires_in must be positive.")
+        now = issued_at if issued_at is not None else int(time.time())
+        claims: dict[str, Any] = {
+            "sub": self._user_id(user),
+            "iat": now,
+            "exp": now + expires_in,
+            "jti": secrets.token_urlsafe(24),
+            "token_type": token_type,
+        }
+        if additional_claims:
+            protected_claims = {"sub", "iat", "exp", "jti", "token_type"}
+            overlap = protected_claims.intersection(additional_claims)
+            if overlap:
+                raise ValueError(f"additional_claims cannot replace protected claims: {sorted(overlap)}")
+            claims.update(additional_claims)
         header = self._base64url_encode(
             json.dumps({"alg": self.ALGORITHM, "typ": "JWT"}, separators=(",", ":")).encode("utf-8")
         )
         payload = self._base64url_encode(
-            json.dumps(
-                {
-                    "sub": self._user_id(user),
-                    "iat": now,
-                    "exp": now + expires_in,
-                    "jti": secrets.token_urlsafe(24),
-                    "token_type": token_type,
-                },
-                separators=(",", ":"),
-            ).encode("utf-8")
+            json.dumps(claims, separators=(",", ":")).encode("utf-8")
         )
         signing_input = f"{header}.{payload}"
         return f"{signing_input}.{self._signature(signing_input)}"
 
-    def _verify_token(self, token: str | None, *, expected_type: str) -> tuple[AuthenticatedUser, int]:
+    def _issue_token(self, user: str | Mapping[str, Any], *, token_type: str, expires_in: int) -> str:
+        return self.issue_token(user, token_type=token_type, expires_in=expires_in)
+
+    def verify_token(
+        self,
+        token: str | None,
+        *,
+        expected_type: str,
+        leeway_seconds: int = 0,
+    ) -> dict[str, Any]:
+        """Verify a bearer JWT and return its full, signed claims."""
+        if leeway_seconds < 0:
+            raise ValueError("leeway_seconds must not be negative.")
         if not token:
             raise AuthenticationError("Authentication token is required.")
         try:
@@ -130,15 +157,23 @@ class CommonAuth:
             raise AuthenticationError("Invalid authentication token signature.")
         user_id = payload.get("sub")
         expires_at = payload.get("exp")
+        not_before = payload.get("nbf", payload.get("iat"))
+        now = int(time.time())
         if (
             not isinstance(user_id, str)
             or not user_id
             or not isinstance(expires_at, int)
-            or expires_at <= int(time.time())
+            or not isinstance(not_before, int)
+            or expires_at + leeway_seconds <= now
+            or not_before - leeway_seconds > now
             or payload.get("token_type") != expected_type
         ):
             raise AuthenticationError("Expired or invalid authentication token.")
-        return AuthenticatedUser(user_id=user_id), expires_at
+        return payload
+
+    def _verify_token(self, token: str | None, *, expected_type: str) -> tuple[AuthenticatedUser, int]:
+        payload = self.verify_token(token, expected_type=expected_type)
+        return AuthenticatedUser(user_id=payload["sub"]), payload["exp"]
 
     @staticmethod
     def _cookie_value(request: Any, cookie_name: str) -> str | None:
