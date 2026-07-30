@@ -34,7 +34,6 @@ def build_requests(
         "object_definition_business_code",
         "object_definition_domain_code",
         "object_type_code",
-        "object_level",
         "sequence_scope_code",
         "sequence_length",
     )
@@ -47,10 +46,21 @@ def build_requests(
         if bucket not in object_codes or not isinstance(definition, dict):
             raise ValueError(f"Invalid Identifier Object definition: bucket={bucket}")
 
+        missing_definition_values = [
+            key
+            for key in ("identifier_target_code", "object_level")
+            if definition.get(key) in (None, "")
+        ]
+        if missing_definition_values:
+            raise ValueError(
+                "Identifier Object definition is incomplete: "
+                f"bucket={bucket}, missing={missing_definition_values}"
+            )
+
         target_code = validate_common_code_value(
             common_database,
             "SPS_IDENTIFIER_TARGET",
-            str(definition.get("identifier_target_code") or ""),
+            str(definition["identifier_target_code"]),
         )
         requests.append(
             {
@@ -60,7 +70,7 @@ def build_requests(
                 "business_code": str(contract["object_definition_business_code"]),
                 "domain_code": str(contract["object_definition_domain_code"]),
                 "object_type_code": str(contract["object_type_code"]),
-                "object_level": int(contract["object_level"]),
+                "object_level": int(definition["object_level"]),
                 "identifier_target_code": target_code,
                 "sequence_scope_code": str(contract["sequence_scope_code"]),
                 "sequence_length": int(contract["sequence_length"]),

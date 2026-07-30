@@ -53,33 +53,37 @@ SET common_code_json = JSON_OBJECT(
             'table', JSON_OBJECT(
                 'object_name', 'Table Object',
                 'object_description', 'Database Table Object Identifier 발급 기준.',
-                'identifier_target_code', 'OB'
+                'identifier_target_code', 'OB',
+                'object_level', 3
             ),
             'entity', JSON_OBJECT(
                 'object_name', 'Entity Object',
                 'object_description', 'Logical and Physical Entity Identifier 발급 기준.',
-                'identifier_target_code', 'EN'
+                'identifier_target_code', 'EN',
+                'object_level', 3
             ),
             'attribute', JSON_OBJECT(
                 'object_name', 'Attribute Object',
                 'object_description', 'Entity Attribute Identifier 발급 기준.',
-                'identifier_target_code', 'AT'
+                'identifier_target_code', 'AT',
+                'object_level', 4
             ),
             'erd', JSON_OBJECT(
                 'object_name', 'ERD Object',
-                'object_description', 'Entity Relationship Diagram Identifier 발급 기준.',
-                'identifier_target_code', 'OB'
+                'object_description', 'Level 3 Table Object 묶음인 ERD Identifier 발급 기준.',
+                'identifier_target_code', 'OB',
+                'object_level', 2
             ),
             'relationship', JSON_OBJECT(
                 'object_name', 'Relationship Object',
-                'object_description', 'Entity Relationship Identifier 발급 기준.',
-                'identifier_target_code', 'RE'
+                'object_description', 'Level 4 Attribute 묶음인 Relationship Identifier 발급 기준.',
+                'identifier_target_code', 'RE',
+                'object_level', 3
             )
         ),
         'object_definition_business_code', 'SP',
         'object_definition_domain_code', 'RP',
         'object_type_code', 'TABLE',
-        'object_level', 3,
         'sequence_scope_code', 'DAILY',
         'sequence_length', 5,
         'entity_type_group_code', 'ENTITY_TYPE',
