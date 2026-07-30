@@ -14,7 +14,7 @@ CALL sp_register_repository_object(
         'business_code', @ui_business_code,
         'domain_code', @ui_domain_code,
         'object_type_code', @ui_object_type_code,
-        'object_description', 'COMMON.system_menu_button_crud_permission의 Role별 CRUD Flag를 UI Permission 계약으로 해석한다.',
+        'object_description', 'COMMON.ui_menu_action_permission의 Action별 Member 또는 Rule 권한 행을 UI Permission 계약으로 해석한다.',
         'object_level', @ui_object_level,
         'sort_no', 40,
         'status_code', 'ACTIVE',

@@ -14,7 +14,7 @@ CALL sp_register_repository_object(
         'business_code', @ui_business_code,
         'domain_code', @ui_domain_code,
         'object_type_code', @ui_object_type_code,
-        'object_description', 'COMMON.system_menu의 menu_code, menu_name, menu_url, menu_sort_no를 화면 표시 계약으로 해석한다.',
+        'object_description', 'COMMON.ui_menu의 menu_code, menu_name, menu_url, menu_sort_no를 화면 표시 계약으로 해석한다.',
         'object_level', @ui_object_level,
         'sort_no', 10,
         'status_code', 'ACTIVE',

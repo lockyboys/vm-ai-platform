@@ -14,7 +14,7 @@ CALL sp_register_repository_object(
         'business_code', @ui_business_code,
         'domain_code', @ui_domain_code,
         'object_type_code', @ui_object_type_code,
-        'object_description', 'COMMON.system_menu를 UI Menu Repository의 공식 SSOT로 해석한다.',
+        'object_description', 'COMMON.ui_menu를 UI Menu Repository의 공식 SSOT로 해석한다.',
         'object_level', @ui_object_level,
         'sort_no', 20,
         'status_code', 'ACTIVE',
