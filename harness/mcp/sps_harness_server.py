@@ -54,6 +54,9 @@ from harness.mcp.tools.git_mutation_tools import (
     git_add,
     git_commit,
 )
+from harness.mcp.tools.operational_tools import (
+    operational_service_diagnostics,
+)
 
 PROJECT_ROOT = Path("/data/vm_project")
 HARNESS_ROOT = PROJECT_ROOT / "harness"
@@ -283,6 +286,8 @@ mcp.tool()(git_status)
 mcp.tool()(git_diff)
 mcp.tool()(git_add)
 mcp.tool()(git_commit)
+
+mcp.tool()(operational_service_diagnostics)
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
