@@ -46,13 +46,12 @@ class AGIOrchestrator:
             팀원들을 소집해서 각자 자리에 앉히는 과정이에요.
             메모리, 계획, 추론, 자기개선 담당자를 준비시켜요.
         """
-        self.memory   = MemoryAgent()        # 기억 담당
         self.planner  = PlanningAgent()      # 계획 담당
         self.reasoner = ReasoningAgent()     # 추론 담당
         self.improver = SelfImproveAgent()   # 자기개선 담당
         logger.info("🧠 AGI 오케스트레이터 초기화 완료")
 
-    def run(self, task: str, context: dict = None) -> dict:
+    def run(self, task: str, *, subject_id: str, context: dict | None = None) -> dict:
         """
         작업을 받아 전체 에이전트 파이프라인 실행
 
@@ -74,11 +73,12 @@ class AGIOrchestrator:
             }
         """
         ctx = context or {}
+        memory = MemoryAgent(subject_id)
         logger.info(f"🚀 오케스트레이터 실행: {task[:50]}...")
 
         # 1단계: 과거 기억 검색
         # 초등학생 설명: "이거 전에 해봤나?" 일기장에서 찾아봐요
-        memories = self.memory.recall(task)
+        memories = memory.recall(task)
         logger.info(f"  💭 관련 기억 {len(memories)}개 발견")
 
         # 2단계: 작업 계획 수립
@@ -92,7 +92,7 @@ class AGIOrchestrator:
 
         # 4단계: 결과를 기억에 저장
         # 초등학생 설명: "오늘 이런 일 했어요" 일기에 써둬요
-        self.memory.store(task, result)
+        memory.store(task, result)
 
         # 5단계: 최종 결과 정리
         output = {

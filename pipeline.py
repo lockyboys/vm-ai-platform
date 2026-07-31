@@ -23,7 +23,7 @@ def get_orchestrator():
         _orch = AGIOrchestrator()
     return _orch
 
-def run_pipeline(file_path: str = None, user_id: str = "anonymous",
+def run_pipeline(file_path: str | None = None, user_id: str | None = None,
                  target_col: str = None, feature_cols: list = None,
                  learning_type: str = "supervised") -> dict:
     """
@@ -37,6 +37,8 @@ def run_pipeline(file_path: str = None, user_id: str = "anonymous",
         feature_cols  : 학습에 쓸 열 목록 (None이면 자동 선택)
         learning_type : supervised / unsupervised / semi_supervised / reinforcement
     """
+    if not user_id:
+        raise ValueError("user_id is required for pipeline execution")
     start = time.time()
     ensure_dirs()
     logger.info(f"🚀 7.20.0 파이프라인 시작 | user={user_id} | 학습방식={learning_type}")
@@ -92,7 +94,8 @@ def run_pipeline(file_path: str = None, user_id: str = "anonymous",
     # ── 5. AGI 종합 판단 ──────────────────────────────────
     agi_result = get_orchestrator().run(
         "데이터 분석 및 인사이트 도출",
-        {"analysis": analysis, "score": score, "accuracy": accuracy}
+        subject_id=str(user_id),
+        context={"analysis": analysis, "score": score, "accuracy": accuracy},
     )
 
     # ── 6. PDF 리포트 생성 ────────────────────────────────
