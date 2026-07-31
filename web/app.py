@@ -466,42 +466,14 @@ def run_ai_analysis():
 
 @app.route("/api/download/<path:filename>")
 def download_file(filename):
-    """
-    결과 파일 다운로드
-    초등학생 설명: 서버가 만든 PDF/차트 파일을 내 컴퓨터로 내려받아요.
-    """
-    plan = get_plan(request)
-    if not check_permission(plan, "파일다운로드") and not check_permission(plan, "PDF다운로드"):
-        return permission_error(plan, "파일다운로드")
-
-    # outputs/reports, outputs/charts에서만 찾도록 제한해요. 임의 경로 다운로드 방지!
-    for folder in ["reports", "charts", "shap", "exports"]:
-        fp = os.path.join(OUTPUT_PATH, folder, filename)
-        if os.path.exists(fp):
-            return send_file(fp, as_attachment=True)
-    return jsonify({"error": "파일을 찾을 수 없어요"}), 404
+    """Legacy filename downloads are disabled until they use a repository ownership contract."""
+    abort(404)
 
 
 @app.route("/api/files")
 def list_files():
-    plan = get_plan(request)
-    if not check_permission(plan, "결과조회"):
-        return permission_error(plan, "결과조회")
-
-    files = []
-    for cat, folder in [("리포트","reports"),("차트","charts")]:
-        d = os.path.join(OUTPUT_PATH, folder)
-        if os.path.exists(d):
-            for fn in sorted(os.listdir(d), reverse=True)[:20]:
-                fp = os.path.join(d, fn)
-                can_dl = check_permission(plan,"파일다운로드")
-                files.append({
-                    "카테고리": cat, "파일명": fn,
-                    "크기": os.path.getsize(fp),
-                    "다운로드가능": can_dl,
-                    "다운로드URL": f"/api/download/{fn}" if can_dl else None,
-                })
-    return jsonify({"files": files})
+    """Legacy global output listing is disabled until each asset has an owner."""
+    abort(404)
 
 
 # ════════════════════════════════════════════════════════

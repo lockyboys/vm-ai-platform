@@ -49,6 +49,8 @@ def test_legacy_web_api_requires_authentication_and_disables_admin_execution() -
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 403
+    for path in ("/api/files", "/api/download/guessed-report.pdf"):
+        assert client.get(path, headers={"Authorization": f"Bearer {token}"}).status_code == 404
 
 
 def test_ownership_and_path_guards_are_present() -> None:
