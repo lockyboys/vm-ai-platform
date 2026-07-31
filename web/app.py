@@ -22,9 +22,11 @@ from services.auth.auth_service import (
 
 ALLOWED_EXT = {"csv", "xlsx", "xls", "tsv"}
 from src.AI.controllers.ai_job_controller import ai_job_bp
+from work.work_repository import WorkRepository
 
 app = Flask(__name__)
 app.register_blueprint(ai_job_bp)
+work_repository = WorkRepository()
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
 
 
@@ -480,55 +482,39 @@ def list_files():
 # 📊 모델 히스토리 / 권한 / Cron
 # ════════════════════════════════════════════════════════
 @app.route("/api/history")
-def history():
-    """
-    모델 정확도 히스토리 — JSON 파일 우선, DB 보조
-    초등학생 설명: AI가 지금까지 공부한 성적표를 보여줘요!
-    """
-    # JSON 파일에서 먼저 조회 (항상 있음)
-    json_history = load_history("model", days=30, limit=50)
-    if json_history:
-        return jsonify({"history": json_history, "source": "json"})
-    # JSON 없으면 DB에서 조회
-    from services.db.db_service import get_model_history
-    return jsonify({"history": get_model_history(50), "source": "db"})
-
-
 @app.route("/api/history/all")
-def history_all():
-    """
-    전체 카테고리 이력 JSON 조회
-    초등학생 설명: 모든 종류의 기록을 한번에 볼 수 있어요!
-    """
-    days = int(request.args.get("days", 7))
-    return jsonify(load_all_history(days=days))
-
-
 @app.route("/api/history/<category>")
-def history_by_category(category):
-    """
-    카테고리별 이력 조회
-    category: pipeline / model / cron / upload / login / deploy
-    """
-    allowed = ["pipeline","model","cron","upload","login","deploy"]
-    if category not in allowed:
-        return jsonify({"error": f"허용된 카테고리: {allowed}"}), 400
-    days  = int(request.args.get("days",  7))
-    limit = int(request.args.get("limit", 50))
-    return jsonify({
-        "category": category,
-        "history":  load_history(category, days=days, limit=limit),
-    })
-
-
 @app.route("/api/stats")
-def stats():
-    """
-    전체 이력 통계 요약
-    초등학생 설명: "이번 주에 뭘 얼마나 했는지" 요약해줘요!
-    """
-    days = int(request.args.get("days", 7))
-    return jsonify(get_stats(days=days))
+def legacy_history_routes_disabled(category: str | None = None):
+    """전역 JSON·DB 이력은 소유권 계약이 없어 공개하지 않는다."""
+    abort(404)
+
+
+@app.get("/api/work-sessions")
+def list_work_sessions():
+    """현재 인증 사용자가 소유한 Work Session 이력만 반환한다."""
+    user_id = str(g.current_user["user_id"])
+    return jsonify({"work_sessions": work_repository.list_owned_sessions(user_id)})
+
+
+@app.get("/api/work-sessions/<work_session_id>")
+def get_work_session(work_session_id: str):
+    """현재 인증 사용자의 Work Session 상세 이력만 반환한다."""
+    user_id = str(g.current_user["user_id"])
+    detail = work_repository.get_owned_session_detail(work_session_id, user_id)
+    if detail is None:
+        abort(404)
+    return jsonify(detail)
+
+
+@app.get("/api/work-sessions/<work_session_id>/assets")
+def list_work_session_assets(work_session_id: str):
+    """현재 인증 사용자의 Asset 비민감 메타데이터만 반환한다."""
+    user_id = str(g.current_user["user_id"])
+    assets = work_repository.list_owned_session_assets(work_session_id, user_id)
+    if assets is None:
+        abort(404)
+    return jsonify({"work_session_id": work_session_id, "work_assets": assets})
 
 
 # ════════════════════════════════════════════════════════
@@ -1147,7 +1133,6 @@ def admin_restart():
 if __name__ == "__main__":
     init_app()
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
-
 
 
 

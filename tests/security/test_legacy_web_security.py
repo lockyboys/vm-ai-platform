@@ -49,8 +49,44 @@ def test_legacy_web_api_requires_authentication_and_disables_admin_execution() -
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 403
-    for path in ("/api/files", "/api/download/guessed-report.pdf"):
+    for path in (
+        "/api/files",
+        "/api/download/guessed-report.pdf",
+        "/api/history",
+        "/api/history/all",
+        "/api/history/model",
+        "/api/stats",
+    ):
         assert client.get(path, headers={"Authorization": f"Bearer {token}"}).status_code == 404
+
+
+def test_work_session_api_uses_authenticated_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    legacy_web = importlib.import_module("web.app")
+
+    class FakeWorkRepository:
+        def list_owned_sessions(self, user_id: str):
+            assert user_id == "member-1"
+            return [{"work_session_id": "session-1", "work_name": "owned work"}]
+
+        def get_owned_session_detail(self, work_session_id: str, user_id: str):
+            assert user_id == "member-1"
+            return None if work_session_id != "session-1" else {"work_session_id": work_session_id}
+
+        def list_owned_session_assets(self, work_session_id: str, user_id: str):
+            assert user_id == "member-1"
+            return None if work_session_id != "session-1" else [{"work_asset_id": "asset-1"}]
+
+    monkeypatch.setattr(legacy_web, "work_repository", FakeWorkRepository())
+    token = auth_service.create_token("member-1", "member@example.test", "free")["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client = legacy_web.app.test_client()
+
+    assert client.get("/api/work-sessions", headers=headers).get_json()["work_sessions"][0]["work_session_id"] == "session-1"
+    assert client.get("/api/work-sessions/session-1", headers=headers).status_code == 200
+    assert client.get("/api/work-sessions/session-1/assets", headers=headers).status_code == 200
+    assert client.get("/api/work-sessions/not-owned", headers=headers).status_code == 404
 
 
 def test_ownership_and_path_guards_are_present() -> None:
