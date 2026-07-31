@@ -21,7 +21,7 @@ class AIJobRepository:
         SQL 실행만 담당한다.
     """
 
-    def find_ai_jobs(self, limit: int = 100) -> list:
+    def find_ai_jobs(self, *, user_id: str, limit: int = 100) -> list:
         """
         AI 작업 목록 조회
 
@@ -56,10 +56,11 @@ class AIJobRepository:
                 FROM AI_JOBS j
                 LEFT JOIN AI_AUTOML_RESULTS ar
                     ON ar.job_id = j.job_id
+                WHERE j.created_by = %s
                 ORDER BY j.job_id DESC
                 LIMIT %s
                 """,
-                (limit,)
+                (user_id, limit)
             )
             return cursor.fetchall()
 

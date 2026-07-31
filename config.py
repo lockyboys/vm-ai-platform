@@ -131,12 +131,11 @@ DB_RETRY_DELAY_SEC   = 1.0
 # 초등학생 설명: 로그인 도장(토큰)을 만드는 비밀 열쇠예요!
 #               실서비스에서는 반드시 복잡한 값으로 바꾸세요!
 # ─────────────────────────────────────────────────────────────────────────────
-SECRET_KEY         = os.getenv("SECRET_KEY", "change-me-in-production!")
+SECRET_KEY         = os.getenv("SECRET_KEY")
 TOKEN_EXPIRE_HOURS = int(os.getenv("TOKEN_EXPIRE_HOURS", "24"))
 
-# 비밀번호 암호화 방식 (SHA-256 사용)
-# 초등학생 설명: 비밀번호를 알아볼 수 없는 암호문으로 바꿔요!
-PASSWORD_HASH_ALGO = "sha256"
+# 비밀번호 해시 방식: 인증 서비스가 PBKDF2-HMAC-SHA256을 사용한다.
+PASSWORD_HASH_ALGO = "pbkdf2_sha256"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

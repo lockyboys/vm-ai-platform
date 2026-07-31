@@ -10,7 +10,7 @@
 # - /api/ai-jobs/<job_id>/logs API를 web/app.py에서 분리
 # ==========================================================
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 
 from config import AI_JOB_DEFAULT_LIMIT
 from src.AI.services.ai_job_service import AIJobService
@@ -35,7 +35,7 @@ def api_ai_jobs():
     try:
         limit = request.args.get("limit", AI_JOB_DEFAULT_LIMIT, type=int)
 
-        rows = AIJobService().get_ai_jobs(limit)
+        rows = AIJobService().get_ai_jobs(user_id=str(g.current_user["user_id"]), limit=limit)
 
         return jsonify({
             "success": True,
@@ -66,7 +66,7 @@ def api_ai_job_logs(job_id):
     try:
         limit = request.args.get("limit", AI_JOB_DEFAULT_LIMIT, type=int)
 
-        rows = AIJobLogService().get_logs(job_id, limit)
+        rows = AIJobLogService().get_logs(job_id, user_id=str(g.current_user["user_id"]), limit=limit)
 
         return jsonify({
             "success": True,

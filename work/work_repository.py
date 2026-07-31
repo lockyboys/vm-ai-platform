@@ -25,6 +25,7 @@ class WorkRepository:
                   AND created_by = %s
                   AND work_status_code = 'COMPLETED'
                   AND work_result_code = 'SUCCESS'
+                  AND deleted_dt IS NULL
                 """,
                 (work_session_id, user_id),
             )

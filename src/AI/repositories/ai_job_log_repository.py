@@ -76,7 +76,7 @@ class AIJobLogRepository:
             cursor.close()
             conn.close()
 
-    def find_logs_by_job_id(self, job_id: int, limit: int = 100) -> list:
+    def find_logs_by_job_id(self, job_id: int, *, user_id: str, limit: int = 100) -> list:
         """
         AI 작업 로그 조회
 
@@ -119,12 +119,14 @@ class AIJobLogRepository:
                     log_message,
                     log_json,
                     created_at
-                FROM AI_JOB_LOGS
-                WHERE job_id = %s
-                ORDER BY job_log_id DESC
+                FROM AI_JOB_LOGS log
+                JOIN AI_JOBS job ON job.job_id = log.job_id
+                WHERE log.job_id = %s
+                  AND job.created_by = %s
+                ORDER BY log.job_log_id DESC
                 LIMIT %s
                 """,
-                (job_id, limit)
+                (job_id, user_id, limit)
             )
             return cursor.fetchall()
 

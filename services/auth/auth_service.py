@@ -3,9 +3,37 @@
 # 초등학생 설명: 학교 출입증처럼 "이 사람이 누구인지, 뭘 할 수 있는지" 확인해요!
 # 🆕 free = 분류만 / pro = 배치처리 포함 / enterprise = 전부
 
-import hashlib, time, json
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import time
 from utils import logger
 from config import SECRET_KEY, TOKEN_EXPIRE_HOURS
+
+_TOKEN_ALGORITHM = "HS256"
+_TOKEN_VERSION = "v1"
+_PASSWORD_ITERATIONS = 600_000
+
+
+def _require_secret_key() -> bytes:
+    if not SECRET_KEY or SECRET_KEY == "change-me-in-production!":
+        raise RuntimeError("SECRET_KEY must be configured with a non-default value.")
+    return SECRET_KEY.encode("utf-8")
+
+
+def _b64encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _b64decode(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def _admin_emails() -> set[str]:
+    return {email.strip().lower() for email in os.getenv("SPS_ADMIN_EMAILS", "").split(",") if email.strip()}
 
 # ─────────────────────────────────────────────────────────
 # 플랜별 허용 기능 목록
@@ -144,31 +172,78 @@ LEARNING_PERMISSION_MAP = {
 # ─────────────────────────────────────────────────────────
 
 def hash_password(pw: str) -> str:
-    """비밀번호 SHA-256 암호화 — 원본은 절대 저장 안 해요"""
-    return hashlib.sha256((pw + SECRET_KEY).encode()).hexdigest()
+    """PBKDF2-HMAC-SHA256 해시를 생성한다. 비밀번호 원문은 저장하지 않는다."""
+    if not pw:
+        raise ValueError("password is required")
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, _PASSWORD_ITERATIONS)
+    return f"pbkdf2_sha256${_PASSWORD_ITERATIONS}${_b64encode(salt)}${_b64encode(digest)}"
 
 
-# 관리자 이메일 목록
-ADMIN_EMAILS = {"admin@test.com"}
+def verify_password(pw: str, password_hash: str) -> bool:
+    """저장된 PBKDF2 비밀번호 해시를 상수 시간으로 검증한다."""
+    try:
+        algorithm, iterations, salt_text, digest_text = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        expected = hashlib.pbkdf2_hmac(
+            "sha256", pw.encode("utf-8"), _b64decode(salt_text), int(iterations)
+        )
+        return hmac.compare_digest(expected, _b64decode(digest_text))
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
 
 def create_token(user_id: str, email: str, plan: str = "free") -> dict:
     """
     JWT 스타일 토큰 발급
     초등학생 설명: 로그인하면 도장 찍힌 입장권을 줘요!
     """
-    is_admin = email in ADMIN_EMAILS
-    expire   = time.time() + TOKEN_EXPIRE_HOURS * 3600
-    payload  = json.dumps({"user_id": user_id, "email": email,
-                            "plan": plan, "is_admin": is_admin, "exp": expire})
-    token    = hashlib.sha256((payload + SECRET_KEY).encode()).hexdigest()
+    if not user_id or not email or not plan:
+        raise ValueError("user_id, email and plan are required")
+    is_admin = email.strip().lower() in _admin_emails()
+    expire = int(time.time() + TOKEN_EXPIRE_HOURS * 3600)
+    payload = {
+        "v": _TOKEN_VERSION,
+        "alg": _TOKEN_ALGORITHM,
+        "user_id": str(user_id),
+        "email": email.strip().lower(),
+        "plan": plan,
+        "is_admin": is_admin,
+        "exp": expire,
+    }
+    payload_segment = _b64encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    signature = hmac.new(_require_secret_key(), payload_segment.encode("ascii"), hashlib.sha256).digest()
+    token = f"{_TOKEN_VERSION}.{payload_segment}.{_b64encode(signature)}"
     logger.info(f"🔐 토큰 발급: {email} [{plan}] {'👑관리자' if is_admin else ''}")
-    return {"token": token, "expire": expire,
-            "user_id": user_id, "plan": plan, "is_admin": is_admin}
+    return {"token": token, "expire": expire, "user_id": user_id, "plan": plan, "is_admin": is_admin}
 
 
 def verify_token(token: str) -> dict:
-    """토큰 검증 — 실서비스에서는 DB 조회 추가 권장"""
-    return {"valid": True, "plan": "enterprise"}  # 데모용
+    """서명·형식·만료를 모두 만족한 토큰만 인증 정보로 반환한다."""
+    try:
+        version, payload_segment, signature_segment = token.split(".", 2)
+        if version != _TOKEN_VERSION:
+            return {"valid": False}
+        expected_signature = hmac.new(
+            _require_secret_key(), payload_segment.encode("ascii"), hashlib.sha256
+        ).digest()
+        if not hmac.compare_digest(expected_signature, _b64decode(signature_segment)):
+            return {"valid": False}
+        payload = json.loads(_b64decode(payload_segment))
+        if (
+            payload.get("v") != _TOKEN_VERSION
+            or payload.get("alg") != _TOKEN_ALGORITHM
+            or not payload.get("user_id")
+            or not payload.get("email")
+            or payload.get("plan") not in PLAN_PERMISSIONS
+            or int(payload.get("exp", 0)) <= time.time()
+        ):
+            return {"valid": False}
+        return {"valid": True, **payload}
+    except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return {"valid": False}
 
 
 def check_permission(plan: str, feature: str) -> bool:

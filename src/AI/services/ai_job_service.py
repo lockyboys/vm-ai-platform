@@ -23,7 +23,7 @@ class AIJobService:
     def __init__(self):
         self.repository = AIJobRepository()
 
-    def get_ai_jobs(self, limit: int = AI_JOB_DEFAULT_LIMIT) -> list:
+    def get_ai_jobs(self, *, user_id: str, limit: int = AI_JOB_DEFAULT_LIMIT) -> list:
         """
         AI 작업 목록 조회
 
@@ -39,4 +39,4 @@ class AIJobService:
         if limit > AI_JOB_MAX_LIMIT:
             limit = AI_JOB_MAX_LIMIT
 
-        return self.repository.find_ai_jobs(limit)
+        return self.repository.find_ai_jobs(user_id=user_id, limit=limit)

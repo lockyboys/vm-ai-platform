@@ -12,7 +12,7 @@ def main():
         table_name="uploaded_files"
     )
     
-    print("DB CONFIG =", MYSQL_CONFIG)
+    print("DB CONFIG =", {key: "***" for key in MYSQL_CONFIG})
     print("DATABASE NAME =", database.database_name)
     print("COLUMNS =", sql_generator_engine.get_columns("uploaded_files"))
     

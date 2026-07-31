@@ -53,7 +53,7 @@ class AIJobLogService:
             log_json=log_json
         )
 
-    def get_logs(self, job_id: int, limit: int = 100) -> list:
+    def get_logs(self, job_id: int, *, user_id: str, limit: int = 100) -> list:
         """
         AI 작업 로그 목록 조회
         """
@@ -63,4 +63,4 @@ class AIJobLogService:
         if limit > 500:
             limit = 500
 
-        return self.repository.find_logs_by_job_id(job_id, limit)
+        return self.repository.find_logs_by_job_id(job_id, user_id=user_id, limit=limit)

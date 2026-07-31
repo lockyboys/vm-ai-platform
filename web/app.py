@@ -2,9 +2,10 @@
 # ⭐ Flask API 서버 — 권한 체크 완전 적용
 # 🆕 free=분류만 / pro=배치처리포함 / enterprise=전부
 import sys, os
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, jsonify, render_template, request, send_file, abort
+from flask import Flask, abort, g, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 from utils import logger, read_csv_safe, file_hash, read_file_auto, get_excel_sheets
 from services.history_service import (
@@ -16,7 +17,7 @@ from services.auth.auth_service import (
     check_permission, check_learning_permission,
     get_all_permissions, get_permission_summary,
     get_upgrade_info, ENTERPRISE_HIGHLIGHTS,
-    create_token, hash_password
+    create_token, hash_password, verify_password, verify_token
 )
 
 ALLOWED_EXT = {"csv", "xlsx", "xls", "tsv"}
@@ -25,6 +26,21 @@ from src.AI.controllers.ai_job_controller import ai_job_bp
 app = Flask(__name__)
 app.register_blueprint(ai_job_bp)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
+
+
+@app.before_request
+def require_authenticated_api_request():
+    """로그인·상태 확인을 제외한 legacy API는 유효한 서명 토큰을 요구한다."""
+    if not request.path.startswith("/api/") or request.path in {"/api/status", "/api/login", "/api/register"}:
+        return None
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    principal = verify_token(token) if token else {"valid": False}
+    if not principal.get("valid"):
+        return jsonify({"error": "인증이 필요하거나 토큰이 유효하지 않습니다."}), 401
+    g.current_user = principal
+    if request.path.startswith("/api/admin/"):
+        return jsonify({"error": "운영 API는 웹 요청으로 실행할 수 없습니다."}), 403
+    return None
 
 # 🆕 config의 서버 주소/가격 정보를 모든 템플릿에 전역 주입
 # 초등학생 설명: 모든 웹 페이지가 서버 주소·가격을 자동으로 알게 해줘요!
@@ -41,17 +57,30 @@ app.jinja_env.globals.update(
 
 def allowed_file(fn): return "." in fn and fn.rsplit(".",1)[1].lower() in ALLOWED_EXT
 
-def get_plan(req) -> str:
-    """요청에서 플랜 추출 (토큰 또는 파라미터)"""
-    # 실서비스: Authorization 헤더 → verify_token(token)["plan"]
-    # 데모: plan 파라미터 직접 사용
-    token = req.headers.get("Authorization","").replace("Bearer ","")
-    if token:
-        from services.auth.auth_service import verify_token
-        info = verify_token(token)
-        return info.get("plan","free")
-    data = req.json if req.is_json else {}
-    return data.get("plan", req.args.get("plan","free"))
+def get_plan(req) -> str | None:
+    """인증 미들웨어가 검증한 요청 주체의 플랜만 반환한다."""
+    principal = getattr(g, "current_user", None)
+    return principal.get("plan") if principal else None
+
+
+def _current_upload_root() -> Path:
+    """현재 인증 사용자의 업로드 루트를 반환한다."""
+    principal = getattr(g, "current_user", None)
+    if not principal or not principal.get("user_id"):
+        raise RuntimeError("authenticated user is required")
+    root = (Path(UPLOAD_PATH).resolve() / str(principal["user_id"])).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _resolve_current_user_upload_path(raw_path: str) -> Path | None:
+    """현재 사용자의 업로드 루트 밖 경로는 해석하지 않는다."""
+    try:
+        candidate = Path(raw_path).resolve()
+        candidate.relative_to(_current_upload_root())
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate if candidate.is_file() else None
 
 def permission_error(plan: str, feature: str, msg: str = ""):
     """
@@ -125,7 +154,7 @@ def register():
     data  = request.json or {}
     email = data.get("email","")
     pw    = data.get("password","")
-    plan  = data.get("plan","free")
+    plan  = "free"
 
     if not email or not pw:
         return jsonify({"error":"email과 password 필요"}), 400
@@ -164,9 +193,8 @@ def register():
         uid = cursor.lastrowid
         conn.commit(); cursor.close(); conn.close()
     except Exception as e:
-        # DB 없어도 토큰은 발급 (데모용)
-        uid = 1
-        logger.warning(f"⚠️ DB 저장 실패(데모모드): {e}")
+        logger.exception("회원가입 저장 실패")
+        return jsonify({"error": "회원가입 저장에 실패했습니다."}), 503
 
     token_info = create_token(str(uid), email, plan)
     logger.info(f"👤 회원가입: {email} [{plan}]")
@@ -206,7 +234,7 @@ def login():
         if not user:
             return jsonify({"error": "등록되지 않은 이메일이에요"}), 401
 
-        if user["password"] != hash_password(pw):
+        if not verify_password(pw, user["password"]):
             return jsonify({"error": "비밀번호가 틀렸어요"}), 401
 
         if not user.get("is_active", 1):
@@ -236,28 +264,9 @@ def login():
             **token_info,
         })
 
-    except Exception as e:
-        logger.warning(f"⚠️ DB 로그인 실패 → 데모 모드: {e}")
-        # DB 연결 실패 시 데모 모드 (샘플 계정 직접 확인)
-        DEMO_ACCOUNTS = {
-            "free@test.com":       ("test1234",  "free"),
-            "pro@test.com":        ("test1234",  "pro"),
-            "enterprise@test.com": ("test1234",  "enterprise"),
-            "admin@test.com":      ("admin1234", "enterprise"),
-        }
-        if email in DEMO_ACCOUNTS:
-            demo_pw, demo_plan = DEMO_ACCOUNTS[email]
-            if pw == demo_pw:
-                token_info = create_token("demo", email, demo_plan)
-                return jsonify({
-                    "success":     True,
-                    "email":       email,
-                    "plan":        demo_plan,
-                    "demo_mode":   True,
-                    "permissions": get_all_permissions(demo_plan),
-                    **token_info,
-                })
-        return jsonify({"error": "로그인 실패 (DB 연결 확인 필요)"}), 401
+    except Exception:
+        logger.exception("로그인 사용자 조회 실패")
+        return jsonify({"error": "로그인 서비스를 일시적으로 사용할 수 없습니다."}), 503
 
 
 # ════════════════════════════════════════════════════════
@@ -298,16 +307,16 @@ def upload():
     sheet_name = request.form.get("sheet_name", 0)
     file_type  = ext.replace(".","").upper()
 
-    filename  = secure_filename(f.filename)
-    os.makedirs(UPLOAD_PATH, exist_ok=True)
-    temp_path = os.path.join(UPLOAD_PATH, f"_tmp_{filename}")
+    filename = secure_filename(f.filename)
+    upload_root = _current_upload_root()
+    temp_path = str(upload_root / f"_tmp_{filename}")
     f.save(temp_path)
 
     try:
         fhash = file_hash(temp_path)
 
         # 중복 체크
-        existing = _check_duplicate_file(fhash)
+        existing = None  # 사용자가 다른 사용자의 기존 업로드를 재사용하지 않도록 조회하지 않는다.
         if existing and not force and os.path.exists(existing.get("save_path","")):
             os.remove(temp_path)
 
@@ -339,11 +348,11 @@ def upload():
             })
 
         # 정식 저장
-        save_path = os.path.join(UPLOAD_PATH, filename)
+        save_path = str(upload_root / filename)
         if os.path.exists(save_path) and file_hash(save_path) != fhash:
             name, e2 = os.path.splitext(filename)
             filename  = f"{name}_{fhash[:6]}{e2}"
-            save_path = os.path.join(UPLOAD_PATH, filename)
+            save_path = str(upload_root / filename)
 
         os.rename(temp_path, save_path)
 
@@ -416,14 +425,15 @@ def run_ai_analysis():
     if not check_permission(plan, "AI분석"):
         return permission_error(plan, "AI분석")
 
-    file_path     = data.get("file_path")
-    target_col    = data.get("target_col")
-    feature_cols  = data.get("feature_cols")
+    file_path = _resolve_current_user_upload_path(str(data.get("file_path") or ""))
+    target_col = data.get("target_col")
+    feature_cols = data.get("feature_cols")
     learning_type = data.get("learning_type", "supervised")
-    user_id       = data.get("user_id", "dashboard_user")
+    user_id = str(g.current_user["user_id"])
 
-    if not file_path or not os.path.exists(file_path):
-        return jsonify({"error": "분석할 파일이 없어요. 먼저 업로드해 주세요."}), 400
+    if file_path is None:
+        return jsonify({"error": "분석할 파일이 없거나 접근 권한이 없습니다."}), 400
+    file_path = str(file_path)
 
     # feature_cols는 화면에서 "a,b,c" 문자열로 올 수 있어서 리스트로 바꿔요.
     if isinstance(feature_cols, str):
@@ -967,10 +977,11 @@ def upload_sheet():
     초등학생 설명: 엑셀 탭을 바꾸면 그 탭 데이터로 새로 읽어줘요!
     """
     sheet_name = request.form.get("sheet_name", 0)
-    file_path  = request.form.get("file_path", "")
+    resolved_path = _resolve_current_user_upload_path(request.form.get("file_path", ""))
 
-    if not file_path or not os.path.exists(file_path):
-        return jsonify({"error": "파일 없음"}), 400
+    if resolved_path is None:
+        return jsonify({"error": "파일이 없거나 접근 권한이 없습니다."}), 400
+    file_path = str(resolved_path)
 
     try:
         # 시트명 타입 처리
