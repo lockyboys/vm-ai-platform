@@ -63,20 +63,6 @@ def _read_docx_blocks(docx_path: Path) -> list[dict[str, object]]:
     return blocks
 
 
-def _configured_demo_report() -> tuple[str, Path] | None:
-    report_title = os.getenv("SPS_DEMO_REPORT_TITLE", "").strip()
-    work_asset_id = os.getenv("SPS_DEMO_REPORT_WORK_ASSET_ID", "").strip()
-    if not report_title or not work_asset_id:
-        return None
-    asset = work_repository.get_stored_asset(work_asset_id, "DOCX_REPORT")
-    if not asset:
-        return None
-    report_path = Path(str(asset["asset_path"])).resolve()
-    if OUTPUT_ROOT not in report_path.parents or not report_path.is_file():
-        return None
-    return report_title, report_path
-
-
 def _resolve_owned_work_asset(*, work_session_id: str, user_id: str, asset_type_code: str) -> Path | None:
     """Demo는 Work Repository의 소유권·자산 조회 결과만 파일 응답으로 변환한다."""
     asset = work_repository.get_owned_asset(
@@ -207,23 +193,8 @@ def create_app() -> Flask:
     @app.get("/report/demo")
     @_require_login
     def preview_demo_report():
-        configured_report = _configured_demo_report()
-        if configured_report is None:
-            abort(404)
-        report_title, report_path = configured_report
-        blocks = _read_docx_blocks(report_path)
-        for block in blocks:
-            if block["kind"] == "title":
-                block["text"] = report_title
-                break
-        else:
-            blocks.insert(0, {"kind": "title", "text": report_title})
-        return render_template_string(
-            PRINT_TEMPLATE,
-            report_title=report_title,
-            download_url=None,
-            blocks=blocks,
-        )
+        """Configured global report assets are disabled until an ownership contract exists."""
+        abort(404)
 
     @app.get("/download/<work_session_id>/<artifact>")
     @_require_login
