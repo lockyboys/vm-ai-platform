@@ -19,7 +19,6 @@ from work.work_repository import WorkRepository
 P = ParamSpec("P")
 R = TypeVar("R")
 OUTPUT_ROOT = Path(DEFAULT_WORK_OUTPUT_ROOT).resolve()
-auth = CommonAuth()
 work_repository = WorkRepository()
 
 LOGIN_TEMPLATE = """<!doctype html><html lang="ko"><meta charset="utf-8">
@@ -46,6 +45,14 @@ def _required_setting(name: str) -> str:
     if not value:
         raise RuntimeError(f"{name} environment variable is required.")
     return value
+
+
+def _document_demo_auth() -> CommonAuth:
+    """Document Demo 전용 JWT 비밀키로 브라우저 토큰 경계를 분리한다."""
+    return CommonAuth(secret_key=_required_setting("SPS_DOCUMENT_DEMO_JWT_SECRET_KEY"))
+
+
+auth = _document_demo_auth()
 
 
 def _read_docx_blocks(docx_path: Path) -> list[dict[str, object]]:
