@@ -383,7 +383,7 @@ def upload():
             recommend = {"recommended":"supervised","confidence":50,"reason":"자동 추천 불가","all_scores":{}}
 
         # 이력 저장
-        save_upload_history(plan, filename, fhash, len(df), len(df.columns))
+        save_upload_history(str(g.current_user["user_id"]), filename, fhash, len(df), len(df.columns))
         _save_upload_record(plan, filename, save_path, fhash, len(df), len(df.columns), col_info)
 
         logger.info(f"📤 업로드 완료: [{file_type}] {filename} ({len(df)}행)")

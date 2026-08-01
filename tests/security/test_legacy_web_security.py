@@ -98,6 +98,7 @@ def test_ownership_and_path_guards_are_present() -> None:
 
     assert "candidate.relative_to(_current_upload_root())" in app_source
     assert "user_id = str(g.current_user[\"user_id\"])" in app_source
+    assert "save_upload_history(str(g.current_user[\"user_id\"])," in app_source
     assert "AND deleted_dt IS NULL" in work_source
     assert "WHERE j.created_by = %s" in job_source
     assert "AND job.created_by = %s" in log_source
