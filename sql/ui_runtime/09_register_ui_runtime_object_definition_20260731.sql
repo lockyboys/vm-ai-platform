@@ -57,7 +57,7 @@ VALUES
     JSON_OBJECT(
         'object_code', 'SP_UI_SCREEN',
         'object_name', 'UI Screen',
-        'object_description', 'COMMON.ui_menu의 menu_code, menu_name, menu_url, menu_sort_no를 화면 표시 계약으로 해석한다.',
+        'object_description', 'COMMON.ui_menu의 menu_code, menu_name, menu_url, ui_screen_type_code, menu_sort_no를 화면 표시 계약으로 해석한다.',
         'business_code', 'SP', 'domain_code', 'RP', 'object_type_code', 'TABLE',
         'object_level', 3, 'sort_no', 10,
         'target_identifier_field', 'object_id',
@@ -73,7 +73,7 @@ VALUES
     JSON_OBJECT(
         'object_code', 'SP_UI_MENU',
         'object_name', 'UI Menu',
-        'object_description', 'COMMON.ui_menu를 UI Menu Repository의 공식 SSOT로 해석한다.',
+        'object_description', 'COMMON.ui_menu의 menu_code, menu_name, menu_url, ui_menu_type_code, menu_sort_no를 UI Menu Repository의 공식 SSOT로 해석한다.',
         'business_code', 'SP', 'domain_code', 'RP', 'object_type_code', 'TABLE',
         'object_level', 3, 'sort_no', 20,
         'target_identifier_field', 'object_id',
@@ -89,7 +89,7 @@ VALUES
     JSON_OBJECT(
         'object_code', 'SP_UI_ACTION',
         'object_name', 'UI Action',
-        'object_description', 'COMMON.ui_menu_action의 menu_code, button_code, crud_type, query_id를 UI Action 계약으로 해석한다.',
+        'object_description', 'COMMON.ui_menu_action의 menu_code, button_code, ui_action_type_code, query_id를 UI Action 계약으로 해석한다.',
         'business_code', 'SP', 'domain_code', 'RP', 'object_type_code', 'TABLE',
         'object_level', 3, 'sort_no', 30,
         'target_identifier_field', 'object_id',
@@ -105,7 +105,7 @@ VALUES
     JSON_OBJECT(
         'object_code', 'SP_UI_PERMISSION',
         'object_name', 'UI Permission',
-        'object_description', 'COMMON.ui_menu_action_permission의 Action별 Member 또는 Rule 권한 행을 UI Permission 계약으로 해석한다.',
+        'object_description', 'COMMON.ui_menu_action_permission의 Action별 Member 또는 Rule 권한 행과 permission_type_code를 UI Permission 계약으로 해석한다.',
         'business_code', 'SP', 'domain_code', 'RP', 'object_type_code', 'TABLE',
         'object_level', 3, 'sort_no', 40,
         'target_identifier_field', 'object_id',
@@ -128,6 +128,7 @@ ON DUPLICATE KEY UPDATE
 
 SELECT
     code AS object_code,
+    JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.object_level')) AS object_level,
     JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.identifier_target_code')) AS identifier_target_code,
     JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.sequence_scope_code')) AS sequence_scope_code,
     JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.sequence_length')) AS sequence_length
