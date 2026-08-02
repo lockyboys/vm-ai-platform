@@ -15,6 +15,14 @@ SET @program_id = 'UI_RUNTIME_COMMON_CODE_20260730';
 SET @created_by = 'SYSTEM';
 SET @client_ip = '127.0.0.1';
 
+/*
+ * UI Runtime Common Code Contract
+ * UI_SCREEN_TYPE: DASHBOARD, DETAIL, FORM, LIST
+ * UI_MENU_TYPE: GROUP, ITEM, ROOT
+ * UI_ACTION_TYPE: CREATE, DELETE, EXECUTE, READ, UPDATE
+ * UI_PERMISSION_TYPE: CREATE, READ, UPDATE, DELETE, ALTER
+ */
+
 INSERT INTO cm_common_code
 (
     group_code, code, code_name, common_code_description, sort_no, status_code,
