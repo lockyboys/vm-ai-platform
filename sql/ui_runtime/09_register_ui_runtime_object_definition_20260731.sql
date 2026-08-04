@@ -3,9 +3,9 @@
  * UI Runtime Repository Object Definition을 Common Repository metadata로 등록한다.
  *
  * Change History
- * 20260731 | Codex | UI Object 정의를 Engine 입력 계약으로 멱등 등록한다.
+ * 20260803 | Codex | UI Screen Instance Identifier 대상 필드를 ui_screen_id로 정합화한다.
  *
- * DB 구조는 변경하지 않는다.
+ * DB 구조 변경은 11_migrate_ui_screen_identifier_20260803.sql에서만 수행한다.
  */
 USE te_common;
 
@@ -52,15 +52,15 @@ INSERT INTO cm_common_code
 VALUES
 (
     'UI_RUNTIME_OBJECT_DEFINITION', 'SP_UI_SCREEN', 'UI Screen',
-    'ui_menu를 화면 표시 계약으로 해석하는 UI Screen Repository Object 정의.',
+    'ui_menu.ui_screen_id를 화면 Instance Identifier로, 화면 표시 계약을 해석하는 UI Screen Repository Object 정의.',
     10, 'ACTIVE', @actor_id, @actor_id, @client_ip, @program_id,
     JSON_OBJECT(
         'object_code', 'SP_UI_SCREEN',
         'object_name', 'UI Screen',
-        'object_description', 'COMMON.ui_menu의 menu_code, menu_name, menu_url, ui_screen_type_code, menu_sort_no를 화면 표시 계약으로 해석한다.',
+        'object_description', 'COMMON.ui_menu의 ui_screen_id, menu_code, menu_name, menu_url, ui_screen_type_code, menu_sort_no를 화면 표시 계약으로 해석한다.',
         'business_code', 'SP', 'domain_code', 'RP', 'object_type_code', 'TABLE',
         'object_level', 3, 'sort_no', 10,
-        'target_identifier_field', 'object_id',
+        'target_identifier_field', 'ui_screen_id',
         'identifier_target_code', 'OB',
         'sequence_scope_code', 'YEARLY', 'sequence_length', 5
     ),
