@@ -1,109 +1,122 @@
-from typing import Any, Callable, Dict, List, Optional
+"""MariaDB와 MongoDB를 함께 저장하는 SPS 보상 트랜잭션."""
 
-from pymongo import MongoClient
-from urllib.parse import quote_plus
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from typing import Any
+
+from common.common_function import normalize_required_text
+from common.database import CommonDatabase
+
 
 class SpsDistributedTransaction:
-    """
-    SPS Distributed Transaction v0.1
+    """MariaDB transaction과 MongoDB 보상 작업을 한 실행 단위로 관리한다.
 
-    목적:
-    - MariaDB Transaction과 MongoDB 보상 작업을 하나의 SPS 실행 단위로 관리한다.
-    - 진짜 2PC가 아니라 Saga / Compensation 방식이다.
-
-    원칙:
-    - MariaDB는 실제 Transaction으로 보호한다.
-    - MongoDB 작업은 성공 후 보상 작업을 등록한다.
-    - 중간 실패 시 MongoDB 보상 작업을 역순으로 실행한다.
-    - MariaDB는 rollback 한다.
+    MariaDB와 MongoDB는 하나의 물리 2PC transaction을 공유하지 않는다.
+    따라서 MariaDB 작업은 transaction으로 보호하고 MongoDB 저장 직후
+    역순 보상 작업을 등록하여, 업무 실패 시 두 저장소의 결과를 함께 제거한다.
     """
 
-    def __init__(self, mariadb_connection, mongodb_client: MongoClient):
-        self.mariadb_connection = mariadb_connection
-        self.mongodb_client = mongodb_client
-        self.compensation_actions: List[Callable[[], None]] = []
+    def __init__(
+        self,
+        mariadb_database: CommonDatabase,
+        mongodb_database: CommonDatabase | None = None,
+    ) -> None:
+        """MariaDB 트랜잭션 연결과 MongoDB 저장 연결을 분리해 받는다.
+
+        mongodb_database를 생략한 기존 호출은 같은 연결을 사용한다.
+        """
+        self.mariadb_database = mariadb_database
+        self.mongodb_database = mongodb_database or mariadb_database
+        self.compensation_actions: list[Callable[[], None]] = []
         self.started = False
         self.completed = False
 
-    def __enter__(self):
+    def __enter__(self) -> "SpsDistributedTransaction":
         self.begin()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type is None:
-            self.commit()
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:
+        if exc_type is not None:
+            self.rollback()
             return False
 
-        self.rollback()
+        try:
+            self.commit()
+        except Exception:
+            self.rollback()
+            raise
         return False
 
     def begin(self) -> None:
+        """MariaDB transaction을 시작하고 MongoDB 연결을 사전 검증한다."""
         if self.started:
-            raise RuntimeError("Transaction already started.")
+            raise RuntimeError("Distributed transaction already started.")
 
-        self.mariadb_connection.begin()
+        self.mariadb_database.ping_mariadb()
+        self.mongodb_database.ping_mongodb()
+        self.mariadb_database.begin()
         self.started = True
-        print("MariaDB transaction started")
 
     def commit(self) -> None:
+        """MariaDB를 commit하고 보상 작업을 해제한다."""
         if not self.started:
-            raise RuntimeError("Transaction has not started.")
-
+            raise RuntimeError("Distributed transaction has not started.")
         if self.completed:
-            raise RuntimeError("Transaction already completed.")
+            raise RuntimeError("Distributed transaction already completed.")
 
-        self.mariadb_connection.commit()
+        self.mariadb_database.commit()
         self.completed = True
         self.compensation_actions.clear()
-        print("MariaDB commit completed")
 
     def rollback(self) -> None:
-        if not self.started:
+        """MariaDB rollback과 MongoDB 보상 작업을 함께 수행한다."""
+        if not self.started or self.completed:
             return
 
-        if self.completed:
-            return
+        compensation_error: Exception | None = None
+        try:
+            self.mariadb_database.rollback()
+        finally:
+            for action in reversed(self.compensation_actions):
+                try:
+                    action()
+                except Exception as error:
+                    compensation_error = error
+            self.compensation_actions.clear()
+            self.completed = True
 
-        self._run_compensations()
-        self.mariadb_connection.rollback()
-        self.completed = True
-        print("MariaDB rollback completed")
+        if compensation_error is not None:
+            raise RuntimeError(
+                "MariaDB rollback completed but MongoDB compensation failed."
+            ) from compensation_error
 
     def register_compensation(self, action: Callable[[], None]) -> None:
+        """실행 완료된 MongoDB 변경을 되돌릴 보상 작업을 등록한다."""
+        if not self.started or self.completed:
+            raise RuntimeError("Cannot register compensation outside an active transaction.")
         self.compensation_actions.append(action)
 
     def insert_mongodb_document(
         self,
-        database_name: str,
+        *,
         collection_name: str,
-        document: Dict[str, Any],
-        compensation_filter: Optional[Dict[str, Any]] = None,
-    ) -> Any:
-        """
-        MongoDB document insert + compensation 등록.
+        document: Mapping[str, Any],
+        compensation_filter: Mapping[str, Any] | None = None,
+    ) -> str:
+        """MongoDB document를 저장하고 실패 시 삭제할 보상을 등록한다."""
+        if not self.started or self.completed:
+            raise RuntimeError("MongoDB insert requires an active transaction.")
 
-        실패 시 compensation_filter 기준으로 삭제한다.
-        """
+        resolved_collection_name = normalize_required_text(
+            collection_name,
+            "collection_name",
+        )
+        result = self.mongodb_database.insert_one(resolved_collection_name, document)
+        resolved_filter = dict(compensation_filter or {"_id": result.inserted_id})
 
-        collection = self.mongodb_client[database_name][collection_name]
-        result = collection.insert_one(document)
-
-        print("MongoDB document inserted")
-
-        if compensation_filter is None:
-            compensation_filter = {"_id": result.inserted_id}
-
-        def compensation():
-            collection.delete_one(compensation_filter)
-            print("MongoDB compensation completed")
+        def compensation() -> None:
+            self.mongodb_database.delete_one(resolved_collection_name, resolved_filter)
 
         self.register_compensation(compensation)
-
-        return result.inserted_id
-
-    def _run_compensations(self) -> None:
-        for action in reversed(self.compensation_actions):
-            try:
-                action()
-            except Exception as exc:
-                print(f"Compensation failed: {exc}")
+        return str(result.inserted_id)

@@ -1,4 +1,13 @@
-"""File-based SPS Work service for the demonstration workflow."""
+"""File-based SPS Work service for the demonstration workflow.
+
+File Story:
+    업로드 원본·추출 텍스트·DOCX·Markdown을 하나의 Work Session으로 기록하고,
+    이미 등록된 Work Object의 Identifier를 Repository Metadata에서 발급한다.
+
+Change History:
+    20260802 | Codex | 등록된 Work Object의 Sequence 준비 책임을 IdentifierCoordinator로
+    이관하여 Object 재등록 없이 Identifier를 발급하도록 보완했음.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -10,8 +19,9 @@ from pathlib import Path
 from typing import Final
 from zoneinfo import ZoneInfo
 
+from common.common_function import normalize_required_text
 from common.database import CommonDatabase
-from engine.identifier_engine import IdentifierEngine
+from engine.identifier import IdentifierCoordinator
 from engine.runtime.file_runtime_adapter import FileRuntimeAdapter
 from engine.processor.word.document_generation_service import (
     DocumentGenerationRequest,
@@ -22,6 +32,11 @@ SEOUL_TIME_ZONE: Final[str] = "Asia/Seoul"
 DEFAULT_WORK_OUTPUT_ROOT: Final[Path] = Path("output/file_work")
 SUPPORTED_EXTENSIONS: Final[frozenset[str]] = frozenset({".pdf", ".jpg", ".jpeg", ".png"})
 PROGRAM_ID: Final[str] = "file_work_service.py"
+WORK_IDENTIFIER_OBJECT_CODES: Final[tuple[str, ...]] = (
+    "WORK_SESSION",
+    "WORK_ITEM",
+    "WORK_ASSET",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,91 +60,133 @@ class FileWorkService:
         self.document_service = DocumentGenerationService(output_root=self.output_root)
 
     def process(self, *, upload_path: Path, requested_by: str, client_ip: str) -> FileWorkResult:
+        requested_by = normalize_required_text(requested_by, "requested_by")
+        client_ip = normalize_required_text(client_ip, "client_ip")
         source = upload_path.resolve()
         self._validate_source(source)
 
         database = CommonDatabase(database_role="STORY_PLATFORM")
         try:
-            identifier_engine = IdentifierEngine(database)
+            identifier_coordinator = IdentifierCoordinator(database)
             source_object = self._resolve_source_object(database, source)
-            database.begin()
+            identifier_contexts = self._prepare_work_identifier_contexts(
+                database=database,
+                identifier_coordinator=identifier_coordinator,
+                requested_by=requested_by,
+                client_ip=client_ip,
+            )
+            identifier_contexts_by_code = {
+                request["object_code"]: (request, prepared)
+                for request, prepared in identifier_contexts
+            }
+            acquired_identifier_preparations: list[dict[str, object]] = []
             try:
-                work_session_id = identifier_engine.generate(
-                    "WORK_SESSION", manage_transaction=False
-                )
-                work_item_id = identifier_engine.generate(
-                    "WORK_ITEM", manage_transaction=False
-                )
-                asset_ids = tuple(
-                    identifier_engine.generate("WORK_ASSET", manage_transaction=False)
-                    for _ in range(4)
-                )
+                for _request, prepared in identifier_contexts:
+                    identifier_coordinator.acquire(prepared)
+                    acquired_identifier_preparations.append(prepared)
 
-                artifact_directory = self.output_root / work_session_id
-                artifact_directory.mkdir(parents=True, exist_ok=False)
-                source_path = artifact_directory / source.name
-                shutil.copy2(source, source_path)
+                database.begin()
+                try:
+                    (
+                        work_session_request,
+                        work_session_prepared,
+                    ) = identifier_contexts_by_code["WORK_SESSION"]
+                    (
+                        work_item_request,
+                        work_item_prepared,
+                    ) = identifier_contexts_by_code["WORK_ITEM"]
+                    (
+                        work_asset_request,
+                        work_asset_prepared,
+                    ) = identifier_contexts_by_code["WORK_ASSET"]
+                    work_session_id = identifier_coordinator.resolve(
+                        request=work_session_request,
+                        prepared=work_session_prepared,
+                    ).identifier
+                    work_item_id = identifier_coordinator.resolve(
+                        request=work_item_request,
+                        prepared=work_item_prepared,
+                    ).identifier
+                    asset_ids = tuple(
+                        identifier_coordinator.resolve(
+                            request=work_asset_request,
+                            prepared=work_asset_prepared,
+                        ).identifier
+                        for _ in range(4)
+                    )
 
-                extracted_text, extractor_name = self._extract_text(source_path)
-                extracted_text_path = artifact_directory / "extracted_text.txt"
-                extracted_text_path.write_text(extracted_text, encoding="utf-8")
+                    artifact_directory = self.output_root / work_session_id
+                    artifact_directory.mkdir(parents=True, exist_ok=False)
+                    source_path = artifact_directory / source.name
+                    shutil.copy2(source, source_path)
 
-                now = datetime.now(ZoneInfo(SEOUL_TIME_ZONE))
-                generation = self.document_service.generate(
-                    request=self._build_document_request(
-                        source_name=source.name,
+                    extracted_text, extractor_name = self._extract_text(source_path)
+                    extracted_text_path = artifact_directory / "extracted_text.txt"
+                    extracted_text_path.write_text(extracted_text, encoding="utf-8")
+
+                    now = datetime.now(ZoneInfo(SEOUL_TIME_ZONE))
+                    generation = self.document_service.generate(
+                        request=self._build_document_request(
+                            source_name=source.name,
+                            work_session_id=work_session_id,
+                            work_item_id=work_item_id,
+                            extracted_text=extracted_text,
+                        ),
+                        requested_by=requested_by,
+                    )
+                    report_path = self._write_execution_report(
+                        artifact_directory=artifact_directory,
+                        source_path=source_path,
+                        extracted_text_path=extracted_text_path,
+                        docx_path=generation.docx_path,
                         work_session_id=work_session_id,
                         work_item_id=work_item_id,
-                        extracted_text=extracted_text,
-                    ),
-                    requested_by=requested_by,
-                )
-                report_path = self._write_execution_report(
-                    artifact_directory=artifact_directory,
-                    source_path=source_path,
-                    extracted_text_path=extracted_text_path,
-                    docx_path=generation.docx_path,
-                    work_session_id=work_session_id,
-                    work_item_id=work_item_id,
-                    asset_ids=asset_ids,
-                    source_object_id=str(source_object["object_id"]),
-                    extractor_name=extractor_name,
-                    extracted_text_length=len(extracted_text),
-                    requested_by=requested_by,
-                    generated_dt=now,
-                )
+                        asset_ids=asset_ids,
+                        source_object_id=str(source_object["object_id"]),
+                        extractor_name=extractor_name,
+                        extracted_text_length=len(extracted_text),
+                        requested_by=requested_by,
+                        generated_dt=now,
+                    )
 
-                self._insert_work_rows(
-                    database=database,
-                    work_session_id=work_session_id,
-                    work_item_id=work_item_id,
-                    source_object_id=str(source_object["object_id"]),
-                    source_name=source.name,
-                    source_path=source_path,
-                    extracted_text_path=extracted_text_path,
-                    docx_path=generation.docx_path,
-                    report_path=report_path,
-                    asset_ids=asset_ids,
-                    extractor_name=extractor_name,
-                    extracted_text_length=len(extracted_text),
-                    requested_by=requested_by,
-                    client_ip=client_ip,
-                    now=now,
-                )
-                self._verify_work_rows(
-                    database=database,
-                    work_session_id=work_session_id,
-                    work_item_id=work_item_id,
-                    asset_ids=asset_ids,
-                )
-                database.commit()
-            except Exception:
-                database.rollback()
-                raise
+                    self._insert_work_rows(
+                        database=database,
+                        work_session_id=work_session_id,
+                        work_item_id=work_item_id,
+                        source_object_id=str(source_object["object_id"]),
+                        source_name=source.name,
+                        source_path=source_path,
+                        extracted_text_path=extracted_text_path,
+                        docx_path=generation.docx_path,
+                        report_path=report_path,
+                        asset_ids=asset_ids,
+                        extractor_name=extractor_name,
+                        extracted_text_length=len(extracted_text),
+                        requested_by=requested_by,
+                        client_ip=client_ip,
+                        now=now,
+                    )
+                    self._verify_work_rows(
+                        database=database,
+                        work_session_id=work_session_id,
+                        work_item_id=work_item_id,
+                        asset_ids=asset_ids,
+                    )
+                    database.commit()
+                except Exception:
+                    database.rollback()
+                    raise
+            finally:
+                for prepared in reversed(acquired_identifier_preparations):
+                    identifier_coordinator.release(prepared)
         finally:
             database.close()
 
-        runtime_result = FileRuntimeAdapter().execute(str(source_path))
+        runtime_result = FileRuntimeAdapter().execute(
+            str(source_path),
+            requested_by=requested_by,
+            client_ip=client_ip,
+        )
         collection_result = runtime_result["mongodb_collection_generator_result"]
         document_result = runtime_result["mongodb_document_result"]
         if collection_result["status"] != "SUCCESS":
@@ -149,6 +206,81 @@ class FileWorkService:
             report_path=report_path,
             extracted_text_length=len(extracted_text),
             asset_ids=asset_ids,
+        )
+
+    @staticmethod
+    def _prepare_work_identifier_contexts(
+        *,
+        database: CommonDatabase,
+        identifier_coordinator: IdentifierCoordinator,
+        requested_by: str,
+        client_ip: str,
+    ) -> tuple[tuple[dict[str, object], dict[str, object]], ...]:
+        """Prepare allocation for active Work Objects without re-registering them."""
+        identifier_objects = FileWorkService._load_identifier_objects(
+            database=database,
+            object_codes=WORK_IDENTIFIER_OBJECT_CODES,
+        )
+        return tuple(
+            identifier_coordinator.prepare_registered_object(
+                object_metadata=object_metadata,
+                created_by=requested_by,
+                updated_by=requested_by,
+                client_ip=client_ip,
+                program_id=PROGRAM_ID,
+            )
+            for object_metadata in identifier_objects
+        )
+
+    @staticmethod
+    def _load_identifier_objects(
+        *,
+        database: CommonDatabase,
+        object_codes: tuple[str, ...],
+    ) -> tuple[dict[str, object], ...]:
+        """Object Repository에서 Identifier 발급 대상을 조회한다."""
+        placeholders = ", ".join("%s" for _ in object_codes)
+        rows = database.fetch_all(
+            f"""
+            SELECT
+                object_code,
+                object_name,
+                object_description,
+                business_code,
+                domain_code,
+                object_type_code,
+                object_level,
+                identifier_target_code,
+                sequence_scope_code,
+                sequence_length,
+                status_code,
+                active_yn
+            FROM sp_object
+            WHERE object_code IN ({placeholders})
+              AND active_yn = 'Y'
+              AND status_code = 'ACTIVE'
+              AND deleted_dt IS NULL
+            """,
+            object_codes,
+        )
+        objects_by_code = {
+            str(row["object_code"]): dict(row)
+            for row in rows
+        }
+        missing_object_codes = [
+            object_code
+            for object_code in object_codes
+            if object_code not in objects_by_code
+        ]
+        if missing_object_codes:
+            raise RuntimeError(
+                "Work Identifier Object metadata is not registered. "
+                f"object_codes={missing_object_codes}"
+            )
+
+        return tuple(
+            objects_by_code[object_code]
+            for object_code in object_codes
         )
 
     @staticmethod
