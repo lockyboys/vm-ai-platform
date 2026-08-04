@@ -44,7 +44,14 @@ from harness.mcp.tools.mongodb_tools import (
     verified_sql,
 )
 from harness.mcp.tools.verified_sql_tools import (
+    verified_sql_register,
     verified_sql_execute,
+)
+from harness.mcp.tools.object_lifecycle_tools import (
+    object_lifecycle_reconcile,
+)
+from harness.mcp.tools.repository_table_object_tools import (
+    repository_table_object_reconcile,
 )
 from harness.mcp.tools.git_tools import (
     git_diff,
@@ -277,7 +284,10 @@ mcp.tool()(repository_foreign_keys)
 mcp.tool()(repository_logical_relations)
 
 mcp.tool()(verified_sql)
+mcp.tool()(verified_sql_register)
 mcp.tool()(verified_sql_execute)
+mcp.tool()(object_lifecycle_reconcile)
+mcp.tool()(repository_table_object_reconcile)
 mcp.tool()(mongodb_collections)
 mcp.tool()(mongodb_documents)
 mcp.tool()(mongodb_save_document)

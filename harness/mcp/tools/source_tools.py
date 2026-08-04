@@ -16,6 +16,8 @@ SEARCH_EXTENSIONS = {
 
 EXCLUDED_DIRECTORY_NAMES = {
     ".git",
+    ".npm-cache",
+    ".runtime",
     "venv",
     "__pycache__",
     ".pytest_cache",
@@ -36,6 +38,19 @@ def _is_sensitive_path(path: Path) -> bool:
         file_name in DENIED_FILE_NAMES
         or file_name.startswith(DENIED_FILE_PREFIXES)
         or path.suffix.lower() in DENIED_SUFFIXES
+    )
+
+
+def _is_denied_path(path: Path) -> bool:
+    """Return whether an MCP source operation must not expose this path."""
+
+    return (
+        _is_sensitive_path(path)
+        or (path.parts and path.parts[0] == "runtime")
+        or any(
+            directory_name in EXCLUDED_DIRECTORY_NAMES
+            for directory_name in path.parts
+        )
     )
 
 
@@ -70,13 +85,7 @@ def source_search(
 
         relative_path = path.relative_to(PROJECT_ROOT)
 
-        if any(
-            directory_name in EXCLUDED_DIRECTORY_NAMES
-            for directory_name in relative_path.parts
-        ):
-            continue
-
-        if _is_sensitive_path(relative_path):
+        if _is_denied_path(relative_path):
             continue
 
         file_type = SEARCH_EXTENSIONS.get(path.suffix.lower())
@@ -145,9 +154,9 @@ def source_read(
 
     relative_path = requested_path.relative_to(project_root)
 
-    if _is_sensitive_path(relative_path):
+    if _is_denied_path(relative_path):
         raise PermissionError(
-            "Reading environment or secret-key files is not allowed."
+            "Reading environment, runtime, or secret-key files is not allowed."
         )
 
     if not requested_path.exists():
