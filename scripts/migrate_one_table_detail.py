@@ -273,11 +273,15 @@ def migrate_one(
             contract.get("mongodb_database_role"),
             "mongodb_database_role",
         ).upper()
-        if source_database_role not in {"STORY", "STORY_PLATFORM"}:
+        if source_database_role not in {"COMMON", "STORY", "STORY_PLATFORM"}:
             raise ValueError(
-                "This pilot accepts a STORY source so IdentifierEngine and "
-                "MariaDB transaction share one connection."
+                "This pilot accepts only COMMON or STORY MariaDB source roles."
             )
+        source_database = (
+            common_database
+            if source_database_role == "COMMON"
+            else story_database
+        )
 
         source_table_name = _safe_identifier(
             contract.get("source_table_name"),
@@ -352,7 +356,7 @@ def migrate_one(
             story_database,
             mongodb_database,
         ) as transaction:
-            source_row = story_database.fetch_one(
+            source_row = source_database.fetch_one(
                 verified_queries["source_read"]["sql_text"],
                 (source_identifier,),
             )
