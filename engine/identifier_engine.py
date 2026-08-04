@@ -19,15 +19,22 @@ import re
 from datetime import datetime
 from typing import Any
 
-from engine.common.object_level_resolver import ObjectLevelResolver
+from engine.common.identifier_rule_resolver import (
+    IdentifierRuleResolution,
+    IdentifierRuleResolver,
+)
 
 
 class IdentifierEngine:
     """Repository 기반 SPS Identifier Engine."""
 
-    def __init__(self, database_manager):
+    def __init__(
+        self,
+        database_manager,
+        rule_resolver: IdentifierRuleResolver | None = None,
+    ) -> None:
         self.database_manager = database_manager
-        self.object_level_resolver = ObjectLevelResolver(database_manager)
+        self.rule_resolver = rule_resolver or IdentifierRuleResolver()
         self.object_cache: dict[str, dict[str, Any]] = {}
         self.blueprint_cache: dict[int, dict[str, Any]] = {}
 
@@ -36,15 +43,12 @@ class IdentifierEngine:
         object_code: str,
         manage_transaction: bool = True,
     ) -> str:
-        """
-        Object Metadata에 정의된 기본 Level로 Identifier를 생성한다.
-        """
+        """Rule Resolver가 선택한 Level로 Identifier를 생성한다."""
         object_metadata = self.load_object_metadata(object_code)
-        object_level = int(object_metadata["object_level"])
-
-        return self.generate_for_level(
-            object_code=object_code,
-            object_level=object_level,
+        rule_resolution = self.resolve_object_level(object_metadata)
+        return self._generate_from_metadata(
+            object_metadata=object_metadata,
+            object_level=rule_resolution.object_level,
             manage_transaction=manage_transaction,
         )
 
@@ -57,42 +61,90 @@ class IdentifierEngine:
         manage_transaction: bool = True,
     ) -> str:
         """
-        지정한 Level의 Blueprint로 Identifier를 생성한다.
+        호출자가 요구한 Level을 Rule Resolver 결과와 대조한 뒤 Identifier를 생성한다.
 
-        - Identifier Pattern: 지정한 object_level의 Blueprint 사용
-        - Sequence Pool: Object Metadata의 sequence_scope_code 우선 사용
-        - Level 3과 Level 4는 동일 Object Sequence를 공유할 수 있다.
+        Level을 인자로 직접 전달할 수는 있지만, Rule Repository가 허용하지 않은
+        Level을 통해 Blueprint 선택을 우회할 수는 없다.
         """
         object_metadata = self.load_object_metadata(object_code)
+        rule_resolution = self.resolve_object_level(object_metadata)
+        try:
+            requested_level = int(object_level)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"Requested Identifier Object Level is invalid: {object_level!r}"
+            ) from error
+
+        if requested_level != rule_resolution.object_level:
+            raise ValueError(
+                "Requested Identifier Object Level conflicts with Rule Resolver. "
+                f"object_code={object_code}, "
+                f"requested_level={requested_level}, "
+                f"resolved_level={rule_resolution.object_level}, "
+                f"rule_code={rule_resolution.rule_code}"
+            )
+
+        return self._generate_from_metadata(
+            object_metadata=object_metadata,
+            object_level=rule_resolution.object_level,
+            now=now,
+            manage_transaction=manage_transaction,
+        )
+
+    def resolve_object_level(
+        self,
+        object_metadata: dict[str, Any],
+    ) -> IdentifierRuleResolution:
+        """Identifier Runtime의 Object Level은 Rule Repository에서만 해석한다."""
+        return self.rule_resolver.resolve_object_level(object_metadata)
+
+    def _generate_from_metadata(
+        self,
+        *,
+        object_metadata: dict[str, Any],
+        object_level: int,
+        now: datetime | None = None,
+        manage_transaction: bool = True,
+    ) -> str:
         blueprint = self.load_identifier_blueprint(object_level)
 
         sequence_scope_code = (
             object_metadata.get("sequence_scope_code")
             or blueprint.get("sequence_scope_code")
         )
-
-        sequence_length = int(
+        sequence_length_value = (
             object_metadata.get("sequence_length")
             or blueprint.get("sequence_length")
-            or 5
         )
+        if sequence_length_value in (None, ""):
+            raise ValueError(
+                "Identifier sequence length is required by Object metadata or "
+                f"Blueprint. object_code={object_metadata['object_code']}"
+            )
+        try:
+            sequence_length = int(sequence_length_value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Identifier sequence length must be an integer. "
+                f"object_code={object_metadata['object_code']}"
+            ) from error
+        if sequence_length <= 0:
+            raise ValueError(
+                "Identifier sequence length must be positive. "
+                f"object_code={object_metadata['object_code']}"
+            )
 
         generated_dt = now or datetime.now()
-
         sequence_date = self.resolve_sequence_date(
             sequence_scope_code=sequence_scope_code,
             now=generated_dt,
         )
 
-        # L0 has no sequence token. Do not allocate an unused sequence.
         identifier_pattern = str(blueprint["identifier_pattern"])
         sequence_no = 0
-
         if re.search(r"\{SEQ(?:\d+)?\}", identifier_pattern):
             sequence_no = self.allocate_sequence(
-                identifier_target_code=(
-                    object_metadata["identifier_target_code"]
-                ),
+                identifier_target_code=object_metadata["identifier_target_code"],
                 identifier_prefix=object_metadata["object_code"],
                 sequence_date=sequence_date,
                 sequence_length=sequence_length,
@@ -150,7 +202,6 @@ class IdentifierEngine:
             "business_code",
             "domain_code",
             "object_code",
-            "object_level",
             "identifier_target_code",
         )
 
@@ -174,42 +225,61 @@ class IdentifierEngine:
         self,
         object_level: int,
     ) -> dict[str, Any]:
-        """Object Level에 맞는 활성 Identifier Blueprint를 조회한다."""
+        """공통코드 SPS_IDENTIFIER_BLUEPRINT에서 활성 Level Blueprint를 조회한다."""
         if object_level in self.blueprint_cache:
             return self.blueprint_cache[object_level]
 
         sql = """
             SELECT
-                blueprint_id,
-                blueprint_code,
-                blueprint_name,
-                object_level,
-                identifier_pattern,
-                date_format,
-                time_format,
-                random_length,
-                sequence_length,
-                sequence_scope_code
-            FROM sp_identifier_blueprint
-            WHERE object_level = %s
-              AND enabled_yn = 'Y'
+                code AS blueprint_code,
+                code_name AS blueprint_name,
+                CAST(
+                    JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.object_level'))
+                    AS UNSIGNED
+                ) AS object_level,
+                JSON_UNQUOTE(
+                    JSON_EXTRACT(common_code_json, '$.identifier_pattern')
+                ) AS identifier_pattern,
+                JSON_UNQUOTE(
+                    JSON_EXTRACT(common_code_json, '$.date_format')
+                ) AS date_format,
+                JSON_UNQUOTE(
+                    JSON_EXTRACT(common_code_json, '$.time_format')
+                ) AS time_format,
+                CAST(
+                    COALESCE(
+                        JSON_UNQUOTE(
+                            JSON_EXTRACT(common_code_json, '$.random_length')
+                        ),
+                        '0'
+                    ) AS UNSIGNED
+                ) AS random_length,
+                CAST(
+                    JSON_UNQUOTE(
+                        JSON_EXTRACT(common_code_json, '$.sequence_length')
+                    ) AS UNSIGNED
+                ) AS sequence_length,
+                JSON_UNQUOTE(
+                    JSON_EXTRACT(common_code_json, '$.sequence_scope_code')
+                ) AS sequence_scope_code
+            FROM te_common.cm_common_code
+            WHERE group_code = 'SPS_IDENTIFIER_BLUEPRINT'
+              AND CAST(
+                    JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.object_level'))
+                    AS UNSIGNED
+                  ) = %s
               AND status_code = 'ACTIVE'
               AND deleted_dt IS NULL
-            ORDER BY sort_no, blueprint_code
+            ORDER BY sort_no, code
             LIMIT 1
         """
 
-        row = self.database_manager.fetch_one(
-            sql,
-            (object_level,),
-        )
-
+        row = self.database_manager.fetch_one(sql, (object_level,))
         if not row:
             raise ValueError(
-                "Identifier Blueprint not found. "
+                "Identifier Blueprint common code not found. "
                 f"object_level={object_level}"
             )
-
         if not row.get("identifier_pattern"):
             raise ValueError(
                 "Identifier pattern is empty. "

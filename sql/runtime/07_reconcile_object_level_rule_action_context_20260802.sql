@@ -1,6 +1,7 @@
 /*
- * Object Level 기본 분류 Rule Action의 실행 Procedure.
- * 테이블·컬럼 구조를 변경하지 않는다.
+ * 20260802 | OpenAI | Object Level Rule Action Procedure가 선택된 Rule Action
+ * 실행 문맥을 사용하도록 정정함.
+ * 테이블·컬럼 구조는 변경하지 않는다.
  */
 USE te_common;
 
@@ -125,25 +126,3 @@ BEGIN
 END$$
 
 DELIMITER ;
-
-SELECT
-    r.rule_id,
-    r.rule_code,
-    a.rule_action_id,
-    a.action_type_code,
-    JSON_UNQUOTE(JSON_EXTRACT(a.action_value, '$.verified_query_id')) AS verified_query_id,
-    q.query_name,
-    JSON_UNQUOTE(JSON_EXTRACT(q.query_description, '$.procedure_name')) AS procedure_name
-FROM rl_rule r
-JOIN rl_rule_action a
-  ON a.rule_id = r.rule_id
- AND a.status_code = 'ACTIVE'
- AND a.deleted_dt IS NULL
-JOIN cm_verified_sql_query q
-  ON q.query_id = JSON_UNQUOTE(JSON_EXTRACT(a.action_value, '$.verified_query_id'))
- AND q.status_code = 'ACTIVE'
- AND q.deleted_dt IS NULL
-WHERE JSON_UNQUOTE(JSON_EXTRACT(q.query_description, '$.procedure_name'))
-      = 'sp_resolve_object_level_classification'
-  AND r.status_code = 'ACTIVE'
-  AND r.deleted_dt IS NULL;

@@ -36,7 +36,6 @@ class ObjectDefinitionIdentifierWorkflow:
         "business_code",
         "domain_code",
         "object_type_code",
-        "object_level",
         "identifier_target_code",
         "sequence_scope_code",
         "sequence_length",
@@ -80,6 +79,13 @@ class ObjectDefinitionIdentifierWorkflow:
         self._validate_required_fields(normalized)
         self._validate_repository_metadata(normalized)
 
+        # Legacy compatibility path도 호출자 Level이 아니라 Rule Resolver
+        # 결과만 Identifier Blueprint와 sp_object 저장값으로 사용한다.
+        rule_resolution = self.identifier_engine.resolve_object_level(
+            normalized
+        )
+        normalized["object_level"] = rule_resolution.object_level
+
         existing = self._find_existing_object(
             normalized["object_code"]
         )
@@ -93,10 +99,11 @@ class ObjectDefinitionIdentifierWorkflow:
                     f"object_code={normalized['object_code']}"
                 ),
                 "object": existing,
+                **self._rule_resolution_payload(rule_resolution),
             }
 
         blueprint = self.identifier_engine.load_identifier_blueprint(
-            int(normalized["object_level"])
+            rule_resolution.object_level
         )
 
         now = datetime.now()
@@ -106,11 +113,19 @@ class ObjectDefinitionIdentifierWorkflow:
             or blueprint.get("sequence_scope_code")
         )
 
-        sequence_length = int(
+        sequence_length_value = (
             normalized.get("sequence_length")
             or blueprint.get("sequence_length")
-            or 5
         )
+
+        if sequence_length_value in (None, ""):
+            raise ValueError(
+                "Identifier sequence_length is required by the "
+                "Object Definition request or Blueprint. "
+                f"object_code={normalized['object_code']}"
+            )
+
+        sequence_length = int(sequence_length_value)
 
         sequence_date = self.identifier_engine.resolve_sequence_date(
             sequence_scope_code=sequence_scope_code,
@@ -151,6 +166,7 @@ class ObjectDefinitionIdentifierWorkflow:
                         f"object_code={normalized['object_code']}"
                     ),
                     "object": existing,
+                    **self._rule_resolution_payload(rule_resolution),
                 }
 
             sequence_row = self._ensure_sequence_metadata(
@@ -205,6 +221,7 @@ class ObjectDefinitionIdentifierWorkflow:
                 "sequence_date": sequence_date,
                 "sequence_no": sequence_no,
                 "blueprint_code": blueprint["blueprint_code"],
+                **self._rule_resolution_payload(rule_resolution),
                 "object": saved_object,
             }
 
@@ -253,9 +270,12 @@ class ObjectDefinitionIdentifierWorkflow:
             else None
         )
 
-        normalized["object_level"] = int(
-            normalized.get("object_level")
-        )
+        declared_object_level = normalized.get("object_level")
+
+        if declared_object_level not in (None, ""):
+            normalized["object_level"] = int(declared_object_level)
+        else:
+            normalized.pop("object_level", None)
 
         normalized["sequence_length"] = int(
             normalized.get("sequence_length")
@@ -302,11 +322,6 @@ class ObjectDefinitionIdentifierWorkflow:
                 "Only uppercase letters, digits, and underscore are allowed."
             )
 
-        if not 0 <= int(request["object_level"]) <= 4:
-            raise ValueError(
-                "object_level must be between 0 and 4."
-            )
-
         if not 1 <= int(request["sequence_length"]) <= 20:
             raise ValueError(
                 "sequence_length must be between 1 and 20."
@@ -328,6 +343,21 @@ class ObjectDefinitionIdentifierWorkflow:
                 "object_description exceeds VARCHAR(2000). "
                 f"length={len(description)}"
             )
+
+    @staticmethod
+    def _rule_resolution_payload(
+        rule_resolution: Any,
+    ) -> dict[str, Any]:
+        """Runtime 응답에 실제 적용된 rl_rule 결정을 남긴다."""
+        return {
+            "rule_id": rule_resolution.rule_id,
+            "rule_code": rule_resolution.rule_code,
+            "rule_action_id": rule_resolution.rule_action_id,
+            "rule_action_type_code": (
+                rule_resolution.action_type_code
+            ),
+            "resolution_source": rule_resolution.resolution_source,
+        }
 
     def _validate_repository_metadata(
         self,

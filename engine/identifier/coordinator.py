@@ -3,9 +3,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 
+from common.common_function import normalize_required_text
 from common.database import CommonDatabase
+from engine.common.identifier_rule_resolver import (
+    IdentifierRuleResolution,
+    IdentifierRuleResolver,
+)
 from engine.identifier.sequence_allocator import (
     IdentifierSequenceAllocator,
 )
@@ -20,6 +25,12 @@ class IdentifierResolution:
     sequence_no: int
     sequence_length: int
     lock_name: str
+    rule_id: str | None = None
+    rule_code: str | None = None
+    rule_action_id: str | None = None
+    rule_action_type_code: str | None = None
+    object_level: int | None = None
+    resolution_source: str | None = None
 
 
 class IdentifierCoordinator:
@@ -47,16 +58,69 @@ class IdentifierCoordinator:
         self,
         database: CommonDatabase,
         lock_timeout_seconds: int = 10,
+        rule_resolver: IdentifierRuleResolver | None = None,
     ) -> None:
         self.database = database
         self.lock_timeout_seconds = lock_timeout_seconds
 
-        self.identifier_engine = IdentifierEngine(database)
+        self.identifier_engine = IdentifierEngine(
+            database,
+            rule_resolver=rule_resolver,
+        )
 
         self.sequence_allocator = IdentifierSequenceAllocator(
             database=database,
             identifier_engine=self.identifier_engine,
         )
+
+    def prepare_registered_object(
+        self,
+        *,
+        object_metadata: Mapping[str, Any],
+        created_by: str,
+        updated_by: str,
+        client_ip: str,
+        program_id: str,
+        now: datetime | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Prepare allocation for an existing active Repository Object.
+
+        This method only resolves Identifier metadata and never creates or
+        changes the Repository Object itself.
+        """
+        request = dict(object_metadata)
+        for field_name in (
+            "object_code",
+            "business_code",
+            "domain_code",
+            "identifier_target_code",
+            "sequence_scope_code",
+        ):
+            request[field_name] = normalize_required_text(
+                request.get(field_name),
+                field_name,
+            )
+
+        try:
+            declared_object_level = request.get("object_level")
+            if declared_object_level not in (None, ""):
+                request["object_level"] = int(declared_object_level)
+            request["sequence_length"] = int(request.get("sequence_length"))
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Registered Object Identifier metadata is invalid. "
+                f"object_code={request['object_code']}"
+            ) from error
+
+        request.update(
+            {
+                "created_by": normalize_required_text(created_by, "created_by"),
+                "updated_by": normalize_required_text(updated_by, "updated_by"),
+                "client_ip": normalize_required_text(client_ip, "client_ip"),
+                "program_id": normalize_required_text(program_id, "program_id"),
+            }
+        )
+        return request, self.prepare(request=request, now=now)
 
     def prepare(
         self,
@@ -65,23 +129,37 @@ class IdentifierCoordinator:
         now: datetime | None = None,
     ) -> dict[str, Any]:
         execution_dt = now or datetime.now()
+        rule_resolution = self.identifier_engine.resolve_object_level(request)
 
-        blueprint = (
-            self.identifier_engine.load_identifier_blueprint(
-                int(request["object_level"])
-            )
+        blueprint = self.identifier_engine.load_identifier_blueprint(
+            rule_resolution.object_level
         )
 
         sequence_scope_code = (
             request.get("sequence_scope_code")
             or blueprint.get("sequence_scope_code")
         )
-
-        sequence_length = int(
+        sequence_length_value = (
             request.get("sequence_length")
             or blueprint.get("sequence_length")
-            or 5
         )
+        if sequence_length_value in (None, ""):
+            raise ValueError(
+                "Identifier sequence length is required by Object metadata or "
+                f"Blueprint. object_code={request['object_code']}"
+            )
+        try:
+            sequence_length = int(sequence_length_value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Identifier sequence length must be an integer. "
+                f"object_code={request['object_code']}"
+            ) from error
+        if sequence_length <= 0:
+            raise ValueError(
+                "Identifier sequence length must be positive. "
+                f"object_code={request['object_code']}"
+            )
 
         sequence_date = (
             self.identifier_engine.resolve_sequence_date(
@@ -99,6 +177,8 @@ class IdentifierCoordinator:
 
         return {
             "now": execution_dt,
+            "rule_resolution": rule_resolution,
+            "object_level": rule_resolution.object_level,
             "blueprint": blueprint,
             "sequence_scope_code": sequence_scope_code,
             "sequence_length": sequence_length,
@@ -168,6 +248,7 @@ class IdentifierCoordinator:
             maximum_length=maximum_length,
         )
 
+        rule_resolution: IdentifierRuleResolution = prepared["rule_resolution"]
         return IdentifierResolution(
             identifier=identifier,
             blueprint_code=(
@@ -177,6 +258,12 @@ class IdentifierCoordinator:
             sequence_no=sequence_no,
             sequence_length=prepared["sequence_length"],
             lock_name=prepared["lock_name"],
+            rule_id=rule_resolution.rule_id,
+            rule_code=rule_resolution.rule_code,
+            rule_action_id=rule_resolution.rule_action_id,
+            rule_action_type_code=rule_resolution.action_type_code,
+            object_level=rule_resolution.object_level,
+            resolution_source=rule_resolution.resolution_source,
         )
 
     def release(

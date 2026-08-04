@@ -109,6 +109,11 @@ class ObjectDefinitionEngine(BaseEngine):
             request=context.request
         )
 
+        # sp_object에도 Rule Resolver가 확정한 Level만 저장한다.
+        # 호출자가 보낸 object_level은 Rule이 EXPLICIT_RULE로 허용한
+        # 입력일 때만 여기까지 반영될 수 있다.
+        context.request["object_level"] = prepared["object_level"]
+
         self.identifier_coordinator.acquire(prepared)
 
         context.shared["identifier_prepared"] = prepared
@@ -178,6 +183,12 @@ class ObjectDefinitionEngine(BaseEngine):
                 "sequence_no": resolution.sequence_no,
                 "sequence_length": resolution.sequence_length,
                 "blueprint_code": resolution.blueprint_code,
+                "rule_id": resolution.rule_id,
+                "rule_code": resolution.rule_code,
+                "rule_action_id": resolution.rule_action_id,
+                "rule_action_type_code": resolution.rule_action_type_code,
+                "object_level": resolution.object_level,
+                "resolution_source": resolution.resolution_source,
             }
         )
 

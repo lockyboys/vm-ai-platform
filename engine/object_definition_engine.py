@@ -36,7 +36,6 @@ class ObjectDefinitionEngine:
         "business_code",
         "domain_code",
         "object_type_code",
-        "object_level",
         "identifier_target_code",
         "sequence_scope_code",
         "sequence_length",
@@ -80,8 +79,15 @@ class ObjectDefinitionEngine:
         self._validate_required_fields(normalized)
         self._validate_repository_metadata(normalized)
 
+        # Object level은 호출자가 정하는 값이 아니다. 활성 rl_rule의
+        # 조건·Action·Procedure를 해석한 결과만 Runtime 정책으로 사용한다.
+        rule_resolution = self.identifier_engine.resolve_object_level(
+            normalized
+        )
+        normalized["object_level"] = rule_resolution.object_level
+
         blueprint = self.identifier_engine.load_identifier_blueprint(
-            int(normalized["object_level"])
+            rule_resolution.object_level
         )
 
         now = datetime.now()
@@ -91,11 +97,19 @@ class ObjectDefinitionEngine:
             or blueprint.get("sequence_scope_code")
         )
 
-        sequence_length = int(
+        sequence_length_value = (
             normalized.get("sequence_length")
             or blueprint.get("sequence_length")
-            or 5
         )
+
+        if sequence_length_value in (None, ""):
+            raise ValueError(
+                "Identifier sequence_length is required by the "
+                "Object Definition request or Blueprint. "
+                f"object_code={normalized['object_code']}"
+            )
+
+        sequence_length = int(sequence_length_value)
 
         sequence_date = self.identifier_engine.resolve_sequence_date(
             sequence_scope_code=sequence_scope_code,
@@ -143,6 +157,7 @@ class ObjectDefinitionEngine:
                         f"object_code={normalized['object_code']}"
                     ),
                     "object": existing,
+                    **self._rule_resolution_payload(rule_resolution),
                 }
 
             sequence_row = self._ensure_sequence_metadata(
@@ -197,6 +212,7 @@ class ObjectDefinitionEngine:
                 "sequence_date": sequence_date,
                 "sequence_no": sequence_no,
                 "blueprint_code": blueprint["blueprint_code"],
+                **self._rule_resolution_payload(rule_resolution),
                 "object": saved_object,
             }
 
@@ -245,9 +261,12 @@ class ObjectDefinitionEngine:
             else None
         )
 
-        normalized["object_level"] = int(
-            normalized.get("object_level")
-        )
+        declared_object_level = normalized.get("object_level")
+
+        if declared_object_level not in (None, ""):
+            normalized["object_level"] = int(declared_object_level)
+        else:
+            normalized.pop("object_level", None)
 
         normalized["sequence_length"] = int(
             normalized.get("sequence_length")
@@ -294,11 +313,6 @@ class ObjectDefinitionEngine:
                 "Only uppercase letters, digits, and underscore are allowed."
             )
 
-        if not 0 <= int(request["object_level"]) <= 4:
-            raise ValueError(
-                "object_level must be between 0 and 4."
-            )
-
         if not 1 <= int(request["sequence_length"]) <= 20:
             raise ValueError(
                 "sequence_length must be between 1 and 20."
@@ -320,6 +334,21 @@ class ObjectDefinitionEngine:
                 "object_description exceeds VARCHAR(2000). "
                 f"length={len(description)}"
             )
+
+    @staticmethod
+    def _rule_resolution_payload(
+        rule_resolution: Any,
+    ) -> dict[str, Any]:
+        """Runtime 응답에 실제 적용된 rl_rule 결정을 남긴다."""
+        return {
+            "rule_id": rule_resolution.rule_id,
+            "rule_code": rule_resolution.rule_code,
+            "rule_action_id": rule_resolution.rule_action_id,
+            "rule_action_type_code": (
+                rule_resolution.action_type_code
+            ),
+            "resolution_source": rule_resolution.resolution_source,
+        }
 
     def _validate_repository_metadata(
         self,

@@ -1,6 +1,7 @@
 /*
- * Object Level 기본 분류 Rule Action의 실행 Procedure.
- * 테이블·컬럼 구조를 변경하지 않는다.
+ * 20260802 | OpenAI | Object Level Negative Default Action의 condition_id 바인딩을
+ * DEFAULT resolution 계약으로 검증하도록 Procedure를 정합화함.
+ * 테이블·컬럼 구조는 변경하지 않는다.
  */
 USE te_common;
 
@@ -20,6 +21,7 @@ BEGIN
     DECLARE v_selected_rule_action_id VARCHAR(99);
     DECLARE v_selected_action_type_code VARCHAR(99);
     DECLARE v_selected_condition_id VARCHAR(99);
+    DECLARE v_resolution_order_json VARCHAR(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
     IF p_request_json IS NULL
        OR JSON_VALID(p_request_json) = 0
@@ -78,6 +80,10 @@ BEGIN
         NULLIF(
             TRIM(JSON_UNQUOTE(JSON_EXTRACT(a.action_value, '$.condition_id'))),
             ''
+        ),
+        NULLIF(
+            JSON_UNQUOTE(JSON_EXTRACT(a.action_value, '$.resolution_order')),
+            ''
         )
     INTO
         v_default_object_level,
@@ -85,7 +91,8 @@ BEGIN
         v_selected_rule_code,
         v_selected_rule_action_id,
         v_selected_action_type_code,
-        v_selected_condition_id
+        v_selected_condition_id,
+        v_resolution_order_json
     FROM rl_rule r
     JOIN rl_rule_action a
       ON a.rule_id = r.rule_id
@@ -110,9 +117,15 @@ BEGIN
             SET MESSAGE_TEXT = 'Active Object Level Rule Action metadata not found.';
     END IF;
 
-    IF v_selected_condition_id IS NOT NULL THEN
+    IF v_resolution_order_json IS NULL
+       OR JSON_VALID(v_resolution_order_json) = 0
+       OR JSON_CONTAINS(
+            v_resolution_order_json,
+            JSON_QUOTE('DEFAULT'),
+            '$'
+        ) = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Object Level classification Procedure may execute only the Negative Default Action.';
+            SET MESSAGE_TEXT = 'Object Level classification Procedure may execute only an Action with DEFAULT resolution.';
     END IF;
 
     SELECT
@@ -120,30 +133,9 @@ BEGIN
         v_selected_rule_code AS rule_code,
         v_selected_rule_action_id AS rule_action_id,
         v_selected_action_type_code AS action_type_code,
+        v_selected_condition_id AS condition_id,
         v_default_object_level AS default_object_level,
         'DEFAULT' AS resolution_source;
 END$$
 
 DELIMITER ;
-
-SELECT
-    r.rule_id,
-    r.rule_code,
-    a.rule_action_id,
-    a.action_type_code,
-    JSON_UNQUOTE(JSON_EXTRACT(a.action_value, '$.verified_query_id')) AS verified_query_id,
-    q.query_name,
-    JSON_UNQUOTE(JSON_EXTRACT(q.query_description, '$.procedure_name')) AS procedure_name
-FROM rl_rule r
-JOIN rl_rule_action a
-  ON a.rule_id = r.rule_id
- AND a.status_code = 'ACTIVE'
- AND a.deleted_dt IS NULL
-JOIN cm_verified_sql_query q
-  ON q.query_id = JSON_UNQUOTE(JSON_EXTRACT(a.action_value, '$.verified_query_id'))
- AND q.status_code = 'ACTIVE'
- AND q.deleted_dt IS NULL
-WHERE JSON_UNQUOTE(JSON_EXTRACT(q.query_description, '$.procedure_name'))
-      = 'sp_resolve_object_level_classification'
-  AND r.status_code = 'ACTIVE'
-  AND r.deleted_dt IS NULL;

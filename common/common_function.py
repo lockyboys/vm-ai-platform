@@ -179,3 +179,11 @@ def assert_column_comments_applied(column_rows: list[dict[str, Any]]) -> None:
     ]
     if pending:
         raise RuntimeError(f"COMMENT post-verification failed: {', '.join(pending)}")
+
+
+def normalize_required_text(value: object, field_name: str) -> str:
+    """공통 Runtime 입력값을 공백 없이 정규화하고 필수 여부를 검증한다."""
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        raise ValueError(f"{field_name} is required.")
+    return normalized_value
