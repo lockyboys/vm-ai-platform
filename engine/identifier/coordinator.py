@@ -266,6 +266,38 @@ class IdentifierCoordinator:
             resolution_source=rule_resolution.resolution_source,
         )
 
+    def render_resolution(
+        self,
+        *,
+        request: dict[str, Any],
+        prepared: dict[str, Any],
+        resolution: IdentifierResolution,
+        object_code: str | None = None,
+        maximum_length: int = 99,
+    ) -> str:
+        """Render an allocated sequence through the resolved Identifier Blueprint."""
+
+        render_request = dict(request)
+        if object_code is not None:
+            render_request["object_code"] = normalize_required_text(
+                object_code,
+                "object_code",
+            )
+
+        identifier = self.identifier_engine.render_identifier(
+            object_metadata=render_request,
+            blueprint=prepared["blueprint"],
+            sequence_no=resolution.sequence_no,
+            sequence_length=resolution.sequence_length,
+            now=prepared["now"],
+        )
+        self._validate_identifier(
+            identifier=identifier,
+            blueprint=prepared["blueprint"],
+            maximum_length=maximum_length,
+        )
+        return identifier
+
     def release(
         self,
         prepared: dict[str, Any],

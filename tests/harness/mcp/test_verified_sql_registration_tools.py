@@ -97,11 +97,54 @@ class _FakeIdentifierCoordinator:
         assert request == {"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}
         assert prepared == {"lock": "prepared"}
         return SimpleNamespace(
-            identifier="CM_CO_TE_COMMON_CM_VERIFIED_SQL_QUERY_20260803_00001"
+            identifier="CM_CO_TE_COMMON_CM_VERIFIED_SQL_QUERY_20260803_00001",
+            sequence_no=1,
+            sequence_length=5,
         )
+
+    def render_resolution(
+        self,
+        *,
+        request: dict[str, object],
+        prepared: dict[str, object],
+        resolution: SimpleNamespace,
+        object_code: str,
+    ) -> str:
+        assert request == {"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}
+        assert prepared == {"lock": "prepared"}
+        assert resolution.sequence_no == 1
+        assert resolution.sequence_length == 5
+        assert object_code == "CHECK_OBJECT_LIFECYCLE_COUNT"
+        return "CM_CO_CHECK_OBJECT_LIFECYCLE_COUNT_20260803_00001"
 
     def release(self, prepared: dict[str, object]) -> None:
         assert prepared == {"lock": "prepared"}
+
+
+class _FakeQueryIdentifierFeatureRuleResolver:
+    def __init__(self, database: _FakeDatabase) -> None:
+        assert database.database_role == "COMMON"
+
+    def resolve(self, query_feature_code: str) -> SimpleNamespace:
+        normalized = query_feature_code.strip().upper()
+        if normalized in {
+            "SQL",
+            "SQL_QUERY",
+            "VERIFIED_SQL",
+            "VERIFIED_SQL_QUERY",
+            "TE_COMMON_CM_VERIFIED_SQL_QUERY",
+        }:
+            raise ValueError(f"the active Rule forbids: {normalized}")
+        if normalized in {"A", "READ-RULE", "READ RULE"}:
+            raise ValueError(
+                "query_feature_code does not satisfy the active "
+                "Query Identifier Feature Rule."
+            )
+        return SimpleNamespace(
+            query_feature_code=normalized,
+            rule_id="CM_CO_RULE_QUERY_IDENTIFIER_FEATURE",
+            rule_code="RL_VERIFIED_SQL_QUERY_IDENTIFIER_FEATURE",
+        )
 
 
 def test_verified_sql_register_dry_run_does_not_allocate_or_write(
@@ -111,10 +154,16 @@ def test_verified_sql_register_dry_run_does_not_allocate_or_write(
     monkeypatch.setattr(
         verified_sql_tools, "IdentifierCoordinator", _FakeIdentifierCoordinator
     )
+    monkeypatch.setattr(
+        verified_sql_tools,
+        "QueryIdentifierFeatureRuleResolver",
+        _FakeQueryIdentifierFeatureRuleResolver,
+    )
     _FakeDatabase.instances.clear()
 
     result = verified_sql_tools.verified_sql_register(
         query_name="Check Object Lifecycle Count",
+        query_feature_code="CHECK_OBJECT_LIFECYCLE_COUNT",
         query_description="Object lifecycle integrity query.",
         crud_type="READ",
         sql_text="SELECT COUNT(*) AS lifecycle_count FROM sp_object_lifecycle",
@@ -127,8 +176,13 @@ def test_verified_sql_register_dry_run_does_not_allocate_or_write(
         "statement_keyword": "SELECT",
         "crud_type": "READ",
         "verified_yn": "N",
+        "query_feature_code": "CHECK_OBJECT_LIFECYCLE_COUNT",
+        "query_feature_rule_id": "CM_CO_RULE_QUERY_IDENTIFIER_FEATURE",
+        "query_feature_rule_code": "RL_VERIFIED_SQL_QUERY_IDENTIFIER_FEATURE",
     }
-    assert _FakeDatabase.instances == []
+    assert len(_FakeDatabase.instances) == 1
+    assert _FakeDatabase.instances[0].database_role == "COMMON"
+    assert _FakeDatabase.instances[0].closed is True
 
 
 def test_verified_sql_register_allocates_identifier_and_inserts_once(
@@ -138,10 +192,16 @@ def test_verified_sql_register_allocates_identifier_and_inserts_once(
     monkeypatch.setattr(
         verified_sql_tools, "IdentifierCoordinator", _FakeIdentifierCoordinator
     )
+    monkeypatch.setattr(
+        verified_sql_tools,
+        "QueryIdentifierFeatureRuleResolver",
+        _FakeQueryIdentifierFeatureRuleResolver,
+    )
     _FakeDatabase.instances.clear()
 
     result = verified_sql_tools.verified_sql_register(
         query_name="Check Object Lifecycle Count",
+        query_feature_code="CHECK_OBJECT_LIFECYCLE_COUNT",
         query_description="Object lifecycle integrity query.",
         crud_type="READ",
         sql_text="SELECT COUNT(*) AS lifecycle_count FROM sp_object_lifecycle",
@@ -161,13 +221,13 @@ def test_verified_sql_register_allocates_identifier_and_inserts_once(
         apply=True,
     )
 
-    assert result["query_id"] == "CM_CO_TE_COMMON_CM_VERIFIED_SQL_QUERY_20260803_00001"
+    assert result["query_id"] == "CM_CO_CHECK_OBJECT_LIFECYCLE_COUNT_20260803_00001"
     assert result["verified_yn"] == "Y"
     assert result["certified_level_code"] == "A"
     common_database = next(
         database
         for database in _FakeDatabase.instances
-        if database.database_role == "COMMON"
+        if database.database_role == "COMMON" and database.executed
     )
     assert len(common_database.executed) == 1
     assert common_database.committed is True
@@ -179,9 +239,75 @@ def test_verified_sql_register_rejects_unsafe_sql_before_opening_database() -> N
     with pytest.raises(ValueError, match="not allowed"):
         verified_sql_tools.verified_sql_register(
             query_name="Alter Object Lifecycle",
+            query_feature_code="ALTER_OBJECT_LIFECYCLE",
             query_description="Must not register DDL through Harness.",
             crud_type="ALTER",
             sql_text="ALTER TABLE sp_object_lifecycle ADD COLUMN invalid_column INT",
             registered_by="SPS_ADMIN",
             apply=True,
         )
+
+
+@pytest.mark.parametrize(
+    "query_feature_code",
+    (
+        "SQL",
+        "SQL_QUERY",
+        "VERIFIED_SQL",
+        "VERIFIED_SQL_QUERY",
+        "TE_COMMON_CM_VERIFIED_SQL_QUERY",
+    ),
+)
+def test_verified_sql_register_rejects_generic_query_feature_code(
+    query_feature_code: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(verified_sql_tools, "CommonDatabase", _FakeDatabase)
+    monkeypatch.setattr(
+        verified_sql_tools,
+        "QueryIdentifierFeatureRuleResolver",
+        _FakeQueryIdentifierFeatureRuleResolver,
+    )
+    _FakeDatabase.instances.clear()
+
+    with pytest.raises(ValueError, match="active Rule forbids"):
+        verified_sql_tools.verified_sql_register(
+            query_name="Read Rule Child Identifier Metadata",
+            query_feature_code=query_feature_code,
+            query_description="Read identifier metadata.",
+            crud_type="READ",
+            sql_text="SELECT object_code FROM sp_object",
+            registered_by="SPS_ADMIN",
+            apply=True,
+        )
+
+    assert len(_FakeDatabase.instances) == 1
+    assert _FakeDatabase.instances[0].closed is True
+
+
+@pytest.mark.parametrize("query_feature_code", ("A", "READ-RULE", "READ RULE"))
+def test_verified_sql_register_rejects_invalid_query_feature_code(
+    query_feature_code: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(verified_sql_tools, "CommonDatabase", _FakeDatabase)
+    monkeypatch.setattr(
+        verified_sql_tools,
+        "QueryIdentifierFeatureRuleResolver",
+        _FakeQueryIdentifierFeatureRuleResolver,
+    )
+    _FakeDatabase.instances.clear()
+
+    with pytest.raises(ValueError, match="active Query Identifier Feature Rule"):
+        verified_sql_tools.verified_sql_register(
+            query_name="Read Rule Child Identifier Metadata",
+            query_feature_code=query_feature_code,
+            query_description="Read identifier metadata.",
+            crud_type="READ",
+            sql_text="SELECT object_code FROM sp_object",
+            registered_by="SPS_ADMIN",
+            apply=True,
+        )
+
+    assert len(_FakeDatabase.instances) == 1
+    assert _FakeDatabase.instances[0].closed is True

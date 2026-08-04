@@ -18,6 +18,9 @@ from common.common_function import (
     validate_common_code_value,
 )
 from common.database import CommonDatabase
+from engine.common.query_identifier_feature_rule_resolver import (
+    QueryIdentifierFeatureRuleResolver,
+)
 from engine.identifier import IdentifierCoordinator
 
 
@@ -35,6 +38,15 @@ _DISALLOWED_STATEMENTS = {
 }
 _SQL_KEYWORD_PATTERN = re.compile(r"^[A-Z]+")
 _MAX_RESULT_ROWS = 100
+
+def _resolve_query_identifier_feature(query_feature_code: str) -> Any:
+    rule_database = CommonDatabase(database_role="COMMON")
+    try:
+        return QueryIdentifierFeatureRuleResolver(rule_database).resolve(
+            query_feature_code
+        )
+    finally:
+        rule_database.close()
 
 
 def _parse_params_json(parameters_json: str) -> tuple[Any, ...]:
@@ -243,6 +255,7 @@ def _resolve_verified_sql_object_code(
     )
 def verified_sql_register(
     query_name: str,
+    query_feature_code: str,
     query_description: str,
     crud_type: str,
     sql_text: str,
@@ -277,6 +290,10 @@ def verified_sql_register(
     normalized_crud_type = normalize_required_text(crud_type, "crud_type").upper()
     normalized_registered_by = normalize_required_text(registered_by, "registered_by")
     normalized_sql_text, statement_keyword = _validate_registration_sql(sql_text)
+    query_feature_resolution = _resolve_query_identifier_feature(
+        query_feature_code
+    )
+    normalized_query_feature_code = query_feature_resolution.query_feature_code
     (
         normalized_verified_yn,
         normalized_certified_level_code,
@@ -309,6 +326,9 @@ def verified_sql_register(
         "statement_keyword": statement_keyword,
         "crud_type": normalized_crud_type,
         "verified_yn": normalized_verified_yn,
+        "query_feature_code": normalized_query_feature_code,
+        "query_feature_rule_id": query_feature_resolution.rule_id,
+        "query_feature_rule_code": query_feature_resolution.rule_code,
     }
     if not apply:
         return result
@@ -333,10 +353,16 @@ def verified_sql_register(
         try:
             identifier_coordinator.acquire(identifier_preparation)
             try:
-                query_id = identifier_coordinator.resolve(
+                identifier_resolution = identifier_coordinator.resolve(
                     request=identifier_request,
                     prepared=identifier_preparation,
-                ).identifier
+                )
+                query_id = identifier_coordinator.render_resolution(
+                    request=identifier_request,
+                    prepared=identifier_preparation,
+                    resolution=identifier_resolution,
+                    object_code=normalized_query_feature_code,
+                )
             finally:
                 identifier_coordinator.release(identifier_preparation)
             identifier_database.commit()
