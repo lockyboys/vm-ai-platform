@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import Mock, patch
 
+import pytest
+
 from engine.common.identifier_rule_resolver import IdentifierRuleResolution
 from engine.identifier.coordinator import IdentifierCoordinator
 
@@ -177,3 +179,34 @@ def test_resolve_returns_rule_evidence_with_identifier() -> None:
     assert resolution.rule_action_id == "ACTION_OBJECT_LEVEL"
     assert resolution.object_level == 3
     assert resolution.resolution_source == "EXPLICIT_RULE"
+
+
+def test_resolve_identifier_maximum_length_reads_database_metadata() -> None:
+    database = Mock()
+    database.fetch_one.return_value = {"character_maximum_length": 99}
+    coordinator = IdentifierCoordinator(database, rule_resolver=Mock())
+
+    maximum_length = coordinator.resolve_identifier_maximum_length(
+        object_metadata={
+            "object_name": "te_common.cm_verified_sql_query",
+            "target_identifier_field": "query_id",
+        }
+    )
+
+    assert maximum_length == 99
+    _, params = database.fetch_one.call_args.args
+    assert params == ("te_common", "cm_verified_sql_query", "query_id")
+
+
+def test_resolve_identifier_maximum_length_fails_without_column_metadata() -> None:
+    database = Mock()
+    database.fetch_one.return_value = None
+    coordinator = IdentifierCoordinator(database, rule_resolver=Mock())
+
+    with pytest.raises(LookupError, match="target column metadata"):
+        coordinator.resolve_identifier_maximum_length(
+            object_metadata={
+                "object_name": "te_common.cm_verified_sql_query",
+                "target_identifier_field": "query_id",
+            }
+        )

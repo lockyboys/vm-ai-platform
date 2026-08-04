@@ -337,12 +337,18 @@ def verified_sql_register(
     try:
         identifier_object_code = _resolve_verified_sql_object_code(identifier_database)
         identifier_coordinator = IdentifierCoordinator(identifier_database)
+        identifier_object_metadata = _load_registered_object_metadata(
+            identifier_database,
+            identifier_object_code,
+        )
+        identifier_maximum_length = (
+            identifier_coordinator.resolve_identifier_maximum_length(
+                object_metadata=identifier_object_metadata,
+            )
+        )
         identifier_request, identifier_preparation = (
             identifier_coordinator.prepare_registered_object(
-                object_metadata=_load_registered_object_metadata(
-                    identifier_database,
-                    identifier_object_code,
-                ),
+                object_metadata=identifier_object_metadata,
                 created_by=normalized_registered_by,
                 updated_by=normalized_registered_by,
                 client_ip=client_ip.strip() or "127.0.0.1",
@@ -356,12 +362,14 @@ def verified_sql_register(
                 identifier_resolution = identifier_coordinator.resolve(
                     request=identifier_request,
                     prepared=identifier_preparation,
+                    maximum_length=identifier_maximum_length,
                 )
                 query_id = identifier_coordinator.render_resolution(
                     request=identifier_request,
                     prepared=identifier_preparation,
                     resolution=identifier_resolution,
                     object_code=normalized_query_feature_code,
+                    maximum_length=identifier_maximum_length,
                 )
             finally:
                 identifier_coordinator.release(identifier_preparation)
@@ -546,12 +554,14 @@ def _load_registered_object_metadata(
         """
         SELECT
             object_code,
+            object_name,
             business_code,
             domain_code,
             object_level,
             identifier_target_code,
             sequence_scope_code,
-            sequence_length
+            sequence_length,
+            target_identifier_field
         FROM sp_object
         WHERE object_code = %s
           AND active_yn = 'Y'

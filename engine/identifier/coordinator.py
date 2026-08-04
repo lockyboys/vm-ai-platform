@@ -298,6 +298,57 @@ class IdentifierCoordinator:
         )
         return identifier
 
+    def resolve_identifier_maximum_length(
+        self,
+        *,
+        object_metadata: Mapping[str, Any],
+    ) -> int:
+        """Resolve the identifier column length from Repository and DB metadata."""
+
+        object_name = normalize_required_text(
+            object_metadata.get("object_name"),
+            "object_name",
+        )
+        target_identifier_field = normalize_required_text(
+            object_metadata.get("target_identifier_field"),
+            "target_identifier_field",
+        )
+        qualified_name = object_name.split(".")
+        if len(qualified_name) != 2 or any(
+            not part.strip() for part in qualified_name
+        ):
+            raise ValueError(
+                "Identifier Object metadata must provide a schema-qualified "
+                f"physical object_name. object_name={object_name}"
+            )
+        table_schema, table_name = (
+            part.strip() for part in qualified_name
+        )
+        column = self.database.fetch_one(
+            """
+            SELECT character_maximum_length
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name = %s
+              AND column_name = %s
+            """,
+            (table_schema, table_name, target_identifier_field),
+        )
+        if not column or column.get("character_maximum_length") in (None, ""):
+            raise LookupError(
+                "Identifier target column metadata was not found. "
+                f"object_name={object_name}, "
+                f"target_identifier_field={target_identifier_field}"
+            )
+        maximum_length = int(column["character_maximum_length"])
+        if maximum_length <= 0:
+            raise ValueError(
+                "Identifier target column maximum length must be positive. "
+                f"object_name={object_name}, "
+                f"target_identifier_field={target_identifier_field}"
+            )
+        return maximum_length
+
     def release(
         self,
         prepared: dict[str, Any],

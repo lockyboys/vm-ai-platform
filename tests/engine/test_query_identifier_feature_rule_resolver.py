@@ -36,7 +36,7 @@ def _rule(contract: dict[str, object]) -> dict[str, object]:
 
 def _contract() -> dict[str, object]:
     return {
-        "feature_pattern": "^[A-Z][A-Z0-9_]{2,39}$",
+        "feature_pattern": "^[A-Z][A-Z0-9_]{2,}$",
         "forbidden_feature_codes": [
             "SQL",
             "SQL_QUERY",
@@ -57,6 +57,18 @@ def test_resolve_returns_rule_trace_for_semantic_feature_code() -> None:
     assert resolution.query_feature_code == "READ_RULE_CHILD_IDENTIFIER_METADATA"
     assert resolution.rule_code == "RL_VERIFIED_SQL_QUERY_IDENTIFIER_FEATURE"
     assert database.calls[0][1] == ("QUERY_IDENTIFIER_FEATURE",)
+
+
+def test_resolve_does_not_apply_a_hardcoded_feature_length_limit() -> None:
+    database = _RuleDatabase([_rule(_contract())])
+
+    resolution = QueryIdentifierFeatureRuleResolver(database).resolve(
+        "REGISTER_REPOSITORY_JSON_STORAGE_CONTRACT"
+    )
+
+    assert resolution.query_feature_code == (
+        "REGISTER_REPOSITORY_JSON_STORAGE_CONTRACT"
+    )
 
 
 @pytest.mark.parametrize(

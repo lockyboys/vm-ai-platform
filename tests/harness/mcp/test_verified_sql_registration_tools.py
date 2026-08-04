@@ -30,12 +30,14 @@ class _FakeDatabase:
             assert params == ("TE_COMMON_CM_VERIFIED_SQL_QUERY",)
             return {
                 "object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY",
+                "object_name": "te_common.cm_verified_sql_query",
                 "business_code": "COMMON",
                 "domain_code": "CM",
                 "object_level": 4,
                 "identifier_target_code": "QUERY",
                 "sequence_scope_code": "DAILY",
                 "sequence_length": 5,
+                "target_identifier_field": "query_id",
             }
         raise AssertionError(sql)
 
@@ -85,6 +87,15 @@ class _FakeIdentifierCoordinator:
         assert program_id == "SPS_HARNESS_MCP"
         return {"object_code": object_metadata["object_code"]}, {"lock": "prepared"}
 
+    def resolve_identifier_maximum_length(
+        self,
+        *,
+        object_metadata: dict[str, object],
+    ) -> int:
+        assert object_metadata["object_name"] == "te_common.cm_verified_sql_query"
+        assert object_metadata["target_identifier_field"] == "query_id"
+        return 99
+
     def acquire(self, prepared: dict[str, object]) -> None:
         assert prepared == {"lock": "prepared"}
 
@@ -93,9 +104,11 @@ class _FakeIdentifierCoordinator:
         *,
         request: dict[str, object],
         prepared: dict[str, object],
+        maximum_length: int,
     ) -> SimpleNamespace:
         assert request == {"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}
         assert prepared == {"lock": "prepared"}
+        assert maximum_length == 99
         return SimpleNamespace(
             identifier="CM_CO_TE_COMMON_CM_VERIFIED_SQL_QUERY_20260803_00001",
             sequence_no=1,
@@ -109,11 +122,13 @@ class _FakeIdentifierCoordinator:
         prepared: dict[str, object],
         resolution: SimpleNamespace,
         object_code: str,
+        maximum_length: int,
     ) -> str:
         assert request == {"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}
         assert prepared == {"lock": "prepared"}
         assert resolution.sequence_no == 1
         assert resolution.sequence_length == 5
+        assert maximum_length == 99
         assert object_code == "CHECK_OBJECT_LIFECYCLE_COUNT"
         return "CM_CO_CHECK_OBJECT_LIFECYCLE_COUNT_20260803_00001"
 
