@@ -36,6 +36,8 @@ class IdentifierRuleResolver:
     """Rule Repository에서 Identifier Object Level 정책을 해석한다."""
 
     RULE_GROUP_CODE = "OBJECT_LEVEL"
+    TIME_RULE_GROUP_CODE = "IDENTIFIER_TIMEZONE"
+    TIME_ACTION_TYPE_CODE = "IDENTIFIER_TIMEZONE_RESOLUTION"
 
     def __init__(
         self,
@@ -45,6 +47,30 @@ class IdentifierRuleResolver:
     ) -> None:
         self._rule_database = rule_database
         self._rule_action_runtime = rule_action_runtime
+
+    def resolve_timezone_id(self, rule_context: Mapping[str, Any]) -> str:
+        """활성 Identifier 시간 Rule에서 명시 Condition 또는 DEFAULT Timezone을 반환한다."""
+        actions = self._load_active_timezone_actions()
+        if not actions:
+            raise LookupError("Active Identifier Timezone Rule Action not found.")
+
+        candidates = self._select_candidate_actions(
+            actions=actions,
+            object_metadata=rule_context,
+        )
+        if not candidates:
+            raise LookupError(
+                "No active Identifier Timezone Rule matched the runtime context."
+            )
+
+        action = candidates[0]
+        timezone_id = str(action["contract"].get("timezone_id") or "").strip()
+        if not timezone_id:
+            raise ValueError(
+                "Identifier Timezone Rule Action requires timezone_id. "
+                f"rule_action_id={action['rule_action_id']}"
+            )
+        return timezone_id
 
     def resolve_object_level(
         self,
@@ -63,10 +89,8 @@ class IdentifierRuleResolver:
             object_metadata=rule_context,
         ):
 
-            # 정렬된 첫 번째 매칭 Action이 정책 우선순위를 가진다.
-            # 그 Action의 EXPLICIT_RULE을 쓸 수 없고 DEFAULT도 없을 때만
-            # 다음 Action을 검토한다. 낮은 우선순위 Action이 상위 Rule의
-            # DEFAULT를 덮어쓰는 우회는 허용하지 않는다.
+            # Rule Group 전체의 EXPLICIT_RULE을 먼저 평가한 뒤,
+            # 일치하는 명시 Action이 없을 때만 DEFAULT를 적용한다.
             for resolution_source in self._normalized_resolution_order(
                 action["contract"]
             ):
@@ -194,6 +218,103 @@ class IdentifierRuleResolver:
                         condition_id=condition_id,
                         conditions=condition_cache[rule_id],
                     ),
+                }
+            )
+        return actions
+
+    def _load_active_timezone_actions(self) -> list[dict[str, Any]]:
+        rows = self._get_rule_database().fetch_all(
+            """
+            SELECT
+                r.rule_id,
+                r.rule_code,
+                r.priority_no,
+                r.sort_no AS rule_sort_no,
+                a.rule_action_id,
+                a.action_type_code,
+                a.action_value,
+                a.sort_no AS action_sort_no,
+                t.common_code_json AS action_type_contract_json,
+                c.condition_id,
+                c.field_code,
+                c.operator_code,
+                c.condition_value,
+                c.logical_operator_code,
+                c.sort_no AS condition_sort_no
+            FROM rl_rule r
+            JOIN rl_rule_action a
+              ON a.rule_id = r.rule_id
+             AND a.action_type_code = %s
+             AND a.status_code = 'ACTIVE'
+             AND a.deleted_dt IS NULL
+            JOIN cm_common_code t
+              ON t.group_code = 'ACTION_TYPE'
+             AND t.code = a.action_type_code
+             AND t.status_code = 'ACTIVE'
+             AND t.deleted_dt IS NULL
+            LEFT JOIN rl_rule_condition c
+              ON c.condition_id = JSON_UNQUOTE(
+                     JSON_EXTRACT(a.action_value, '$.condition_id')
+                 )
+             AND c.rule_id = r.rule_id
+             AND c.status_code = 'ACTIVE'
+             AND c.deleted_dt IS NULL
+            WHERE r.rule_group_code = %s
+              AND r.status_code = 'ACTIVE'
+              AND r.deleted_dt IS NULL
+            ORDER BY
+                r.priority_no DESC,
+                r.sort_no,
+                a.sort_no,
+                a.rule_action_id
+            """,
+            (self.TIME_ACTION_TYPE_CODE, self.TIME_RULE_GROUP_CODE),
+        )
+
+        actions: list[dict[str, Any]] = []
+        for row in rows:
+            action_type_contract = self._load_optional_contract(
+                row.get("action_type_contract_json"),
+                label=(
+                    "ACTION_TYPE common-code contract "
+                    f"action_type_code={row.get('action_type_code')}"
+                ),
+            )
+            action_contract = self._load_optional_contract(
+                row.get("action_value"),
+                label=(
+                    "Rule Action contract "
+                    f"rule_action_id={row.get('rule_action_id')}"
+                ),
+            )
+            contract = {**action_type_contract, **action_contract}
+            condition_id = self._extract_action_condition_id(
+                contract=contract,
+                rule_action_id=str(row["rule_action_id"]),
+            )
+            conditions = []
+            if condition_id is not None:
+                if str(row.get("condition_id") or "").strip() != condition_id:
+                    raise LookupError(
+                        "Timezone Rule Action condition_id must reference one active Condition. "
+                        f"rule_action_id={row['rule_action_id']}"
+                    )
+                conditions = [
+                    {
+                        "condition_id": condition_id,
+                        "field_code": row["field_code"],
+                        "operator_code": row["operator_code"],
+                        "condition_value": row.get("condition_value"),
+                        "logical_operator_code": row.get("logical_operator_code"),
+                        "sort_no": row.get("condition_sort_no"),
+                    }
+                ]
+            actions.append(
+                {
+                    **dict(row),
+                    "contract": contract,
+                    "condition_id": condition_id,
+                    "conditions": conditions,
                 }
             )
         return actions
@@ -334,6 +455,7 @@ class IdentifierRuleResolver:
             if matched_actions:
                 return matched_actions
 
+        for rule_actions in actions_by_rule_id.values():
             default_actions = [
                 action
                 for action in rule_actions
@@ -347,7 +469,10 @@ class IdentifierRuleResolver:
                     or self._matches_conditions(
                         conditions=action["conditions"],
                         object_metadata=self._build_action_condition_context(
-                            object_metadata=object_metadata,
+                            object_metadata={
+                                **object_metadata,
+                                "rule_resolution_source": "DEFAULT",
+                            },
                             action=action,
                         ),
                     )
@@ -681,6 +806,47 @@ class IdentifierRuleResolver:
             object_level=object_level,
             resolution_source=resolution_source,
         )
+
+    def _resolve_identifier_timezone_id(
+        self,
+        contract: Mapping[str, Any],
+    ) -> str | None:
+        locale_group_code = str(
+            contract.get("identifier_locale_group_code") or ""
+        ).strip()
+        locale_code = str(contract.get("identifier_locale_code") or "").strip()
+        if not locale_group_code and not locale_code:
+            return None
+        if not locale_group_code or not locale_code:
+            raise ValueError(
+                "Identifier timezone Rule requires both locale group and code."
+            )
+
+        cache_key = (locale_group_code, locale_code)
+        if cache_key in self._timezone_cache:
+            return self._timezone_cache[cache_key]
+
+        row = self._get_rule_database().fetch_one(
+            """
+            SELECT JSON_UNQUOTE(
+                       JSON_EXTRACT(common_code_json, '$.timezone_id')
+                   ) AS timezone_id
+            FROM cm_common_code
+            WHERE group_code = %s
+              AND code = %s
+              AND status_code = 'ACTIVE'
+              AND deleted_dt IS NULL
+            """,
+            cache_key,
+        )
+        timezone_id = str((row or {}).get("timezone_id") or "").strip()
+        if not timezone_id:
+            raise LookupError(
+                "Identifier timezone Locale metadata not found. "
+                f"group_code={locale_group_code}, code={locale_code}"
+            )
+        self._timezone_cache[cache_key] = timezone_id
+        return timezone_id
 
     @staticmethod
     def _as_object_level(value: Any, field_name: str) -> int:

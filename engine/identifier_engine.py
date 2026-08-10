@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import random
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from engine.common.identifier_rule_resolver import (
     IdentifierRuleResolution,
@@ -46,9 +47,11 @@ class IdentifierEngine:
         """Rule Resolver가 선택한 Level로 Identifier를 생성한다."""
         object_metadata = self.load_object_metadata(object_code)
         rule_resolution = self.resolve_object_level(object_metadata)
+        timezone_id = self.resolve_timezone_id(object_metadata)
         return self._generate_from_metadata(
             object_metadata=object_metadata,
             object_level=rule_resolution.object_level,
+            timezone_id=timezone_id,
             manage_transaction=manage_transaction,
         )
 
@@ -68,6 +71,7 @@ class IdentifierEngine:
         """
         object_metadata = self.load_object_metadata(object_code)
         rule_resolution = self.resolve_object_level(object_metadata)
+        timezone_id = self.resolve_timezone_id(object_metadata)
         try:
             requested_level = int(object_level)
         except (TypeError, ValueError) as error:
@@ -87,6 +91,7 @@ class IdentifierEngine:
         return self._generate_from_metadata(
             object_metadata=object_metadata,
             object_level=rule_resolution.object_level,
+            timezone_id=timezone_id,
             now=now,
             manage_transaction=manage_transaction,
         )
@@ -98,11 +103,19 @@ class IdentifierEngine:
         """Identifier Runtime의 Object Level은 Rule Repository에서만 해석한다."""
         return self.rule_resolver.resolve_object_level(object_metadata)
 
+    def resolve_timezone_id(
+        self,
+        rule_context: dict[str, Any],
+    ) -> str:
+        """Identifier Runtime의 기준 Timezone은 독립 시간 Rule에서 해석한다."""
+        return self.rule_resolver.resolve_timezone_id(rule_context)
+
     def _generate_from_metadata(
         self,
         *,
         object_metadata: dict[str, Any],
         object_level: int,
+        timezone_id: str | None = None,
         now: datetime | None = None,
         manage_transaction: bool = True,
     ) -> str:
@@ -134,7 +147,10 @@ class IdentifierEngine:
                 f"object_code={object_metadata['object_code']}"
             )
 
-        generated_dt = now or datetime.now()
+        generated_dt = self.resolve_rule_datetime(
+            now or datetime.now(timezone.utc),
+            timezone_id,
+        )
         sequence_date = self.resolve_sequence_date(
             sequence_scope_code=sequence_scope_code,
             now=generated_dt,
@@ -176,6 +192,7 @@ class IdentifierEngine:
                 domain_code,
                 object_type_code,
                 object_level,
+                target_identifier_field,
                 identifier_target_code,
                 sequence_scope_code,
                 sequence_length
@@ -386,6 +403,26 @@ class IdentifierEngine:
             if manage_transaction:
                 self.database_manager.rollback()
             raise
+
+    @staticmethod
+    def resolve_rule_datetime(
+        value: datetime,
+        timezone_id: str | None,
+    ) -> datetime:
+        """Rule이 선택한 IANA timezone으로 Identifier 기준시각을 변환한다."""
+        normalized_timezone_id = str(timezone_id or "").strip()
+        if not normalized_timezone_id:
+            return value
+        try:
+            resolved_timezone = ZoneInfo(normalized_timezone_id)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError(
+                "Identifier Rule timezone_id is invalid. "
+                f"timezone_id={normalized_timezone_id}"
+            ) from error
+        if value.tzinfo is None:
+            return value.replace(tzinfo=resolved_timezone)
+        return value.astimezone(resolved_timezone)
 
     @staticmethod
     def resolve_sequence_date(

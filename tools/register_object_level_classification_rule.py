@@ -20,14 +20,14 @@ RULE_GROUP_CODE = "OBJECT_LEVEL"
 RULE_DEFINITION = {
     "rule_name": "SPS Object Level 분류 규칙",
     "rule_description": (
-        "sp_erd.erd_id는 Level 2이고, Level 3 Table Object 묶음인 ERD도 Level 2이다. "
-        "Table·Entity·Relationship은 Level 3이고 Attribute는 Level 4이다. "
-        "Rule에 명시적으로 등록되지 않은 Object 대상의 기본 Level은 4이다. "
+        "ERD Object ID는 Level 2이고 Entity·Relationship·Rule Object ID는 Level 3이다. "
+        "Rule에 명시되지 않은 Object ID의 기본 Level은 3이다. "
+        "target_identifier_field가 있는 Table ID는 명시 Condition으로 Level 4를 적용한다. "
         "테이블명, PK 형태, 저장 위치, SQL 행위로 Level을 결정하지 않는다."
     ),
     "priority_no": 100,
-    "version_num": "1.1",
-    "remark": "DEFAULT_OBJECT_LEVEL=4; Rule 등록값이 있으면 해당 값을 우선한다.",
+    "version_num": "1.2",
+    "remark": "DEFAULT_OBJECT_ID_LEVEL=3; EXPLICIT_TABLE_ID_LEVEL=4; EXPLICIT_CONDITION_FIRST",
     "sort_no": 10,
 }
 

@@ -32,6 +32,13 @@ class _RuleDatabase:
             return self.conditions_by_rule.get(str(parameters[0]), [])
         return self.actions
 
+    def fetch_one(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        self.calls.append((sql, parameters))
+        return {"timezone_id": "Asia/Seoul"}
 
 class _RuleActionRuntime:
     def __init__(
@@ -511,7 +518,7 @@ def test_registered_procedure_must_identify_the_selected_action_contract(
         resolver.resolve_object_level({"object_code": "UNCLASSIFIED"})
 
 
-def test_higher_priority_default_cannot_be_overridden_by_lower_rule() -> None:
+def test_explicit_rule_is_evaluated_before_group_default() -> None:
     high_priority = _action_row(
         rule_id="RULE_HIGH",
         rule_code="RL_HIGH_DEFAULT",
@@ -554,17 +561,11 @@ def test_higher_priority_default_cannot_be_overridden_by_lower_rule() -> None:
         {"object_code": "UNCLASSIFIED", "object_level": 2}
     )
 
-    assert resolution.rule_code == "RL_HIGH_DEFAULT"
-    assert resolution.rule_action_id == "ACTION_HIGH_DEFAULT"
-    assert resolution.object_level == 4
-    assert resolution.resolution_source == "DEFAULT"
-    assert runtime.calls == [
-        (
-            "RULE_HIGH",
-            "ACTION_HIGH_DEFAULT",
-            {"object_code": "UNCLASSIFIED"},
-        )
-    ]
+    assert resolution.rule_code == "RL_LOW_EXPLICIT"
+    assert resolution.rule_action_id == "ACTION_LOW_EXPLICIT"
+    assert resolution.object_level == 2
+    assert resolution.resolution_source == "EXPLICIT_RULE"
+    assert runtime.calls == []
 
 
 def test_invalid_active_rule_action_contract_fails_closed() -> None:
@@ -583,3 +584,111 @@ def test_invalid_active_rule_action_contract_fails_closed() -> None:
 
     with pytest.raises(ValueError, match="Rule Action contract.*valid JSON"):
         resolver.resolve_object_level({"object_code": "UNCLASSIFIED"})
+
+
+def test_table_object_id_and_execution_table_id_use_distinct_levels() -> None:
+    resolver, _ = _resolver(
+        actions=[
+            _action_row(
+                rule_id="RULE_ALL_TABLE_LEVEL3",
+                rule_code="RL_TABLE_OBJECT_LEVEL3",
+                rule_action_id="ACTION_TABLE_LEVEL3",
+                action_contract={
+                    "condition_id": "CONDITION_OBJECT_CODE_TABLE",
+                    "object_level": 3,
+                    "resolution_order": ["EXPLICIT_RULE"],
+                },
+            ),
+            _action_row(
+                rule_id="RULE_OBJECT_LEVEL",
+                rule_code="RL_OBJECT_LEVEL_CLASSIFICATION",
+                rule_action_id="ACTION_TABLE_IDENTIFIER_LEVEL4",
+                action_contract={
+                    "condition_id": "CONDITION_TABLE_IDENTIFIER_FIELD",
+                    "object_level": 4,
+                    "resolution_order": ["EXPLICIT_RULE"],
+                },
+            ),
+            _action_row(
+                rule_id="RULE_OBJECT_LEVEL",
+                rule_code="RL_OBJECT_LEVEL_CLASSIFICATION",
+                rule_action_id="ACTION_OBJECT_DEFAULT_LEVEL3",
+                action_contract={
+                    "default_object_level": 3,
+                    "resolution_order": ["DEFAULT"],
+                },
+            ),
+        ],
+        conditions_by_rule={
+            "RULE_ALL_TABLE_LEVEL3": [
+                {
+                    "condition_id": "CONDITION_OBJECT_CODE_TABLE",
+                    "field_code": "object_code",
+                    "operator_code": "EQ",
+                    "condition_value": "TABLE",
+                    "logical_operator_code": None,
+                    "sort_no": 10,
+                }
+            ],
+            "RULE_OBJECT_LEVEL": [
+                {
+                    "condition_id": "CONDITION_TABLE_IDENTIFIER_FIELD",
+                    "field_code": "target_identifier_field",
+                    "operator_code": "NOT_NULL",
+                    "condition_value": "PRESENT",
+                    "logical_operator_code": None,
+                    "sort_no": 50,
+                }
+            ],
+        },
+    )
+
+    table_resolution = resolver.resolve_object_level(
+        {
+            "object_code": "TABLE",
+            "object_type_code": "TABLE",
+            "object_level": 3,
+            "target_identifier_field": None,
+        }
+    )
+    execution_resolution = resolver.resolve_object_level(
+        {
+            "object_code": "EXECUTION_HISTORY",
+            "object_type_code": "TABLE",
+            "object_level": 3,
+            "target_identifier_field": "execution_history_id",
+        }
+    )
+
+    assert table_resolution.object_level == 3
+    assert table_resolution.rule_code == "RL_TABLE_OBJECT_LEVEL3"
+    assert execution_resolution.object_level == 4
+
+
+def test_identifier_timezone_is_resolved_from_independent_time_rule() -> None:
+    time_action = _action_row(
+        rule_id="RULE_IDENTIFIER_TIMEZONE",
+        rule_code="RL_IDENTIFIER_TIMEZONE_DEFAULT",
+        rule_action_id="ACTION_TIMEZONE_DEFAULT",
+        action_type_code="IDENTIFIER_TIMEZONE_RESOLUTION",
+        action_contract={
+            "condition_id": "CONDITION_TIMEZONE_DEFAULT",
+            "timezone_id": "UTC",
+            "resolution_order": ["DEFAULT"],
+        },
+    )
+    time_action.update(
+        {
+            "condition_id": "CONDITION_TIMEZONE_DEFAULT",
+            "field_code": "rule_resolution_source",
+            "operator_code": "EQ",
+            "condition_value": "DEFAULT",
+            "logical_operator_code": None,
+            "condition_sort_no": 90,
+        }
+    )
+    resolver, _ = _resolver(actions=[time_action])
+
+    timezone_id = resolver.resolve_timezone_id({"object_code": "EXECUTION_HISTORY"})
+
+    assert timezone_id == "UTC"

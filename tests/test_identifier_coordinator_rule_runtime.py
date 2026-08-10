@@ -46,6 +46,7 @@ def _registered_object_metadata(
 def test_prepare_registered_object_uses_rule_resolver_not_declared_level() -> None:
     database = Mock()
     rule_resolver = Mock()
+    rule_resolver.resolve_timezone_id.return_value = "UTC"
     rule_resolver.resolve_object_level.return_value = _resolution(
         object_level=4,
         source="EXPLICIT_RULE",
@@ -94,6 +95,7 @@ def test_prepare_registered_object_uses_rule_resolver_not_declared_level() -> No
 def test_prepare_registered_object_allows_rule_default_when_metadata_level_absent() -> None:
     database = Mock()
     rule_resolver = Mock()
+    rule_resolver.resolve_timezone_id.return_value = "UTC"
     rule_resolver.resolve_object_level.return_value = _resolution(
         object_level=4,
         source="DEFAULT",
@@ -161,6 +163,7 @@ def test_resolve_returns_rule_evidence_with_identifier() -> None:
     }
     prepared = {
         "now": datetime(2026, 8, 2, 9, 0, 0),
+        "timezone_id": "UTC",
         "rule_resolution": rule_resolution,
         "object_level": 3,
         "blueprint": {
@@ -179,6 +182,7 @@ def test_resolve_returns_rule_evidence_with_identifier() -> None:
     assert resolution.rule_action_id == "ACTION_OBJECT_LEVEL"
     assert resolution.object_level == 3
     assert resolution.resolution_source == "EXPLICIT_RULE"
+    assert resolution.timezone_id == "UTC"
 
 
 def test_resolve_identifier_maximum_length_reads_database_metadata() -> None:

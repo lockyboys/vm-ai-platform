@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
@@ -14,6 +14,7 @@ class IdentifierEngineTest(TestCase):
     def setUp(self) -> None:
         self.database = Mock()
         self.rule_resolver = Mock()
+        self.rule_resolver.resolve_timezone_id.return_value = "UTC"
         self.engine = IdentifierEngine(
             self.database,
             rule_resolver=self.rule_resolver,
@@ -56,8 +57,18 @@ class IdentifierEngineTest(TestCase):
         generate_from_metadata.assert_called_once_with(
             object_metadata=metadata,
             object_level=4,
+            timezone_id="UTC",
             manage_transaction=False,
         )
+
+    def test_rule_timezone_converts_utc_to_korea_time(self) -> None:
+        resolved_dt = self.engine.resolve_rule_datetime(
+            datetime(2026, 8, 5, 0, 38, 41, tzinfo=timezone.utc),
+            "Asia/Seoul",
+        )
+
+        self.assertEqual(resolved_dt.strftime("%Y%m%d_%H%M%S"), "20260805_093841")
+        self.assertEqual(str(resolved_dt.tzinfo), "Asia/Seoul")
 
     def test_generate_for_level_rejects_rule_resolver_bypass(self) -> None:
         metadata = {"object_code": "RELATIONSHIP", "object_level": 3}
@@ -185,6 +196,20 @@ class IdentifierEngineTest(TestCase):
             )
 
         self.database.execute.assert_not_called()
+
+    def test_load_object_metadata_includes_identifier_target_field(self) -> None:
+        self.database.fetch_one.return_value = {
+            "object_code": "EXECUTION_HISTORY",
+            "business_code": "SP",
+            "domain_code": "RP",
+            "target_identifier_field": "execution_history_id",
+            "identifier_target_code": "EG",
+        }
+        metadata = self.engine.load_object_metadata("EXECUTION_HISTORY")
+        sql, parameters = self.database.fetch_one.call_args.args
+        self.assertIn("target_identifier_field", sql)
+        self.assertEqual(parameters, ("EXECUTION_HISTORY",))
+        self.assertEqual(metadata["target_identifier_field"], "execution_history_id")
 
 
 if __name__ == "__main__":

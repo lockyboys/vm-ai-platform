@@ -10,7 +10,7 @@ from engine.identifier import IdentifierCoordinator
 PROGRAM_ID = "REGISTER_TABLE_AND_RL_RULE_LEVEL3_20260803"
 CANONICAL_RULE_ID = "SP_RP_RL_RULE_20260731_00001"
 MISTAKEN_RULE_ID = "CM_RL_TE_COMMON_RL_RULE_20260803_224412_00001"
-TABLE_RULE_CODE = "RL_ALL_TABLE_LEVEL3_DEFAULT"
+TABLE_RULE_CODE = "RL_TABLE_OBJECT_LEVEL3"
 
 
 def issue(coordinator, metadata):
@@ -73,7 +73,7 @@ def run(apply: bool) -> dict[str, object]:
             "table_level3_rule_exists": bool(existing_table_rule),
             "operations": [
                 "retire mistaken CM rule and its children",
-                "insert SP_RP_RL_RULE Table Level 3 default Rule",
+                "insert SP_RP_RL_RULE Table Object ID Level 3 explicit Rule",
                 "insert RL_RULE Level 3 condition and action under canonical Rule",
             ],
         }
@@ -125,18 +125,16 @@ def run(apply: bool) -> dict[str, object]:
                     ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (table_rule_id, TABLE_RULE_CODE, "SPS 모든 Table Level 3 규칙",
                      "LIFECYCLE", "OBJECT_LEVEL", "모든 Table Object는 Level 3이다.",
-                     110, "ACTIVE", "1.0", "DEFAULT_TABLE_OBJECT_LEVEL=3", 20,
+                     100, "ACTIVE", "1.1", "EXPLICIT_OBJECT_CODE_TABLE_LEVEL=3", 20,
                      "SYSTEM", "SYSTEM", PROGRAM_ID, "127.0.0.1"),
                 )
                 insert_condition_action(
                     common, coordinator, child_metadata, table_rule_id,
-                    "rule_resolution_source", "EQ", "DEFAULT",
+                    "object_code", "EQ", "TABLE",
                     {"action_type_group_code": "ACTION_TYPE",
-                     "condition_context": {"object_type_code": "TABLE",
-                                           "rule_resolution_source": "DEFAULT"},
-                     "default_object_level": 3, "resolution_order": ["DEFAULT"]},
-                    10, "Table Level 3 Default Action 전용 Negative Condition.",
-                    "Negative Condition이 일치할 때 Rule 등록 기본 Level 3을 반환하는 Default Action.",
+                     "object_level": 3, "resolution_order": ["EXPLICIT_RULE"]},
+                    10, "TABLE Object Code 전용 Level 3 Condition.",
+                    "object_code TABLE이 일치할 때 Table Object Level 3을 반환하는 Action.",
                 )
             rl_rule_condition_id, rl_rule_action_id = insert_condition_action(
                 common, coordinator, child_metadata, CANONICAL_RULE_ID,

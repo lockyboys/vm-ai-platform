@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from common.common_function import normalize_required_text
@@ -31,6 +31,7 @@ class IdentifierResolution:
     rule_action_type_code: str | None = None
     object_level: int | None = None
     resolution_source: str | None = None
+    timezone_id: str | None = None
 
 
 class IdentifierCoordinator:
@@ -128,8 +129,13 @@ class IdentifierCoordinator:
         request: dict[str, Any],
         now: datetime | None = None,
     ) -> dict[str, Any]:
-        execution_dt = now or datetime.now()
+        execution_dt = now or datetime.now(timezone.utc)
         rule_resolution = self.identifier_engine.resolve_object_level(request)
+        timezone_id = self.identifier_engine.resolve_timezone_id(request)
+        execution_dt = self.identifier_engine.resolve_rule_datetime(
+            execution_dt,
+            timezone_id,
+        )
 
         blueprint = self.identifier_engine.load_identifier_blueprint(
             rule_resolution.object_level
@@ -177,6 +183,7 @@ class IdentifierCoordinator:
 
         return {
             "now": execution_dt,
+            "timezone_id": timezone_id,
             "rule_resolution": rule_resolution,
             "object_level": rule_resolution.object_level,
             "blueprint": blueprint,
@@ -264,6 +271,7 @@ class IdentifierCoordinator:
             rule_action_type_code=rule_resolution.action_type_code,
             object_level=rule_resolution.object_level,
             resolution_source=rule_resolution.resolution_source,
+            timezone_id=prepared["timezone_id"],
         )
 
     def render_resolution(

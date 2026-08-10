@@ -66,8 +66,8 @@ def run(apply: bool) -> dict:
                 """INSERT INTO rl_rule_condition (condition_id, rule_id, sort_no, field_code, operator_code,
                    condition_value, remark, created_by, updated_by, program_id, client_ip, status_code)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (condition_id, rule_id, 10, "rule_resolution_source", "EQ", "DEFAULT",
-                 "명시 Table Level Condition이 일치하지 않을 때 DEFAULT를 제공하는 Negative Condition.",
+                (condition_id, rule_id, 10, "object_code", "EQ", "TABLE",
+                 "TABLE Object Code에만 Level 3을 적용하는 Condition.",
                  "SYSTEM", "SYSTEM", PROGRAM_ID, "127.0.0.1", "ACTIVE"),
             )
             common.execute(
@@ -76,10 +76,9 @@ def run(apply: bool) -> dict:
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (action_id, rule_id, "OBJECT_LEVEL_CLASSIFICATION", json.dumps({
                     "action_type_group_code": "ACTION_TYPE", "condition_id": condition_id,
-                    "condition_context": {"object_type_code": "TABLE", "rule_resolution_source": "DEFAULT"},
                     "default_object_level": 3, "resolution_order": ["DEFAULT"],
                  }, ensure_ascii=False, sort_keys=True), 10,
-                 "Negative Condition이 일치할 때 Rule 등록 기본 Level 3을 반환하는 Default Action.",
+                 "object_code TABLE이 일치할 때 Table Object Level 3을 반환하는 Action.",
                  "SYSTEM", "SYSTEM", PROGRAM_ID, "127.0.0.1", "ACTIVE"),
             )
             common.commit()
