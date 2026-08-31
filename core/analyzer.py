@@ -18,7 +18,7 @@
 #   6.0.0  (이전):       흡연 데이터 전용
 
 import pandas as pd
-from utils import logger
+from common.common_function import logger
 from core.target_detector import find_target, get_task_type, get_column_info
 
 

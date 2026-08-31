@@ -1,7 +1,7 @@
 # agents/self_improve_agent.py ★ 7.16.4
 # 🆕 자기개선 에이전트 — 정확도가 낮으면 자동으로 재학습 전략 제안
 # 초등학생 설명: 시험 점수가 낮으면 "이렇게 다시 공부해봐!" 알려주는 AI 선생님이에요!
-from utils import logger
+from common.common_function import logger
 from services.db.db_service import get_model_history
 
 class SelfImproveAgent:

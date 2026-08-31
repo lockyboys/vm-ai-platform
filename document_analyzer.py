@@ -2,7 +2,7 @@ from pathlib import Path
 
 # import vendor_bootstrap  # noqa: F401
 import config
-import utils
+from common import common_function as utils
 
 
 def read_text_file(file_path: Path) -> str:

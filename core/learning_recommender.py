@@ -16,7 +16,7 @@
 #   7.16.4 (2026-06-16): 최초 생성
 
 import pandas as pd
-from utils import logger
+from common.common_function import logger
 
 
 def recommend_learning_type(df: pd.DataFrame,

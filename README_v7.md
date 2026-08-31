@@ -118,7 +118,7 @@ DB는 기존 일기장을 버리지 않고, 새 페이지를 뒤에 붙이는 �
 #### 📝 주석 전면 강화
 - `agents/` 전체 파일: 클래스/함수 docstring 추가
 - `core/` 전체 파일: 상세 주석 + Args/Returns 명시
-- `utils.py`: 함수별 초등학생 설명 + 사용 예시 추가
+- `common/common_function.py`: 공통 함수별 초등학생 설명 + 사용 예시 추가
 - `monitoring/health_check.py`: 복구 흐름 설명 추가
 
 ---
@@ -198,7 +198,7 @@ PLAN_PRICES = {
 | 파일 | 변경 내용 |
 |---|---|
 | `config.py` | Smart File Organizer 구조 참고해서 전면 재작성 |
-| `utils.py` | 자잘한 함수 통합 (read_csv_safe, file_hash, flatten_dict) |
+| `common/common_function.py` | 공통 함수 통합 (read_csv_safe, file_hash, flatten_dict) |
 | `web/app.py` | Flask jinja globals에 SERVER_BASE_URL, PLAN_PRICES 주입 |
 | `web/app.py` | `/login`, `/register`, `/terms` 라우트 추가 |
 | `web/app.py` | `배치처리` API (`/api/batch`) — pro 이상 허용 |

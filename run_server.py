@@ -4,7 +4,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import logger, ensure_dirs
+from common.common_function import logger, ensure_dirs
 from config import API_HOST, API_PORT, MODEL_VERSION
 
 def main():

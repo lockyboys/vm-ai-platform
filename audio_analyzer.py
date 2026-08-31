@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 
 import config
-import utils
+from common import common_function as utils
 
 
 def convert_audio_to_wav(source_file: Path) -> Path:

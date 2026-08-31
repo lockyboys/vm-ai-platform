@@ -3,7 +3,7 @@
 # 초등학생 설명: 여러 AI 모델을 시험해보고, 시험 점수가 제일 좋은 모델을 골라줘요.
 
 from typing import Dict, Any
-from utils import logger
+from common.common_function import logger
 
 
 def run_automl(X_train, X_test, y_train, y_test, task_type: str = "classification") -> Dict[str, Any]:

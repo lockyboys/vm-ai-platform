@@ -9,7 +9,7 @@
 #   7.16.4 (2026-06-16): 주석 강화, 키워드 분류 개선
 #   7.0.0  (2026-06-15): 최초 생성
 
-from utils import logger
+from common.common_function import logger
 
 
 class PlanningAgent:

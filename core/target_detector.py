@@ -19,7 +19,7 @@
 #   7.0.0  (2026-06-15): 최초 생성
 
 import pandas as pd
-from utils import logger
+from common.common_function import logger
 
 # 정답 열로 자주 쓰이는 이름 목록 (순서대로 우선 탐색)
 # 초등학생 설명: "이름이 이 중 하나면 정답 열이에요!" 하는 사전이에요

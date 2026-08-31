@@ -15,7 +15,7 @@
 #   7.0.0  (2026-06-15): 최초 생성
 
 import os
-from utils import logger
+from common.common_function import logger
 from config import OUTPUT_PATH
 
 

@@ -15,7 +15,7 @@
 #   7.16.4 (2026-06-16): 주석 강화, 싱글톤 패턴 명시
 #   7.0.0  (2026-06-15): 최초 생성
 
-from utils import logger, log_event, get_timestamp
+from common.common_function import logger, log_event, get_timestamp
 from agents.memory_agent      import MemoryAgent
 from agents.planning_agent    import PlanningAgent
 from agents.reasoning_agent   import ReasoningAgent

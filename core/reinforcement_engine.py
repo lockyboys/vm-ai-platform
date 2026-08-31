@@ -2,7 +2,7 @@
 # 강화학습 엔진 자리
 # 초등학생 설명: 게임처럼 점수를 받으며 AI가 더 좋은 행동을 배우는 공간이에요.
 
-from utils import logger
+from common.common_function import logger
 
 
 def describe_reinforcement_ready() -> dict:

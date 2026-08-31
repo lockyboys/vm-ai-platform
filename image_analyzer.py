@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import config
-import utils
+from common import common_function as utils
 
 
 def classify_by_filename(file_path: Path) -> str:

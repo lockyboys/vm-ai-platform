@@ -3,7 +3,7 @@
 # 초등학생 설명: 기존 DB는 지우지 않고, 필요한 새 칸과 새 표만 조심히 추가해요.
 
 from pathlib import Path
-from utils import logger
+from common.common_function import logger
 from config import MYSQL_CONFIG, BASE_DIR
 
 

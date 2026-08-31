@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from config import LOG_PATH
-from utils import logger
+from common.common_function import logger
 
 _MAX_MEMORY_ENTRIES = int(os.getenv("SPS_MEMORY_MAX_ENTRIES", "1000"))
 

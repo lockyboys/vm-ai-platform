@@ -5,7 +5,7 @@
 from pathlib import Path
 from datetime import datetime
 from config import OUTPUT_REPORTS_DIR
-from utils import logger
+from common.common_function import logger
 
 
 def create_text_report(result: dict, filename_prefix: str = "report") -> str:

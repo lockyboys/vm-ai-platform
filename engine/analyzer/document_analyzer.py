@@ -2,7 +2,7 @@ from pathlib import Path
 
 #import vendor_bootstrap  # noqa: F401
 import config
-import utils
+from common import common_function as utils
 
 if not hasattr(utils, "log_error"):
     def _log_error(message, critical=False):

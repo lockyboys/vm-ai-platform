@@ -9,7 +9,7 @@
 
 import os, json, joblib
 from datetime import datetime
-from utils import logger
+from common.common_function import logger
 from config import MODEL_PATH
 from services.db.db_service import save_model_history as save_model_history_db
 from services.history_service import save_model_history

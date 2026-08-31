@@ -3,8 +3,8 @@
 # 초등학생 설명: 공장 컨베이어 벨트처럼 데이터가 들어오면 자동으로 분석→학습→저장→리포트!
 import time, os
 import pandas as pd
-from utils import logger, log_event, get_timestamp, ensure_dirs, read_file_auto, file_hash
-from config import DATA_PATH, UPLOAD_PAT
+from common.common_function import logger, log_event, get_timestamp, ensure_dirs, read_file_auto, file_hash
+from config import DATA_PATH, UPLOAD_PATH
 from core.analyzer       import run as analyze
 from core.metrics        import calculate
 from core.shap_service   import generate_shap, get_feature_importance
@@ -156,7 +156,7 @@ def _generate_pdf(analysis, score, ml_result, importance, user_id) -> str:
         from reportlab.lib.pagesizes import A4
         import os
         from config import OUTPUT_PATH
-        from utils import get_ts_file
+        from common.common_function import get_ts_file
 
         path   = os.path.join(OUTPUT_PATH, "reports", f"report_{user_id}_{get_ts_file()}.pdf")
         doc    = SimpleDocTemplate(path, pagesize=A4)

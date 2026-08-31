@@ -6,7 +6,7 @@
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import logger, log_event, get_timestamp
+from common.common_function import logger, log_event, get_timestamp
 from config import DATA_PATH, LOG_PATH
 from services.db.db_service import get_model_history
 
@@ -98,7 +98,7 @@ def job_weekly_report():
         "총_학습_횟수":    len(history),
         "생성시각":        get_timestamp(),
     }
-    from utils import save_json
+    from common.common_function import save_json
     from config import OUTPUT_PATH
     save_json(os.path.join(OUTPUT_PATH, "reports", "weekly_report.json"), report)
     _log_cron("weekly_report", "완료", str(report))
