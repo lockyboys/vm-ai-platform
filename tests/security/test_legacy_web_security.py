@@ -11,7 +11,9 @@ from services.auth import auth_service
 
 @pytest.fixture(autouse=True)
 def configured_token_secret(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(auth_service, "SECRET_KEY", "test-only-secret-key")
+    monkeypatch.setenv("SPS_AUTH_JWT_SECRET_KEY", "test-only-secret-key")
+    monkeypatch.setenv("SPS_AUTH_JWT_EXPIRE_SECONDS", "3600")
+    monkeypatch.setenv("SPS_AUTH_REFRESH_TOKEN_EXPIRE_SECONDS", "86400")
     monkeypatch.setenv("SPS_ADMIN_EMAILS", "admin@example.test")
 
 
@@ -25,8 +27,8 @@ def test_signed_token_cannot_be_forged_or_escalated() -> None:
     assert verified["is_admin"] is False
 
     forged = issued["token"].rsplit(".", 1)[0] + ".forged"
-    assert auth_service.verify_token(forged) == {"valid": False}
-    assert auth_service.verify_token("any-arbitrary-string") == {"valid": False}
+    assert auth_service.verify_token(forged)["valid"] is False
+    assert auth_service.verify_token("any-arbitrary-string")["valid"] is False
 
 
 def test_password_hash_is_salted_and_verifiable() -> None:

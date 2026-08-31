@@ -299,7 +299,7 @@ ORIGINAL_STDERR = sys.stderr
 
 # 비동기 로깅을 위한 메시지 큐 (멀티프로세스 환경용)
 # 초등학생 설명: 로그 메시지가 줄 서서 기다리는 대기열이에요!
-LOG_QUEUE    = None   # 프로그램 시작 시 utils.py가 채워줘요
+LOG_QUEUE    = None   # 프로그램 시작 시 common/common_function.py가 채워줘요
 LOG_LISTENER = None   # 큐에서 로그를 꺼내 파일에 쓰는 일꾼
 
 
@@ -318,7 +318,7 @@ LOG_LISTENER = None   # 큐에서 로그를 꺼내 파일에 쓰는 일꾼
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ✅ 여기만 바꾸면 끝! (IP 또는 도메인)
-SERVER_HOST = os.getenv("SERVER_HOST", "34.64.209.152")
+SERVER_HOST = os.getenv("SERVER_HOST", "127.0.0.1")
 
 # 포트 (API_PORT와 동일하게 맞춰요)
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
@@ -345,12 +345,6 @@ ENV_PRESETS = {
     # 로컬 개발 환경 (내 컴퓨터)
     "local": {
         "SERVER_HOST":     "127.0.0.1",
-        "SERVER_PORT":     8000,
-        "SERVER_PROTOCOL": "http",
-    },
-    # GCP VM (현재 운영 서버)
-    "gcp": {
-        "SERVER_HOST":     "34.64.239.245",
         "SERVER_PORT":     8000,
         "SERVER_PROTOCOL": "http",
     },

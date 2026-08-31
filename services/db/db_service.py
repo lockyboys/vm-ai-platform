@@ -6,21 +6,14 @@
 #   서랍장(MongoDB)과 엑셀(MariaDB) 두 곳에 동시에 저장해요!
 #   처음 시작할 때 테스트용 계정도 자동으로 만들어줘요.
 #
-# [기본 제공 테스트 계정]
-#   free@test.com       / test1234  → Free 플랜
-#   pro@test.com        / test1234  → Pro 플랜
-#   enterprise@test.com / test1234  → Enterprise 플랜
-#   admin@test.com      / admin1234 → Enterprise (관리자)
-#
 # [버전 이력]
 #   7.16.4 (2026-06-16): 권한별 샘플 사용자 데이터 추가
 #   7.10.1 (2026-06-16): Cron 조회 권한 분리
 #   7.10.0 (2026-06-15): 최초 생성
 
 import json
-from utils import logger
-# from config import MONGO_URI, MONGO_DB, MYSQL_CONFIG
-from config import MYSQL_CONFIG
+from common.common_function import logger
+from config import MONGO_URI, MONGO_DB, MYSQL_CONFIG
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🗄️ MariaDB 테이블 자동 생성 DDL
@@ -89,32 +82,8 @@ CREATE TABLE IF NOT EXISTS cron_logs (
 # 🆕 7.16.4: 첫 실행 시 자동으로 테스트 계정 생성
 # 초등학생 설명: 처음 프로그램을 켜면 테스트용 사람들을 자동으로 만들어줘요!
 # ─────────────────────────────────────────────────────────────────────────────
-SAMPLE_USERS = [
-    {
-        "email":    "free@test.com",
-        "password": "test1234",       # 암호화는 init_db()에서 자동 처리
-        "plan":     "free",
-        "memo":     "🟢 Free 플랜 테스트 계정 — 분류만 가능",
-    },
-    {
-        "email":    "pro@test.com",
-        "password": "test1234",
-        "plan":     "pro",
-        "memo":     "🟡 Pro 플랜 테스트 계정 — 분류+회귀+배치처리",
-    },
-    {
-        "email":    "enterprise@test.com",
-        "password": "test1234",
-        "plan":     "enterprise",
-        "memo":     "🟣 Enterprise 플랜 테스트 계정 — 전체 기능",
-    },
-    {
-        "email":    "admin@test.com",
-        "password": "admin1234",
-        "plan":     "enterprise",
-        "memo":     "🔑 관리자 계정 — 플랜 변경 권한 포함",
-    },
-]
+SAMPLE_USERS = []  # Production runtime never seeds users.
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,22 +101,11 @@ def init_db() -> bool:
     try:
         import mysql.connector
         conn   = mysql.connector.connect(**MYSQL_CONFIG)
-        cursor = conn.cursor()
-
-        # 테이블 생성
-        for stmt in INIT_SQL.strip().split(";"):
-            stmt = stmt.strip()
-            if stmt:
-                cursor.execute(stmt)
-
-        conn.commit()
-        logger.info("✅ MariaDB 테이블 초기화 완료")
-
-        # 샘플 사용자 데이터 삽입
-        _insert_sample_users(cursor, conn)
-
-        cursor.close()
+        # Runtime startup must never mutate Repository structure or seed
+        # hard-coded credentials. Schema changes are performed only through
+        # reviewed migrations / Verified SQL.
         conn.close()
+        logger.info("✅ MariaDB 연결 검증 완료")
         return True
 
     except Exception as e:

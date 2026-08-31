@@ -2,12 +2,13 @@
 # ⭐ Flask API 서버 — 권한 체크 완전 적용
 # 🆕 free=분류만 / pro=배치처리포함 / enterprise=전부
 import sys, os
+import tempfile
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, abort, g, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
-from utils import logger, read_csv_safe, file_hash, read_file_auto, get_excel_sheets
+from common.common_function import logger, read_csv_safe, file_hash, read_file_auto, get_excel_sheets
 from services.history_service import (
     save_login_history, save_upload_history, save_deploy_history,
     load_history, load_all_history, get_stats
@@ -311,7 +312,11 @@ def upload():
 
     filename = secure_filename(f.filename)
     upload_root = _current_upload_root()
-    temp_path = str(upload_root / f"_tmp_{filename}")
+    temp_handle = tempfile.NamedTemporaryFile(
+        prefix="upload_", suffix=ext, dir=upload_root, delete=False
+    )
+    temp_path = temp_handle.name
+    temp_handle.close()
     f.save(temp_path)
 
     try:
@@ -384,7 +389,7 @@ def upload():
 
         # 이력 저장
         save_upload_history(str(g.current_user["user_id"]), filename, fhash, len(df), len(df.columns))
-        _save_upload_record(plan, filename, save_path, fhash, len(df), len(df.columns), col_info)
+        _save_upload_record(str(g.current_user["user_id"]), filename, save_path, fhash, len(df), len(df.columns), col_info)
 
         logger.info(f"📤 업로드 완료: [{file_type}] {filename} ({len(df)}행)")
 
@@ -406,6 +411,8 @@ def upload():
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+        if "save_path" in locals() and os.path.exists(save_path):
+            os.remove(save_path)
         logger.error(f"❌ 업로드 실패: {e}")
         return jsonify({"error": f"파일 처리 실패: {str(e)}"}), 500
 
@@ -1009,130 +1016,60 @@ def _check_duplicate_file(fhash: str) -> dict:
             """,
             (fhash,)
         )
-
         row = cursor.fetchone()
         cursor.close()
         conn.close()
-
         return dict(row) if row else None
-
     except Exception:
         return None
 
 
 def _save_upload_record(user_id, filename, save_path,
                         fhash, row_count, col_count, col_info) -> None:
-    """
-    업로드 이력 저장
+    """Persist dataset and upload rows as one transaction."""
+    import mysql.connector
+    from config import MYSQL_CONFIG
 
-    목적:
-        업로드된 파일 정보를 DT_DATASETS와 DT_UPLOAD_FILES에 저장한다.
-
-    트랜잭션:
-        DT_DATASETS 저장과 DT_UPLOAD_FILES 저장은 하나의 작업이다.
-        둘 다 성공하면 COMMIT.
-        하나라도 실패하면 ROLLBACK.
-
-    관련 테이블:
-        DT_DATASETS
-        DT_UPLOAD_FILES
-    """
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    conn.start_transaction()
+    cursor = conn.cursor()
     try:
-        import mysql.connector
-        from config import MYSQL_CONFIG
-
-        conn = mysql.connector.connect(**MYSQL_CONFIG)
-        conn.start_transaction()
-        cursor = conn.cursor()
-
-        try:
-            cursor.execute(
-                """
-                INSERT INTO DT_DATASETS
-                (
-                    dataset_name,
-                    file_name,
-                    file_path,
-                    row_count,
-                    column_count,
-                    uploaded_by,
-                    is_active
-                )
-                VALUES
-                (
-                    %s, %s, %s, %s, %s, %s, TRUE
-                )
-                """,
-                (filename, filename, save_path, row_count, col_count, user_id)
-            )
-
-            dataset_id = cursor.lastrowid
-
-            cursor.execute(
-                """
-                INSERT INTO DT_UPLOAD_FILES
-                (
-                    dataset_id,
-                    original_file_name,
-                    stored_file_name,
-                    file_path,
-                    file_size,
-                    file_hash,
-                    mime_type,
-                    uploaded_by
-                )
-                VALUES
-                (
-                    %s, %s, %s, %s, NULL, %s, NULL, %s
-                )
-                ON DUPLICATE KEY UPDATE
-                    dataset_id = VALUES(dataset_id),
-                    file_path = VALUES(file_path),
-                    uploaded_by = VALUES(uploaded_by)
-                """,
-                (dataset_id, filename, filename, save_path, fhash, user_id)
-            )
-
-            conn.commit()
-
-        except Exception:
-            conn.rollback()
-            raise
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    except Exception as e:
-        logger.warning(f"⚠️ 업로드 이력 저장 실패: {e}")
-
-
-@app.route("/api/admin/restart", methods=["POST"])
-def admin_restart():
-    """
-    서버 재시작 API
-    초등학생 설명: 지금 서버를 껐다가 다시 켜줘요!
-    """
-    import subprocess, threading
-
-    def do_restart():
-        import time
-        time.sleep(1)  # 응답 보낸 후 재시작
-        subprocess.Popen(
-            "pkill -f run_server.py; sleep 2; "
-            "cd ~/vm_project && nohup python3 run_server.py > logs/flask.log 2>&1 &",
-            shell=True
+        cursor.execute(
+            """
+            INSERT INTO DT_DATASETS
+            (dataset_name, file_name, file_path, row_count, column_count,
+             uploaded_by, is_active)
+            VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+            """,
+            (filename, filename, save_path, row_count, col_count, user_id)
         )
+        dataset_id = cursor.lastrowid
+        cursor.execute(
+            """
+            INSERT INTO DT_UPLOAD_FILES
+            (dataset_id, original_file_name, stored_file_name, file_path,
+             file_size, file_hash, mime_type, uploaded_by)
+            VALUES (%s, %s, %s, %s, NULL, %s, NULL, %s)
+            ON DUPLICATE KEY UPDATE
+                dataset_id = VALUES(dataset_id),
+                file_path = VALUES(file_path),
+                uploaded_by = VALUES(uploaded_by)
+            """,
+            (dataset_id, filename, filename, save_path, fhash, user_id)
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
-    threading.Thread(target=do_restart, daemon=True).start()
-    save_deploy_history("current", "재시작", "관리자 수동 재시작", "admin")
-    return jsonify({"success": True, "message": "재시작 명령 전송됨"})
+
+# Process-control and deployment routes are intentionally absent from the web
+# boundary. Operations use the authenticated Harness operational channel.
 
 
-# 직접 web/app.py로 실행해도 모든 라우트가 등록된 뒤 서버가 켜지게 마지막에 둡니다.
 if __name__ == "__main__":
     init_app()
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
-
-
-

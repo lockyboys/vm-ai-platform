@@ -11,7 +11,9 @@ from services.auth import auth_service
 
 @pytest.fixture(autouse=True)
 def configured_token_secret(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(auth_service, "SECRET_KEY", "test-only-secret-key")
+    monkeypatch.setenv("SPS_AUTH_JWT_SECRET_KEY", "test-only-secret-key")
+    monkeypatch.setenv("SPS_AUTH_JWT_EXPIRE_SECONDS", "3600")
+    monkeypatch.setenv("SPS_AUTH_REFRESH_TOKEN_EXPIRE_SECONDS", "86400")
     monkeypatch.setenv("SPS_ADMIN_EMAILS", "admin@example.test")
 
 

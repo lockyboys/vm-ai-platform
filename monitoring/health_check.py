@@ -15,10 +15,10 @@
 #   7.16.4 (2026-06-16): 주석 강화, 감시 서비스 config로 분리
 #   7.0.0  (2026-06-15): 최초 생성
 
-import os, sys, time, subprocess
+import os, socket, sys, time, subprocess
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import logger, log_event
+from common.common_function import logger, log_event
 from config import MONITORED_SERVICES, HEALING_FAIL_THRESHOLD, HEALING_CHECK_INTERVAL
 
 
@@ -81,12 +81,11 @@ class SelfHealingSystem:
             True = 포트 열림 (서비스 정상)
             False = 포트 닫힘 (서비스 죽음)
         """
-        result = subprocess.run(
-            ["ss", "-tlnp"],
-            capture_output=True,
-            text=True
-        )
-        return str(port) in result.stdout
+        try:
+            with socket.create_connection(("127.0.0.1", int(port)), timeout=1):
+                return True
+        except OSError:
+            return False
 
     def _restart(self, name: str) -> bool:
         """
