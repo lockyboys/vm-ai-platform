@@ -1,20 +1,23 @@
 from __future__ import annotations
 
-import contextlib
-import io
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
-
-import pytest
 
 from harness.mcp.formatters.pytest_result_formatter import (
     PytestCaseResult,
     PytestResultFormatter,
 )
 
+PROJECT_ROOT = Path("/data/vm_project")
+MAX_TEST_PATHS = 20
 
-@dataclass
+
+@dataclass(eq=False)
 class PytestResultCollector:
     """pytest Hook 기반 테스트 결과 수집기."""
 
@@ -120,6 +123,34 @@ class PytestResultCollector:
         )
 
 
+def _validate_test_paths(test_paths: Sequence[str]) -> list[str]:
+    if not test_paths:
+        raise ValueError("test_paths must not be empty.")
+    if len(test_paths) > MAX_TEST_PATHS:
+        raise ValueError(f"No more than {MAX_TEST_PATHS} test paths are allowed.")
+
+    project_root = PROJECT_ROOT.resolve(strict=True)
+    normalized_paths: list[str] = []
+    for path in test_paths:
+        normalized_path = path.strip()
+        relative_path = Path(normalized_path)
+        if not normalized_path or relative_path.is_absolute():
+            raise ValueError("Only non-empty project-relative test paths are allowed.")
+        if any(part in {"", ".", ".."} for part in relative_path.parts):
+            raise ValueError("Dot segments are not allowed in test paths.")
+        if not relative_path.parts or relative_path.parts[0] != "tests":
+            raise ValueError("Only tests/ paths are allowed.")
+
+        requested_path = (project_root / relative_path).resolve(strict=True)
+        if project_root not in requested_path.parents:
+            raise ValueError("The requested test path is outside the project root.")
+
+        canonical_path = str(requested_path.relative_to(project_root))
+        if canonical_path not in normalized_paths:
+            normalized_paths.append(canonical_path)
+    return normalized_paths
+
+
 def run_pytest_verification(
     test_paths: Sequence[str],
     *,
@@ -132,62 +163,80 @@ def run_pytest_verification(
     최종 PrettyOutput만 Console에 표시한다.
     """
 
-    if not test_paths:
-        raise ValueError(
-            "test_paths must not be empty."
-        )
+    normalized_test_paths = _validate_test_paths(test_paths)
 
-    missing_paths = [
-        path
-        for path in test_paths
-        if not Path(path).exists()
-    ]
-
-    if missing_paths:
-        raise FileNotFoundError(
-            "Test path does not exist: "
-            + ", ".join(missing_paths)
-        )
-
-    collector = PytestResultCollector()
-
-    stdout_buffer = io.StringIO()
-    stderr_buffer = io.StringIO()
+    # 20260831 | CODEX | MCP 이벤트 루프·모듈 캐시와 테스트 실행을 분리했음
+    # 별도 Python 프로세스에서 pytest를 실행해야 asyncio.run() 테스트가
+    # 정상 동작하고, 매 실행마다 수정된 소스를 새로 import할 수 있다.
+    with tempfile.NamedTemporaryFile(
+        prefix="sps_pytest_",
+        suffix=".xml",
+        delete=False,
+    ) as junit_file:
+        junit_path = Path(junit_file.name)
 
     pytest_arguments = [
-        *test_paths,
+        sys.executable,
+        "-m",
+        "pytest",
+        *normalized_test_paths,
         "--disable-warnings",
         "--tb=short",
         "-q",
+        f"--junitxml={junit_path}",
     ]
-
-    with (
-        contextlib.redirect_stdout(
-            stdout_buffer
-        ),
-        contextlib.redirect_stderr(
-            stderr_buffer
-        ),
-    ):
-        exit_code = pytest.main(
+    try:
+        completed = subprocess.run(
             pytest_arguments,
-            plugins=[
-                collector,
-            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        results: list[PytestCaseResult] = []
+        if junit_path.exists() and junit_path.stat().st_size:
+            root = ElementTree.parse(junit_path).getroot()
+            for test_case in root.iter("testcase"):
+                file_path = test_case.get("file", "")
+                case_name = test_case.get("name", "")
+                class_name = test_case.get("classname", "")
+                node_prefix = file_path or class_name.replace(".", "/") + ".py"
+                node_id = f"{node_prefix}::{case_name}" if node_prefix else case_name
+                status = "PASSED"
+                detail = ""
+                for child_name, child_status in (
+                    ("failure", "FAILED"),
+                    ("error", "ERROR"),
+                    ("skipped", "SKIPPED"),
+                ):
+                    child = test_case.find(child_name)
+                    if child is not None:
+                        status = child_status
+                        detail = child.text or child.get("message", "")
+                        break
+                results.append(
+                    PytestCaseResult(
+                        node_id=node_id,
+                        status=status,
+                        duration=float(test_case.get("time", "0") or 0),
+                        detail=detail,
+                    )
+                )
+    finally:
+        junit_path.unlink(missing_ok=True)
 
     pretty_output = (
         PytestResultFormatter.format(
-            collector.results,
+            results,
             title=title,
         )
     )
 
     return {
-        "exit_code": int(exit_code),
-        "success": int(exit_code) == 0,
-        "results": collector.results,
+        "exit_code": int(completed.returncode),
+        "success": completed.returncode == 0,
+        "results": results,
         "pretty_output": pretty_output,
-        "raw_stdout": stdout_buffer.getvalue(),
-        "raw_stderr": stderr_buffer.getvalue(),
+        "raw_stdout": completed.stdout,
+        "raw_stderr": completed.stderr,
     }

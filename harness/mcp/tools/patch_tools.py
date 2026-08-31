@@ -132,3 +132,103 @@ def source_patch(patch_text: str, dry_run: bool = True) -> dict:
         "before_sha256": before_sha256,
         "after_sha256": {path: _file_sha256(path) for path in paths},
     }
+
+def source_rename(
+    source_path: str,
+    destination_path: str,
+    dry_run: bool = True,
+) -> dict:
+    """Rename one tracked project file without changing its content."""
+    normalized_source = _validate_relative_path(source_path)
+    source_relative = Path(normalized_source)
+    normalized_destination = destination_path.strip()
+    destination_relative = Path(normalized_destination)
+
+    if not normalized_destination or destination_relative.is_absolute():
+        raise ValueError("Only a non-empty project-relative destination is allowed.")
+    if any(part in {"", ".", ".."} for part in destination_relative.parts):
+        raise ValueError("Dot segments are not allowed in rename paths.")
+    if any(part in EXCLUDED_DIRECTORY_NAMES for part in destination_relative.parts):
+        raise ValueError("An excluded directory was requested.")
+    if destination_relative.name in DENIED_FILE_NAMES:
+        raise ValueError("Environment files cannot be renamed.")
+    if destination_relative.suffix.lower() in DENIED_SUFFIXES:
+        raise ValueError("Secret-key files cannot be renamed.")
+    if source_relative.parent != destination_relative.parent:
+        raise ValueError("source_rename changes only the file name, not its directory.")
+
+    project_root = PROJECT_ROOT.resolve(strict=True)
+    destination_parent = (project_root / destination_relative.parent).resolve(strict=True)
+    if project_root != destination_parent and project_root not in destination_parent.parents:
+        raise ValueError("The rename destination is outside the project root.")
+    requested_source = (project_root / source_relative).resolve(strict=True)
+    requested_destination = destination_parent / destination_relative.name
+    if requested_destination.exists() or requested_destination.is_symlink():
+        raise ValueError("The rename destination already exists.")
+
+    tracked_result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", normalized_source],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if tracked_result.returncode != 0:
+        raise ValueError("Only tracked project files can be renamed.")
+
+    before_sha256 = _file_sha256(normalized_source)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "would_rename": True,
+            "source_path": normalized_source,
+            "destination_path": str(destination_relative),
+            "before_sha256": before_sha256,
+        }
+
+    requested_source.rename(requested_destination)
+    after_sha256 = _file_sha256(str(destination_relative))
+    if after_sha256 != before_sha256:
+        raise RuntimeError("Renamed file content hash does not match the source hash.")
+    return {
+        "dry_run": False,
+        "renamed": True,
+        "source_path": normalized_source,
+        "destination_path": str(destination_relative),
+        "before_sha256": before_sha256,
+        "after_sha256": after_sha256,
+        "content_preserved": True,
+    }
+
+
+def source_delete(path: str, dry_run: bool = True) -> dict:
+    """Delete one explicit, tracked, non-secret project file."""
+    normalized_path = _validate_relative_path(path)
+    requested_path = (PROJECT_ROOT / normalized_path).resolve(strict=True)
+
+    tracked_result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", normalized_path],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if tracked_result.returncode != 0:
+        raise ValueError("Only tracked project files can be deleted.")
+
+    before_sha256 = _file_sha256(normalized_path)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "would_delete": True,
+            "path": normalized_path,
+            "before_sha256": before_sha256,
+        }
+
+    requested_path.unlink()
+    return {
+        "dry_run": False,
+        "deleted": True,
+        "path": normalized_path,
+        "before_sha256": before_sha256,
+    }

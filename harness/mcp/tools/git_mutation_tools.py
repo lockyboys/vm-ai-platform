@@ -29,7 +29,7 @@ def _run_git(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _validate_paths(paths: list[str]) -> list[str]:
+def _validate_paths(paths: list[str], *, allow_deleted: bool = False) -> list[str]:
     if not paths:
         raise ValueError("At least one explicit path is required.")
     if len(paths) > MAX_PATHS:
@@ -58,7 +58,16 @@ def _validate_paths(paths: list[str]) -> list[str]:
         requested_path = (project_root / relative_path).resolve(strict=False)
         if requested_path == project_root or project_root not in requested_path.parents:
             raise ValueError("The requested Git path is outside the project root.")
-        if not requested_path.exists() or not requested_path.is_file():
+        if requested_path.exists():
+            if not requested_path.is_file():
+                raise ValueError("Only regular files can be staged.")
+        elif allow_deleted:
+            tracked_result = _run_git(
+                ["ls-files", "--error-unmatch", "--", normalized_path]
+            )
+            if tracked_result.returncode != 0:
+                raise ValueError("Only tracked deleted files can be staged.")
+        else:
             raise ValueError("Only existing regular files can be staged.")
 
         canonical_path = str(requested_path.relative_to(project_root))
@@ -69,7 +78,7 @@ def _validate_paths(paths: list[str]) -> list[str]:
 
 
 def _staged_paths() -> list[str]:
-    result = _run_git(["diff", "--cached", "--name-only", "--diff-filter=ACMRTUXB"])
+    result = _run_git(["diff", "--cached", "--name-only", "--diff-filter=ACDMRTUXB"])
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "Unable to read staged files.")
     return sorted(line for line in result.stdout.splitlines() if line)
@@ -95,6 +104,30 @@ def git_add(paths: list[str], dry_run: bool = True) -> dict:
     }
 
 
+def git_stage_delete(paths: list[str], dry_run: bool = True) -> dict:
+    """Stage only explicit tracked files that have already been deleted."""
+    normalized_paths = _validate_paths(paths, allow_deleted=True)
+    for path in normalized_paths:
+        if (PROJECT_ROOT / path).exists():
+            raise ValueError("git_stage_delete accepts only already-deleted files.")
+
+    arguments = ["add", "--update"]
+    if dry_run:
+        arguments.extend(["--dry-run", "--verbose"])
+    arguments.extend(["--", *normalized_paths])
+
+    result = _run_git(arguments)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "git add --update failed.")
+
+    return {
+        "dry_run": dry_run,
+        "requested_paths": normalized_paths,
+        "staged_paths": _staged_paths(),
+        "git_output": result.stdout.splitlines(),
+    }
+
+
 def git_commit(
     message: str,
     expected_paths: list[str],
@@ -111,7 +144,7 @@ def git_commit(
             f"Commit message exceeds {MAX_COMMIT_MESSAGE_LENGTH} characters."
         )
 
-    normalized_expected_paths = sorted(_validate_paths(expected_paths))
+    normalized_expected_paths = sorted(_validate_paths(expected_paths, allow_deleted=True))
     actual_staged_paths = _staged_paths()
     if not actual_staged_paths:
         raise ValueError("There are no staged files to commit.")
