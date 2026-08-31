@@ -24,11 +24,14 @@ class ObjectRuntimeIntelligence:
 
         load_dotenv()
 
-        self.google_api_key = os.getenv("GOOGLE_API_KEY")
+        self.google_api_key = (
+            os.getenv("GEMINI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+        )
 
     def has_api_key(self):
 
-        return self.google_api_key is not None
+        return bool(self.google_api_key)
 
 class ObjectRuntimeLogger:
     """
