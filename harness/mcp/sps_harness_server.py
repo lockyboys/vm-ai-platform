@@ -1,3 +1,15 @@
+# =============================================================================
+# File Name   : harness/mcp/sps_harness_server.py
+# Purpose     : SPS Harness를 시작하고 명령어를 연결하는 중심 파일
+# =============================================================================
+# CHANGE HISTORY
+# =============================================================================
+# 20260902 | Codex | Harness 표준 파일 헤더와 서버 역할 설명을 보강했음
+# =============================================================================
+# 이 파일은 무엇을 하나요?
+# - 사용자가 Harness 명령어를 쓰면, 알맞은 도구 파일로 연결합니다.
+# - 로그인 확인과 작업 이력 읽기·쓰기 창구도 여기서 준비합니다.
+# 주의: 실제 업무 처리는 각 tools 파일에서 합니다. 이 파일에 업무 규칙을 중복 작성하지 않습니다.
 from __future__ import annotations
 
 import json
@@ -15,7 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse, RedirectResponse, Response
+from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 from harness.mcp.oauth_provider import (
     HarnessOAuthProvider,
     HarnessOAuthSettings,
@@ -28,6 +40,8 @@ from harness.mcp.tools.write_tools import (
     source_write,
 )
 from harness.mcp.tools.patch_tools import (
+    source_delete,
+    source_rename,
     source_patch,
 )
 from harness.mcp.tools.repository_tools import (
@@ -38,14 +52,26 @@ from harness.mcp.tools.repository_tools import (
     table_schema,
 )
 from harness.mcp.tools.mongodb_tools import (
-    mongodb_collections,
+    mongodb_collection_stats,
     mongodb_documents,
+    mongodb_list_collections,
+    mongodb_rename_collection,
     mongodb_save_document,
+    mongodb_update_document,
     verified_sql,
+)
+from harness.mcp.tools.backup_tools import (
+    database_backup_create,
+    database_backup_verify,
+    mongodb_backup_collection,
+    mongodb_backup_verify,
 )
 from harness.mcp.tools.verified_sql_tools import (
     verified_sql_register,
     verified_sql_execute,
+)
+from harness.mcp.tools.identifier_tools import (
+    identifier_generate,
 )
 from harness.mcp.tools.object_lifecycle_tools import (
     object_lifecycle_reconcile,
@@ -60,9 +86,13 @@ from harness.mcp.tools.git_tools import (
 from harness.mcp.tools.git_mutation_tools import (
     git_add,
     git_commit,
+    git_stage_delete,
 )
 from harness.mcp.tools.operational_tools import (
     operational_service_diagnostics,
+)
+from harness.mcp.tools.pytest_tools import (
+    run_pytest_verification,
 )
 
 PROJECT_ROOT = Path("/data/vm_project")
@@ -130,6 +160,31 @@ Always:
         required_scopes=list(OAUTH_SETTINGS.scopes),
     ),
 )
+
+
+def _openid_configuration() -> dict[str, object]:
+    """Return settings-derived OAuth metadata at the OpenID Discovery alias."""
+
+    issuer_url = OAUTH_SETTINGS.issuer_url.rstrip("/")
+    return {
+        "issuer": f"{issuer_url}/",
+        "authorization_endpoint": f"{issuer_url}/authorize",
+        "token_endpoint": f"{issuer_url}/token",
+        "registration_endpoint": f"{issuer_url}/register",
+        "revocation_endpoint": f"{issuer_url}/revoke",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+        "scopes_supported": list(OAUTH_SETTINGS.scopes),
+    }
+
+
+@mcp.custom_route("/.well-known/openid-configuration", methods=["GET"])
+async def openid_configuration(_: Request) -> Response:
+    """Expose OAuth metadata through the OpenID Discovery compatibility path."""
+
+    return JSONResponse(_openid_configuration())
 
 
 @mcp.custom_route("/oauth/google/callback", methods=["GET"])
@@ -276,6 +331,9 @@ mcp.tool()(source_search)
 mcp.tool()(source_read)
 mcp.tool()(source_write)
 mcp.tool()(source_patch)
+mcp.tool()(source_delete)
+mcp.tool()(source_rename)
+mcp.tool()(run_pytest_verification)
 
 mcp.tool()(table_schema)
 mcp.tool()(table_data)
@@ -286,15 +344,24 @@ mcp.tool()(repository_logical_relations)
 mcp.tool()(verified_sql)
 mcp.tool()(verified_sql_register)
 mcp.tool()(verified_sql_execute)
+mcp.tool()(identifier_generate)
 mcp.tool()(object_lifecycle_reconcile)
 mcp.tool()(repository_table_object_reconcile)
-mcp.tool()(mongodb_collections)
+mcp.tool()(mongodb_list_collections)
+mcp.tool()(mongodb_collection_stats)
 mcp.tool()(mongodb_documents)
+mcp.tool()(mongodb_rename_collection)
 mcp.tool()(mongodb_save_document)
+mcp.tool()(mongodb_update_document)
+mcp.tool()(database_backup_create)
+mcp.tool()(database_backup_verify)
+mcp.tool()(mongodb_backup_collection)
+mcp.tool()(mongodb_backup_verify)
 
 mcp.tool()(git_status)
 mcp.tool()(git_diff)
 mcp.tool()(git_add)
+mcp.tool()(git_stage_delete)
 mcp.tool()(git_commit)
 
 mcp.tool()(operational_service_diagnostics)
