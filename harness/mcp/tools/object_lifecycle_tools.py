@@ -12,7 +12,9 @@ from engine.identifier import IdentifierCoordinator
 
 _PROGRAM_ID = "object_lifecycle_reconcile"
 _TABLE_OBJECT_RULE_CODE = "RL_REGISTER_REPOSITORY_OBJECT"
-_TABLE_OBJECT_TARGETS = (("COMMON", "CM"), ("STORY", "SP"), ("HEALTH", "HC"))
+# HEALTH는 MongoDB 상세 저장소이므로 여기서 MariaDB 동기화를 시도하지 않는다.
+# COMMON 메타데이터와 STORY Platform Object만 대상으로 Lifecycle을 발급한다.
+_TABLE_OBJECT_TARGETS = (("COMMON", "CM"), ("STORY", "SP"))
 
 
 def _sync_table_objects(apply: bool) -> list[dict[str, Any]]:

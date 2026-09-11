@@ -5,6 +5,7 @@
 # CHANGE HISTORY
 # =============================================================================
 # 20260830 | OpenAI | Repository Object metadata 기반 Identifier 발급 도구를 추가했음
+# 20260903 | OpenAI | Sequence 예약 즉시 Commit 및 후속 실패 시 번호 폐기를 적용했음
 # =============================================================================
 
 from __future__ import annotations
@@ -75,26 +76,33 @@ def identifier_generate(
             return result
 
         identifier_database.begin()
+        lock_acquired = False
         try:
             identifier_coordinator.acquire(identifier_preparation)
+            lock_acquired = True
             try:
-                identifier_resolution = identifier_coordinator.resolve(
+                identifier_resolution = identifier_coordinator.reserve(
                     request=identifier_request,
                     prepared=identifier_preparation,
-                    maximum_length=identifier_maximum_length,
                 )
-                generated_identifier = identifier_coordinator.render_resolution(
-                    request=identifier_request,
-                    prepared=identifier_preparation,
-                    resolution=identifier_resolution,
-                    maximum_length=identifier_maximum_length,
-                )
+                identifier_database.commit()
+            except Exception:
+                identifier_database.rollback()
+                raise
             finally:
-                identifier_coordinator.release(identifier_preparation)
-            identifier_database.commit()
+                if lock_acquired:
+                    identifier_coordinator.release(identifier_preparation)
         except Exception:
-            identifier_database.rollback()
             raise
+
+        # Sequence는 이미 Commit되었다. 이후 렌더링 또는 저장 실패 시
+        # 예약 번호를 Rollback하거나 재사용하지 않고 폐기한다.
+        generated_identifier = identifier_coordinator.render_resolution(
+            request=identifier_request,
+            prepared=identifier_preparation,
+            resolution=identifier_resolution,
+            maximum_length=identifier_maximum_length,
+        )
 
         result.update(
             {
@@ -102,6 +110,8 @@ def identifier_generate(
                 "blueprint_code": identifier_resolution.blueprint_code,
                 "sequence_no": identifier_resolution.sequence_no,
                 "sequence_length": identifier_resolution.sequence_length,
+                "sequence_committed_yn": "Y",
+                "failure_policy": "DISCARD_RESERVED_SEQUENCE",
                 "rule_id": identifier_resolution.rule_id,
                 "rule_code": identifier_resolution.rule_code,
             }

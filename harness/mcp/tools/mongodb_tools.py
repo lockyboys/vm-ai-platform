@@ -24,6 +24,7 @@ from common.database import CommonDatabase
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 VALID_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+ALLOWED_SPS_REPAIR_FIELDS = {"_sps.knowledge_type_id", "_sps.knowledge_type_code", "_sps.schema_version", "_sps.legacy_payload_repaired_by"}
 
 
 def _validate_collection_name(collection_name: str) -> str:
@@ -266,10 +267,10 @@ def mongodb_update_document(
             "_sps.contract_code and _sps.source_identifier."
         )
     if any(
-        not (field_name.startswith("payload.") or field_name.startswith("audit."))
+        not (field_name.startswith("payload.") or field_name.startswith("audit.") or field_name in ALLOWED_SPS_REPAIR_FIELDS)
         for field_name in set_document
     ):
-        raise ValueError("set_json may update only payload.* or audit.* fields.")
+        raise ValueError("set_json may update only payload.*, audit.*, or approved SPS repair fields.")
 
     database = CommonDatabase(
         database_role=role,

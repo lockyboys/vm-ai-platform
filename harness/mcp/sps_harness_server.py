@@ -64,7 +64,9 @@ from harness.mcp.tools.backup_tools import (
     database_backup_create,
     database_backup_verify,
     mongodb_backup_collection,
+    mongodb_backup_delete,
     mongodb_backup_verify,
+    mongodb_delete_backup,
 )
 from harness.mcp.tools.verified_sql_tools import (
     verified_sql_register,
@@ -357,6 +359,8 @@ mcp.tool()(database_backup_create)
 mcp.tool()(database_backup_verify)
 mcp.tool()(mongodb_backup_collection)
 mcp.tool()(mongodb_backup_verify)
+mcp.tool()(mongodb_backup_delete)
+mcp.tool()(mongodb_delete_backup)
 
 mcp.tool()(git_status)
 mcp.tool()(git_diff)
