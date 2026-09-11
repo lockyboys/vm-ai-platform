@@ -1,0 +1,13 @@
+SPS Backup Deletion Target Record
+Created: 2026-09-02
+Status: USER_APPROVED_PENDING_EXECUTION
+
+Delete only these incorrectly named backup files:
+1. mongodb/health/sp_impact_analysis_text__before_legacy_payload_normalization_20260902__20260901T230321+0000.json
+2. mongodb/health/sp_impact_analysis_text__before_Backup_legacy_payload_normalization_20260902__20260901T230748+0000.json
+3. mongodb/health/sp_impact_analysis_text__before_legacy_payload_normalization_backup_20260902__20260901T230930+0000.json
+
+Retain:
+mongodb/health/sp_impact_analysis_text__before_legacy_payload_normalization_backup_20260902_01__20260901T231146+0000.json
+
+Deletion has not been executed because the active Harness connection has no backup-delete tool.
