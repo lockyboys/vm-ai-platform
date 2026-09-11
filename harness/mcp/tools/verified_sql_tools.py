@@ -143,6 +143,40 @@ def _contains_multiple_statements(sql_text: str) -> bool:
     return statement_ended
 
 
+def _hydrate_query_payload_from_mongodb(
+    database: CommonDatabase,
+    query: dict[str, Any],
+) -> dict[str, Any]:
+    """Load a migrated Verified SQL payload by Query ID, failing closed when absent."""
+    if str(query.get("sql_text") or "").strip():
+        return query
+
+    documents = database.find(
+        collection_name="verified_sql_payload",
+        filter_document={
+            "_sps.source_table_name": "cm_verified_sql_query",
+            "_sps.source_identifier": query["query_id"],
+        },
+        limit=1,
+    )
+    if not documents:
+        raise ValueError(
+            "Verified SQL payload is empty in MariaDB and missing in MongoDB. "
+            f"query_id={query['query_id']}"
+        )
+    payload = documents[0].get("payload", {}).get("verified_sql_payload")
+    if not isinstance(payload, dict) or not str(payload.get("sql_text") or "").strip():
+        raise ValueError(
+            "MongoDB Verified SQL payload has no executable sql_text. "
+            f"query_id={query['query_id']}"
+        )
+    hydrated = dict(query)
+    for field_name in ("query_description", "sql_text", "verification_description"):
+        if payload.get(field_name) is not None:
+            hydrated[field_name] = payload[field_name]
+    return hydrated
+
+
 def _load_executable_query(
     database: CommonDatabase,
     query_id: str,
@@ -172,7 +206,7 @@ def _load_executable_query(
             "It must be active, verified, certified A, and not deleted."
         )
 
-    return query
+    return _hydrate_query_payload_from_mongodb(database, query)
 
 
 def _resolve_execution_database_role(query_description: str | None) -> str:
