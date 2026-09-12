@@ -34,6 +34,24 @@ class IdentifierResolution:
     timezone_id: str | None = None
 
 
+@dataclass(frozen=True)
+class IdentifierReservation:
+    """Committed Sequence reservation awaiting Identifier rendering."""
+
+    blueprint_code: str
+    sequence_date: str
+    sequence_no: int
+    sequence_length: int
+    lock_name: str
+    rule_id: str | None = None
+    rule_code: str | None = None
+    rule_action_id: str | None = None
+    rule_action_type_code: str | None = None
+    object_level: int | None = None
+    resolution_source: str | None = None
+    timezone_id: str | None = None
+
+
 class IdentifierCoordinator:
     """
     SPS Identifier 발급 흐름 조정자.
@@ -220,6 +238,45 @@ class IdentifierCoordinator:
         prepared: dict[str, Any],
         maximum_length: int = 99,
     ) -> IdentifierResolution:
+        reservation = self.reserve(
+            request=request,
+            prepared=prepared,
+        )
+        identifier = self.render_resolution(
+            request=request,
+            prepared=prepared,
+            resolution=reservation,
+            maximum_length=maximum_length,
+        )
+        return IdentifierResolution(
+            identifier=identifier,
+            blueprint_code=reservation.blueprint_code,
+            sequence_date=reservation.sequence_date,
+            sequence_no=reservation.sequence_no,
+            sequence_length=reservation.sequence_length,
+            lock_name=reservation.lock_name,
+            rule_id=reservation.rule_id,
+            rule_code=reservation.rule_code,
+            rule_action_id=reservation.rule_action_id,
+            rule_action_type_code=reservation.rule_action_type_code,
+            object_level=reservation.object_level,
+            resolution_source=reservation.resolution_source,
+            timezone_id=reservation.timezone_id,
+        )
+
+    def reserve(
+        self,
+        *,
+        request: dict[str, Any],
+        prepared: dict[str, Any],
+    ) -> IdentifierReservation:
+        """Reserve the next Sequence without rendering the final Identifier.
+
+        The caller owns the transaction and may commit immediately after this
+        method returns. Once committed, a later rendering or persistence
+        failure must consume rather than reuse the reserved Sequence number.
+        """
+
         sequence_row = (
             self.sequence_allocator.ensure_sequence(
                 request=request,
@@ -239,25 +296,8 @@ class IdentifierCoordinator:
             program_id=request["program_id"],
         )
 
-        identifier = (
-            self.identifier_engine.render_identifier(
-                object_metadata=request,
-                blueprint=prepared["blueprint"],
-                sequence_no=sequence_no,
-                sequence_length=prepared["sequence_length"],
-                now=prepared["now"],
-            )
-        )
-
-        self._validate_identifier(
-            identifier=identifier,
-            blueprint=prepared["blueprint"],
-            maximum_length=maximum_length,
-        )
-
         rule_resolution: IdentifierRuleResolution = prepared["rule_resolution"]
-        return IdentifierResolution(
-            identifier=identifier,
+        return IdentifierReservation(
             blueprint_code=(
                 prepared["blueprint"]["blueprint_code"]
             ),
@@ -279,7 +319,7 @@ class IdentifierCoordinator:
         *,
         request: dict[str, Any],
         prepared: dict[str, Any],
-        resolution: IdentifierResolution,
+        resolution: IdentifierResolution | IdentifierReservation,
         object_code: str | None = None,
         maximum_length: int = 99,
     ) -> str:

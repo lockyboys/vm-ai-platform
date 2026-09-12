@@ -1,19 +1,28 @@
-"""Migrate one MariaDB large-text payload to MongoDB with an SPS execution link."""
+"""Move one MariaDB detail payload to MongoDB with an SPS execution link."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
-from common.database import CommonDatabase
-from core.transaction.sps_distributed_transaction import SpsDistributedTransaction
+# 직접 실행(python scripts/...) 시에도 프로젝트 루트를 import 경로에 넣는다.
+# python -m scripts.migrate_one_table_detail 실행과 같은 모듈 해석을 보장한다.
+_PROJECT_ROOT_PATH = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_PATH))
+
+from common.common_function import normalize_required_text
+from common.database import CommonDatabase, MariaMongoWriteService
 from engine.identifier.coordinator import IdentifierCoordinator
 
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+_required_text = normalize_required_text
 _AUDIT_COLUMNS = (
     "created_by",
     "created_dt",
@@ -26,21 +35,36 @@ _AUDIT_COLUMNS = (
 )
 _PROGRAM_ID = "scripts.migrate_one_table_detail"
 _EXECUTION_OBJECT_CODE = "EXECUTION_HISTORY"
+_CHANGE_HISTORY_OBJECT_CODE = "TE_COMMON_CM_CHANGE_HISTORY"
 _MONGODB_OBJECT_CODES = ("MDB", "MCO", "MCM", "MDD")
 
 
-def _required_text(value: Any, field_name: str) -> str:
-    normalized = str(value or "").strip()
-    if not normalized:
-        raise ValueError(f"{field_name} is required.")
-    return normalized
-
-
 def _safe_identifier(value: Any, field_name: str) -> str:
-    normalized = _required_text(value, field_name)
+    normalized = normalize_required_text(value, field_name)
     if not _IDENTIFIER_PATTERN.fullmatch(normalized):
         raise ValueError(f"Unsafe SQL identifier: {field_name}={normalized}")
     return normalized
+
+
+def _build_mongodb_payload(
+    source_row: Mapping[str, Any],
+    *,
+    payload_column_names: list[str],
+    mongodb_payload_field_name: str,
+) -> dict[str, Any]:
+    """Map MariaDB detail columns into one metadata-defined MongoDB payload field."""
+    source_payload = {
+        column_name: source_row.get(column_name)
+        for column_name in payload_column_names
+        if source_row.get(column_name) is not None
+    }
+    if not source_payload:
+        raise ValueError("The selected source row has no payload values to migrate.")
+    # Multi-column contracts must preserve the source column names even when
+    # this particular row has only one non-null value.
+    if len(payload_column_names) == 1:
+        return {mongodb_payload_field_name: next(iter(source_payload.values()))}
+    return {mongodb_payload_field_name: source_payload}
 
 
 def _load_contract(common_database: CommonDatabase, contract_code: str) -> dict[str, Any]:
@@ -66,10 +90,107 @@ def _load_contract(common_database: CommonDatabase, contract_code: str) -> dict[
 
 _VERIFIED_QUERY_CRUD = {
     "source_read": "READ",
+    "source_clear": "UPDATE",
     "execution_insert": "CREATE",
     "link_insert": "CREATE",
     "finalize_update": "UPDATE",
+    "change_history_insert": "CREATE",
 }
+
+_SOURCE_CLEAR_PARAMETER_CODES = {
+    "actor_id",
+    "program_id",
+    "client_ip",
+    "source_identifier",
+}
+
+
+def _resolve_source_clear_parameters(
+    contract: Mapping[str, Any],
+    *,
+    actor_id: str,
+    client_ip: str,
+    source_identifier: str,
+) -> tuple[str, ...]:
+    """Build registered source-clear parameters from contract metadata."""
+    migration_mode_code = _required_text(
+        contract.get("migration_mode_code"),
+        "migration_mode_code",
+    ).upper()
+    if migration_mode_code != "MOVE_PAYLOAD":
+        raise ValueError(
+            "Physical migration requires migration_mode_code=MOVE_PAYLOAD. "
+            f"actual={migration_mode_code}"
+        )
+
+    parameter_codes = contract.get("source_clear_parameter_codes")
+    if not isinstance(parameter_codes, list) or not parameter_codes:
+        raise ValueError(
+            "source_clear_parameter_codes must be a non-empty list in the "
+            f"storage separation contract: {contract.get('contract_code', '<unknown>')}"
+        )
+
+    values = {
+        "actor_id": actor_id,
+        "program_id": _PROGRAM_ID,
+        "client_ip": client_ip,
+        "source_identifier": source_identifier,
+    }
+    resolved_parameters: list[str] = []
+    for parameter_code in parameter_codes:
+        normalized_code = _required_text(
+            parameter_code,
+            "source_clear_parameter_code",
+        )
+        if normalized_code not in _SOURCE_CLEAR_PARAMETER_CODES:
+            raise ValueError(
+                "Unsupported source clear parameter code: "
+                f"{normalized_code}"
+            )
+        resolved_parameters.append(values[normalized_code])
+    return tuple(resolved_parameters)
+
+
+def _assert_source_queries_share_transaction_scope(
+    *,
+    source_database: CommonDatabase,
+    transaction_database: CommonDatabase,
+    source_read_sql: str,
+    source_clear_sql: str,
+) -> None:
+    """Reject cross-server moves before any document or index is written."""
+    if source_database is transaction_database:
+        return
+
+    differing_connection_fields = [
+        field_name
+        for field_name in ("host", "port", "user")
+        if source_database.config.get(field_name)
+        != transaction_database.config.get(field_name)
+    ]
+    if differing_connection_fields:
+        raise RuntimeError(
+            "Source and execution MariaDB roles cannot share one transaction. "
+            f"differing_fields={differing_connection_fields}"
+        )
+
+    source_schema_name = _safe_identifier(
+        source_database.database_name,
+        "source_database_name",
+    )
+    qualified_schema_marker = f"{source_schema_name.lower()}."
+    for operation_name, sql_text in (
+        ("source_read", source_read_sql),
+        ("source_clear", source_clear_sql),
+    ):
+        normalized_sql = sql_text.replace(chr(96), "").lower()
+        if qualified_schema_marker not in normalized_sql:
+            raise ValueError(
+                "Cross-role storage migration requires a schema-qualified "
+                "Verified SQL query. "
+                f"operation_name={operation_name}, "
+                f"source_schema={source_schema_name}"
+            )
 
 
 def _load_verified_queries(
@@ -142,6 +263,28 @@ def _load_object(story_database: CommonDatabase, object_code: str) -> dict[str, 
     )
     if not row:
         raise LookupError(f"Active Repository Object not found: {object_code}")
+    return row
+
+
+def _load_knowledge_type(
+    story_database: CommonDatabase,
+    knowledge_type_code: str,
+) -> dict[str, Any]:
+    row = story_database.fetch_one(
+        """
+        SELECT knowledge_type_id, knowledge_type_code, knowledge_type_name
+        FROM sp_knowledge_type_hold
+        WHERE knowledge_type_code = %s
+          AND active_yn = 'Y'
+          AND deleted_yn = 'N'
+          AND deleted_dt IS NULL
+        """,
+        (knowledge_type_code,),
+    )
+    if not row:
+        raise LookupError(
+            f"Active Knowledge Type not found: {knowledge_type_code}"
+        )
     return row
 
 
@@ -231,6 +374,38 @@ def _insert_execution_link(
         )
 
 
+def _insert_change_history(
+    database: CommonDatabase,
+    *,
+    sql_text: str,
+    change_history_id: str,
+    source_database_name: str,
+    source_table_name: str,
+    source_identifier: str,
+    actor_id: str,
+    client_ip: str,
+) -> None:
+    affected_rows = database.execute(
+        sql_text,
+        (
+            change_history_id,
+            source_database_name,
+            source_table_name,
+            source_identifier,
+            "UPDATE",
+            "Moved MariaDB detail payload to MongoDB and linked the execution.",
+            actor_id,
+            client_ip,
+            _PROGRAM_ID,
+        ),
+    )
+    if affected_rows != 1:
+        raise RuntimeError(
+            "Change history insert did not affect one row. "
+            f"change_history_id={change_history_id}"
+        )
+
+
 def _finalize_execution_history(
     database: CommonDatabase,
     *,
@@ -250,6 +425,23 @@ def _finalize_execution_history(
         )
 
 
+def _clear_source_payload(
+    database: CommonDatabase,
+    *,
+    sql_text: str,
+    parameters: tuple[str, ...],
+    source_table_name: str,
+    source_identifier: str,
+) -> None:
+    affected_rows = database.execute(sql_text, parameters)
+    if affected_rows != 1:
+        raise RuntimeError(
+            "Source payload clear did not affect one row. "
+            f"source_table_name={source_table_name}, "
+            f"source_identifier={source_identifier}"
+        )
+
+
 def migrate_one(
     *,
     contract_code: str,
@@ -264,6 +456,12 @@ def migrate_one(
 
     try:
         contract = _load_contract(common_database, contract_code)
+        source_clear_parameters = _resolve_source_clear_parameters(
+            contract,
+            actor_id=actor_id,
+            client_ip=client_ip,
+            source_identifier=source_identifier,
+        )
         verified_queries = _load_verified_queries(common_database, contract)
         source_database_role = _required_text(
             contract.get("source_database_role"),
@@ -281,6 +479,12 @@ def migrate_one(
             common_database
             if source_database_role == "COMMON"
             else story_database
+        )
+        _assert_source_queries_share_transaction_scope(
+            source_database=source_database,
+            transaction_database=story_database,
+            source_read_sql=verified_queries["source_read"]["sql_text"],
+            source_clear_sql=verified_queries["source_clear"]["sql_text"],
         )
 
         source_table_name = _safe_identifier(
@@ -310,6 +514,29 @@ def migrate_one(
         ]
         if not payload_column_names:
             raise ValueError("payload_column_names must contain at least one column.")
+        configured_source_clear_payload_column_names = contract.get(
+            "source_clear_payload_column_names",
+            payload_column_names,
+        )
+        source_clear_payload_column_names = [
+            _safe_identifier(column_name, "source_clear_payload_column_name")
+            for column_name in configured_source_clear_payload_column_names
+        ]
+        unknown_source_clear_columns = (
+            set(source_clear_payload_column_names) - set(payload_column_names)
+        )
+        if unknown_source_clear_columns:
+            raise ValueError(
+                "source_clear_payload_column_names must be included in "
+                f"payload_column_names: {sorted(unknown_source_clear_columns)}"
+            )
+        retained_payload_column_names = sorted(
+            set(payload_column_names) - set(source_clear_payload_column_names)
+        )
+        mongodb_payload_field_name = _safe_identifier(
+            contract.get("mongodb_payload_field_name"),
+            "mongodb_payload_field_name",
+        )
 
         configured_audit_columns = contract.get("audit_column_names") or list(_AUDIT_COLUMNS)
         audit_column_names = [
@@ -324,6 +551,17 @@ def migrate_one(
 
         source_object = _load_object(story_database, source_object_code)
         execution_object = _load_object(story_database, _EXECUTION_OBJECT_CODE)
+        change_history_object = _load_object(
+            story_database,
+            _CHANGE_HISTORY_OBJECT_CODE,
+        )
+        knowledge_type = _load_knowledge_type(
+            story_database,
+            _required_text(
+                contract.get("knowledge_type_code"),
+                "knowledge_type_code",
+            ),
+        )
         mongodb_objects = {
             object_code: _load_object(story_database, object_code)
             for object_code in _MONGODB_OBJECT_CODES
@@ -342,7 +580,17 @@ def migrate_one(
             actor_id,
             client_ip,
         )
-        for prepared in (execution_prepared, document_prepared):
+        change_history_request, change_history_prepared = _prepare_identifier(
+            coordinator,
+            change_history_object,
+            actor_id,
+            client_ip,
+        )
+        for prepared in (
+            execution_prepared,
+            document_prepared,
+            change_history_prepared,
+        ):
             coordinator.acquire(prepared)
             acquired_preparations.append(prepared)
 
@@ -352,11 +600,11 @@ def migrate_one(
             connect_mongodb=True,
         )
 
-        with SpsDistributedTransaction(
+        with MariaMongoWriteService(
             story_database,
             mongodb_database,
-        ) as transaction:
-            source_row = source_database.fetch_one(
+        ) as database_writer:
+            source_row = story_database.fetch_one(
                 verified_queries["source_read"]["sql_text"],
                 (source_identifier,),
             )
@@ -388,22 +636,38 @@ def migrate_one(
                 request=document_request,
                 prepared=document_prepared,
             )
+            change_history_resolution = coordinator.resolve(
+                request=change_history_request,
+                prepared=change_history_prepared,
+            )
             execution_history_id = execution_resolution.identifier
             document_detail_id = document_resolution.identifier
+            change_history_id = change_history_resolution.identifier
 
-            payload = {
-                column_name: source_row.get(column_name)
-                for column_name in payload_column_names
-                if source_row.get(column_name) is not None
-            }
-            if not payload:
-                raise ValueError("The selected source row has no payload values to migrate.")
+            payload = _build_mongodb_payload(
+                source_row,
+                payload_column_names=payload_column_names,
+                mongodb_payload_field_name=mongodb_payload_field_name,
+            )
 
+            # MongoDB 생성 감사 4개는 모든 상세 문서에 필수다. 수정·삭제 감사
+            # 필드는 원본에 실제 값이 있을 때만 보존해 불필요한 null 저장을 막는다.
             sparse_audit = {
-                column_name: source_row.get(column_name)
-                for column_name in audit_column_names
-                if source_row.get(column_name) not in (None, "")
+                "created_dt": source_row.get("created_dt")
+                or datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                "created_by": source_row.get("created_by") or actor_id,
+                "client_ip": source_row.get("client_ip") or client_ip,
+                "program_id": source_row.get("program_id") or _PROGRAM_ID,
             }
+            sparse_audit.update(
+                {
+                    column_name: source_row.get(column_name)
+                    for column_name in audit_column_names
+                    if column_name
+                    not in {"created_dt", "created_by", "client_ip", "program_id"}
+                    and source_row.get(column_name) not in (None, "")
+                }
+            )
 
             _insert_execution_history(
                 story_database,
@@ -415,7 +679,7 @@ def migrate_one(
                 client_ip=client_ip,
             )
 
-            mongodb_document_id = transaction.insert_mongodb_document(
+            mongodb_document_id = database_writer.insert_mongodb_document(
                 collection_name=collection_name,
                 document={
                     "_sps": {
@@ -426,6 +690,8 @@ def migrate_one(
                         "source_table_name": source_table_name,
                         "source_identifier_column_name": source_identifier_column_name,
                         "source_identifier": source_identifier,
+                        "knowledge_type_id": knowledge_type["knowledge_type_id"],
+                        "knowledge_type_code": knowledge_type["knowledge_type_code"],
                         "schema_version": "v1.0",
                     },
                     "payload": payload,
@@ -453,6 +719,23 @@ def migrate_one(
                 actor_id=actor_id,
                 client_ip=client_ip,
             )
+            _clear_source_payload(
+                story_database,
+                sql_text=verified_queries["source_clear"]["sql_text"],
+                parameters=source_clear_parameters,
+                source_table_name=source_table_name,
+                source_identifier=source_identifier,
+            )
+            _insert_change_history(
+                story_database,
+                sql_text=verified_queries["change_history_insert"]["sql_text"],
+                change_history_id=change_history_id,
+                source_database_name=source_database.database_name,
+                source_table_name=source_table_name,
+                source_identifier=source_identifier,
+                actor_id=actor_id,
+                client_ip=client_ip,
+            )
 
         return {
             "contract_code": contract_code,
@@ -462,9 +745,14 @@ def migrate_one(
             "mongodb_document_id": mongodb_document_id,
             "execution_history_id": execution_history_id,
             "document_detail_id": document_detail_id,
+            "change_history_id": change_history_id,
+            "knowledge_type_code": knowledge_type["knowledge_type_code"],
             "payload_columns": list(payload),
             "mongodb_audit_columns": list(sparse_audit),
-            "source_payload_retained_yn": "Y",
+            # NOT NULL payload fields remain only until the separately verified
+            # backup and DDL removal; nullable fields were cleared in this transaction.
+            "source_payload_retained_yn": "Y" if retained_payload_column_names else "N",
+            "source_payload_retained_column_names": retained_payload_column_names,
             "verified_query_ids": {
                 operation_name: query["query_id"]
                 for operation_name, query in verified_queries.items()

@@ -23,6 +23,7 @@ from common.common_function import normalize_required_text
 from common.database import CommonDatabase
 from engine.identifier import IdentifierCoordinator
 from engine.runtime.file_runtime_adapter import FileRuntimeAdapter
+from engine.runtime.file_runtime_mapping_repository import FileRuntimeMappingRepository
 from engine.processor.word.document_generation_service import (
     DocumentGenerationRequest,
     DocumentGenerationService,
@@ -30,8 +31,8 @@ from engine.processor.word.document_generation_service import (
 
 SEOUL_TIME_ZONE: Final[str] = "Asia/Seoul"
 DEFAULT_WORK_OUTPUT_ROOT: Final[Path] = Path("output/file_work")
-SUPPORTED_EXTENSIONS: Final[frozenset[str]] = frozenset({".pdf", ".jpg", ".jpeg", ".png"})
 PROGRAM_ID: Final[str] = "file_work_service.py"
+FILE_RUNTIME_MAPPING_GROUP_CODE: Final[str] = "FILE_RUNTIME_MAPPING"
 WORK_IDENTIFIER_OBJECT_CODES: Final[tuple[str, ...]] = (
     "WORK_SESSION",
     "WORK_ITEM",
@@ -63,12 +64,13 @@ class FileWorkService:
         requested_by = normalize_required_text(requested_by, "requested_by")
         client_ip = normalize_required_text(client_ip, "client_ip")
         source = upload_path.resolve()
-        self._validate_source(source)
 
         database = CommonDatabase(database_role="STORY_PLATFORM")
+        common_database = CommonDatabase(database_role="COMMON")
         try:
+            source_mapping = self._validate_source(source, common_database)
             identifier_coordinator = IdentifierCoordinator(database)
-            source_object = self._resolve_source_object(database, source)
+            source_object = self._resolve_source_object(database, source_mapping)
             identifier_contexts = self._prepare_work_identifier_contexts(
                 database=database,
                 identifier_coordinator=identifier_coordinator,
@@ -120,7 +122,9 @@ class FileWorkService:
                     source_path = artifact_directory / source.name
                     shutil.copy2(source, source_path)
 
-                    extracted_text, extractor_name = self._extract_text(source_path)
+                    extracted_text, extractor_name = self._extract_text(
+                        source_path, source_mapping
+                    )
                     extracted_text_path = artifact_directory / "extracted_text.txt"
                     extracted_text_path.write_text(extracted_text, encoding="utf-8")
 
@@ -181,6 +185,7 @@ class FileWorkService:
                     identifier_coordinator.release(prepared)
         finally:
             database.close()
+            common_database.close()
 
         runtime_result = FileRuntimeAdapter().execute(
             str(source_path),
@@ -284,15 +289,32 @@ class FileWorkService:
         )
 
     @staticmethod
-    def _validate_source(source: Path) -> None:
+    def _validate_source(
+        source: Path,
+        common_database: CommonDatabase,
+    ) -> dict[str, object]:
         if not source.is_file():
             raise ValueError("업로드 파일을 찾을 수 없습니다.")
-        if source.suffix.lower() not in SUPPORTED_EXTENSIONS:
-            raise ValueError("PDF, JPG, JPEG, PNG 파일만 업로드할 수 있습니다.")
+        mapping = FileRuntimeMappingRepository(
+            common_database,
+            group_code=FILE_RUNTIME_MAPPING_GROUP_CODE,
+        ).resolve(source)
+        if mapping is None:
+            raise ValueError(
+                "등록된 File Runtime 매핑이 없습니다. "
+                f"extension={source.suffix.lower()}"
+            )
+        return mapping
 
     @staticmethod
-    def _resolve_source_object(database: CommonDatabase, source: Path) -> dict[str, object]:
-        object_code = "DOCUMENT" if source.suffix.lower() == ".pdf" else "IMAGE"
+    def _resolve_source_object(
+        database: CommonDatabase,
+        source_mapping: dict[str, object],
+    ) -> dict[str, object]:
+        object_code = normalize_required_text(
+            source_mapping.get("object_code"),
+            "object_code",
+        )
         row = database.fetch_one(
             """
             SELECT object_id, object_code
@@ -310,27 +332,24 @@ class FileWorkService:
         return row
 
     @staticmethod
-    def _extract_text(source_path: Path) -> tuple[str, str]:
-        if source_path.suffix.lower() == ".pdf":
-            try:
-                from engine.analyzer.document_analyzer import extract_document_text
-            except ImportError:
-                from document_analyzer import extract_document_text
-            text = extract_document_text(source_path)
-            return (text or "").strip(), "document_analyzer.extract_document_text"
-
-        try:
-            from PIL import Image
-            import pytesseract
-        except ImportError as error:
-            raise RuntimeError("이미지 OCR 실행 의존성을 찾을 수 없습니다.") from error
-
-        try:
-            with Image.open(source_path) as image:
-                text = pytesseract.image_to_string(image, lang="kor+eng")
-        except Exception as error:
-            raise RuntimeError(f"이미지 OCR에 실패했습니다: {error}") from error
-        return (text or "").strip(), "pytesseract.image_to_string"
+    def _extract_text(
+        source_path: Path,
+        source_mapping: dict[str, object],
+    ) -> tuple[str, str]:
+        analyzer_result = FileRuntimeAdapter._run_analyzer(source_path, source_mapping)
+        if analyzer_result["status"] == "SKIPPED":
+            return "", "analyzer_not_defined"
+        if analyzer_result["status"] != "SUCCESS":
+            raise RuntimeError(
+                f"파일 Analyzer 실행에 실패했습니다: {analyzer_result.get('reason')}"
+            )
+        analyzer_name = ".".join(
+            (
+                str(analyzer_result["analyzer_module"]),
+                str(analyzer_result["analyzer_method"]),
+            )
+        )
+        return str(analyzer_result.get("text") or "").strip(), analyzer_name
 
     @staticmethod
     def _build_document_request(

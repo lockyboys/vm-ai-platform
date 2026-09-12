@@ -210,14 +210,9 @@ def login():
     """
     로그인 → JWT 토큰 발급
     초등학생 설명: 이메일+비밀번호 확인 후 입장권(토큰) 발급해요.
-    DB에 있는 계정으로 로그인 가능하고,
-    DB 연결 실패 시 데모 모드로 동작해요.
-
-    기본 제공 테스트 계정:
-        free@test.com       / test1234  → Free 플랜
-        pro@test.com        / test1234  → Pro 플랜
-        enterprise@test.com / test1234  → Enterprise 플랜
-        admin@test.com      / admin1234 → Enterprise (관리자)
+    DB에 등록된 활성 계정만 로그인할 수 있습니다.
+    사용자 조회 또는 인증 저장소 연결에 실패하면 로그인을 거부합니다.
+    테스트 계정·기본 관리자 계정·데모 인증은 제공하지 않습니다.
     """
     data  = request.json or {}
     email = data.get("email", "").strip()

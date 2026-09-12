@@ -87,6 +87,33 @@ class _CommonDatabase:
     ) -> None:
         self.contract_rows = contract_rows
         self.definition_rows = definition_rows
+        self.mapping_rows = [
+            {
+                "code": "DOCUMENT",
+                "code_name": "Document File Runtime Mapping",
+                "common_code_json": json.dumps(
+                    {
+                        "extensions": [".pdf", ".txt"],
+                        "object_code": "DOCUMENT",
+                        "analyzer_module": "document_analyzer",
+                        "analyzer_method": "extract_document_text",
+                    }
+                ),
+            },
+            {
+                "code": "FILE",
+                "code_name": "Default File Runtime Mapping",
+                "common_code_json": json.dumps(
+                    {
+                        "extensions": [],
+                        "default_yn": "Y",
+                        "object_code": "FILE",
+                        "analyzer_module": None,
+                        "analyzer_method": None,
+                    }
+                ),
+            },
+        ]
         self.closed = False
 
     def fetch_all(
@@ -98,6 +125,8 @@ class _CommonDatabase:
             return self.contract_rows
         if parameters == ("MONGODB_RUNTIME_OBJECT_DEFINITION",):
             return self.definition_rows
+        if parameters == ("FILE_RUNTIME_MAPPING",):
+            return self.mapping_rows
         raise AssertionError(f"Unexpected Common query parameters: {parameters}")
 
     def close(self) -> None:
@@ -368,7 +397,7 @@ def _build_adapter(
     return adapter, common_database, identifier_coordinator
 
 
-def test_execute_persists_index_document_and_execution_link_in_order(
+def test_execute_persists_index_execution_link_and_document_in_order(
     tmp_path: Path,
 ) -> None:
     source_file = tmp_path / "source.txt"
@@ -388,8 +417,8 @@ def test_execute_persists_index_document_and_execution_link_in_order(
     assert runtime_database.events == [
         "begin",
         "mariadb_index",
-        "mongodb_document",
         "execution_link",
+        "mongodb_document",
         "mariadb_finalize",
         "commit",
     ]
@@ -465,7 +494,7 @@ def test_execute_persists_index_document_and_execution_link_in_order(
     assert runtime_database.closed is True
 
 
-def test_execute_compensates_mongodb_when_execution_link_write_fails(
+def test_execute_does_not_write_mongodb_when_execution_link_write_fails(
     tmp_path: Path,
 ) -> None:
     source_file = tmp_path / "source.txt"
@@ -481,9 +510,8 @@ def test_execute_compensates_mongodb_when_execution_link_write_fails(
         )
 
     assert "rollback" in runtime_database.events
-    assert runtime_database.deleted_filters == [
-        {"mongodb_document_details_id": "MDD_20260802_00001"}
-    ]
+    assert runtime_database.deleted_filters == []
+    assert runtime_database.mongodb_documents == []
     assert common_database.closed is True
     assert runtime_database.closed is True
 

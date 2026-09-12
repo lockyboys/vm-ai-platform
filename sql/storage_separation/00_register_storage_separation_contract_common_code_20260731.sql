@@ -7,6 +7,7 @@
 --
 -- Change History
 -- 20260731 | SYSTEM | Storage Separation Target 계약을 등록하여 대상별 SSOT와 payload 분리 기준을 Metadata로 관리한다.
+-- 20260829 | CODEX | MongoDB Payload Field를 계약으로 분리하여 MariaDB 원본 컬럼명과 MongoDB 문서 필드를 독립 관리한다.
 -- =============================================================================
 
 SET NAMES utf8mb4;
@@ -56,6 +57,7 @@ ON DUPLICATE KEY UPDATE
     client_ip = VALUES(client_ip),
     program_id = VALUES(program_id),
     lifecycle_status_code = VALUES(lifecycle_status_code);
+
 
 INSERT INTO cm_common_code
 (
@@ -117,7 +119,7 @@ VALUES
         'source_object_code', 'TE_COMMON_HEALTH_REPORT',
         'source_identifier_column_name', 'health_report_id',
         'mariadb_ssot', 'REPORT_INDEX',
-        'mongodb_collection_name', 'health_report_document',
+        'mongodb_collection_name', 'health_report_content',
         'mongodb_ssot', 'REPORT_CONTENT',
         'payload_column_names', JSON_ARRAY('report_content'),
         'execution_link_required_yn', 'Y',
@@ -143,7 +145,7 @@ VALUES
         'source_object_code', 'TE_COMMON_SQL_GUARD_EXECUTION_LOG',
         'source_identifier_column_name', 'execution_id',
         'mariadb_ssot', 'EXECUTION_INDEX',
-        'mongodb_collection_name', 'sql_guard_execution_log',
+        'mongodb_collection_name', 'sql_guard_executionr_message',
         'mongodb_ssot', 'EXECUTION_ERROR_DETAIL',
         'payload_column_names', JSON_ARRAY('error_message'),
         'execution_link_required_yn', 'Y',
@@ -172,6 +174,7 @@ VALUES
         'mongodb_collection_name', 'sql_guard_verification_log',
         'mongodb_ssot', 'VERIFICATION_MESSAGE_DETAIL',
         'payload_column_names', JSON_ARRAY('message'),
+        'mongodb_payload_field_name', 'sql_guard_verification_message',
         'execution_link_required_yn', 'Y',
         'execution_link_type_code', 'MONGODB',
         'migration_mode_code', 'MOVE_PAYLOAD'
@@ -189,6 +192,15 @@ ON DUPLICATE KEY UPDATE
     program_id = VALUES(program_id),
     common_code_json = VALUES(common_code_json),
     lifecycle_status_code = VALUES(lifecycle_status_code);
+
+-- MOVE_PAYLOAD 계약은 source_clear 실행에 사용할 감사 파라미터를 반드시 선언한다.
+UPDATE cm_common_code
+SET common_code_json = JSON_SET(common_code_json, '$.source_clear_parameter_codes', JSON_ARRAY('actor_id', 'program_id', 'client_ip', 'source_identifier')),
+    updated_by = @actor_id, updated_dt = CURRENT_TIMESTAMP, program_id = @program_id, client_ip = @client_ip
+WHERE group_code = 'STORAGE_SEPARATION_TARGET'
+  AND status_code = 'ACTIVE'
+  AND JSON_UNQUOTE(JSON_EXTRACT(common_code_json, '$.migration_mode_code')) = 'MOVE_PAYLOAD'
+  AND (JSON_EXTRACT(common_code_json, '$.source_clear_parameter_codes') IS NULL OR JSON_LENGTH(JSON_EXTRACT(common_code_json, '$.source_clear_parameter_codes')) = 0);
 
 SELECT
     group_code,

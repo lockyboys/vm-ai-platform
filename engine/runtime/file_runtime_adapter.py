@@ -24,28 +24,11 @@ from common.common_function import normalize_required_text
 from common.database import CommonDatabase
 from core.transaction.sps_distributed_transaction import SpsDistributedTransaction
 from engine.identifier import IdentifierCoordinator
+from engine.runtime.file_runtime_mapping_repository import FileRuntimeMappingRepository
 from engine.runtime.object_runtime_engine import ObjectRuntimeEngine
 from engine.storage.storage_separation_collection_provisioner import (
     StorageSeparationContractRepository,
 )
-
-
-DOCUMENT_EXTENSIONS = {
-    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
-    ".txt", ".csv", ".md", ".rtf", ".hwp", ".hwpx",
-}
-
-IMAGE_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp", ".heic",
-}
-
-VIDEO_EXTENSIONS = {
-    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
-}
-
-AUDIO_EXTENSIONS = {
-    ".mp3", ".wav", ".flac", ".ogg", ".wma", ".m4a", ".aac",
-}
 
 
 class FileRuntimeAdapter:
@@ -56,6 +39,7 @@ class FileRuntimeAdapter:
     _MONGODB_RUNTIME_OBJECT_DEFINITION_GROUP_CODE = (
         "MONGODB_RUNTIME_OBJECT_DEFINITION"
     )
+    _FILE_RUNTIME_MAPPING_GROUP_CODE = "FILE_RUNTIME_MAPPING"
 
     def __init__(
         self,
@@ -85,13 +69,12 @@ class FileRuntimeAdapter:
         if not source_file.exists() or not source_file.is_file():
             raise FileNotFoundError(f"File not found: {source_file}")
 
-        file_metadata = self._build_file_metadata(source_file)
-        analyzer_result = self._run_analyzer(source_file, file_metadata)
-
         common_database = self._database_factory(database_role="COMMON")
         mariadb_database: CommonDatabase | None = None
         mongodb_database: CommonDatabase | None = None
         try:
+            file_metadata = self._build_file_metadata(source_file, common_database)
+            analyzer_result = self._run_analyzer(source_file, file_metadata)
             storage_contract = self._load_runtime_execution_contract(common_database)
             mariadb_database_role = normalize_required_text(
                 storage_contract.get("source_database_role"),
@@ -189,6 +172,15 @@ class FileRuntimeAdapter:
                         actor_id=actor_id,
                         client_ip=normalized_client_ip,
                     )
+                    self._insert_execution_link(
+                        database=mariadb_database,
+                        storage_contract=storage_contract,
+                        execution_history_id=execution_history_id,
+                        index_object=index_object,
+                        mongodb_objects=mongodb_objects,
+                        actor_id=actor_id,
+                        client_ip=normalized_client_ip,
+                    )
                     mongodb_document = self._build_mongodb_document(
                         storage_contract=storage_contract,
                         execution_history_id=execution_history_id,
@@ -210,15 +202,6 @@ class FileRuntimeAdapter:
                                 "target_identifier_field"
                             ]: document_detail_id,
                         },
-                    )
-                    self._insert_execution_link(
-                        database=mariadb_database,
-                        storage_contract=storage_contract,
-                        execution_history_id=execution_history_id,
-                        index_object=index_object,
-                        mongodb_objects=mongodb_objects,
-                        actor_id=actor_id,
-                        client_ip=normalized_client_ip,
                     )
                     self._finalize_execution_history_index(
                         database=mariadb_database,
@@ -496,6 +479,17 @@ class FileRuntimeAdapter:
               AND active_yn = 'Y'
               AND status_code = 'ACTIVE'
               AND deleted_dt IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM sp_object_lifecycle AS lifecycle_row
+                  WHERE lifecycle_row.object_id = sp_object.object_id
+                    AND lifecycle_row.deleted_dt IS NULL
+                    AND lifecycle_row.effective_start_dt <= CURRENT_TIMESTAMP
+                    AND (
+                        lifecycle_row.effective_end_dt IS NULL
+                        OR lifecycle_row.effective_end_dt > CURRENT_TIMESTAMP
+                    )
+              )
             ORDER BY sort_no, object_code
             LIMIT 1
             """,
@@ -773,40 +767,27 @@ class FileRuntimeAdapter:
     def _program_id(self) -> str:
         return f"{self.__class__.__module__}.{self.__class__.__name__}"
 
-    @staticmethod
-    def _build_file_metadata(source_file: Path) -> dict[str, Any]:
-        extension = source_file.suffix.lower()
-
-        if extension in DOCUMENT_EXTENSIONS:
-            object_code = "DOCUMENT"
-            analyzer_module = "document_analyzer"
-            analyzer_method = "extract_document_text"
-        elif extension in IMAGE_EXTENSIONS:
-            object_code = "IMAGE"
-            analyzer_module = "image_analyzer"
-            analyzer_method = "extract_text_from_image"
-        elif extension in VIDEO_EXTENSIONS:
-            object_code = "VIDEO"
-            analyzer_module = "video_analyzer"
-            analyzer_method = "extract_text_from_video"
-        elif extension in AUDIO_EXTENSIONS:
-            object_code = "AUDIO"
-            analyzer_module = "audio_analyzer"
-            analyzer_method = "transcribe_audio_to_text"
-        else:
-            object_code = "FILE"
-            analyzer_module = None
-            analyzer_method = None
-
+    def _build_file_metadata(
+        self,
+        source_file: Path,
+        common_database: CommonDatabase,
+    ) -> dict[str, Any]:
+        mapping = FileRuntimeMappingRepository(
+            common_database,
+            group_code=self._FILE_RUNTIME_MAPPING_GROUP_CODE,
+        ).resolve(source_file)
+        if mapping is None:
+            raise ValueError(
+                "No active File Runtime mapping is registered for extension. "
+                f"extension={source_file.suffix.lower()}"
+            )
         return {
             "file_path": str(source_file),
             "file_name": source_file.name,
             "file_stem": source_file.stem,
-            "extension": extension,
+            "extension": source_file.suffix.lower(),
             "file_size": source_file.stat().st_size,
-            "object_code": object_code,
-            "analyzer_module": analyzer_module,
-            "analyzer_method": analyzer_method,
+            **mapping,
         }
 
     @staticmethod

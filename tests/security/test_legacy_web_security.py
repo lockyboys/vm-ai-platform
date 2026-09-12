@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from common.auth import CommonAuth
 from services.auth import auth_service
 
 
@@ -34,9 +35,15 @@ def test_signed_token_cannot_be_forged_or_escalated() -> None:
 def test_password_hash_is_salted_and_verifiable() -> None:
     password_hash = auth_service.hash_password("correct-horse-battery-staple")
 
-    assert password_hash.startswith("pbkdf2_sha256$")
+    assert password_hash.startswith("pbkdf2_sha256$600000$")
     assert auth_service.verify_password("correct-horse-battery-staple", password_hash)
     assert not auth_service.verify_password("wrong-password", password_hash)
+
+
+def test_authentication_secret_has_no_runtime_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SPS_AUTH_JWT_SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="SPS_AUTH_JWT_SECRET_KEY environment variable is required"):
+        CommonAuth()
 
 
 def test_legacy_web_api_requires_authentication_and_disables_admin_execution() -> None:
@@ -104,3 +111,45 @@ def test_ownership_and_path_guards_are_present() -> None:
     assert "AND deleted_dt IS NULL" in work_source
     assert "WHERE j.created_by = %s" in job_source
     assert "AND job.created_by = %s" in log_source
+
+
+def test_analysis_path_is_limited_to_the_authenticated_users_upload_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    legacy_web = importlib.import_module("web.app")
+    monkeypatch.setattr(legacy_web, "UPLOAD_PATH", str(tmp_path))
+    owned_file = tmp_path / "member-1" / "owned.csv"
+    owned_file.parent.mkdir()
+    owned_file.write_text("value\n1\n", encoding="utf-8")
+    outside_file = tmp_path / "outside.csv"
+    outside_file.write_text("value\n2\n", encoding="utf-8")
+
+    with legacy_web.app.test_request_context():
+        legacy_web.g.current_user = {"user_id": "member-1"}
+        assert legacy_web._resolve_current_user_upload_path(str(owned_file)) == owned_file.resolve()
+        assert legacy_web._resolve_current_user_upload_path(str(outside_file)) is None
+
+def test_deleted_work_session_is_excluded_from_owner_verification() -> None:
+    from work.work_repository import WorkRepository
+
+    class FakeDatabase:
+        def __init__(self) -> None:
+            self.query = ""
+            self.params = None
+
+        def fetch_one(self, query, params):
+            self.query = query
+            self.params = params
+            return None
+
+        def close(self) -> None:
+            return None
+
+    database = FakeDatabase()
+    repository = WorkRepository(database_factory=lambda **_kwargs: database)
+
+    assert repository.verify_owner("deleted-session", "member-1") is False
+    assert database.params == ("deleted-session", "member-1")
+    assert "AND deleted_dt IS NULL" in database.query

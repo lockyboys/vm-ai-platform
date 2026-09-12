@@ -13,9 +13,6 @@ from core.identifier.identifier_engine import IdentifierEngine as LegacyIdentifi
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 CALLER_CONTRACTS = {
-    "engine/batch/business_domain_repository_sync_batch.py": {
-        "generate",
-    },
     "engine/generator/erd_generator.py": {
         "generate",
         "generate_for_level",
@@ -32,14 +29,26 @@ CALLER_CONTRACTS = {
     "engine/object_definition/identifier_workflow_legacy.py": {
         "render_identifier",
     },
-    "engine/processor/work/file_work_service.py": {
-        "generate",
-    },
     "engine/runtime/object_runtime_engine.py": {
         "generate",
     },
     "tools/register_column_suffix_metadata.py": {
         "render_identifier",
+    },
+}
+
+COORDINATOR_CALLER_CONTRACTS = {
+    "engine/batch/business_domain_repository_sync_batch.py": {
+        "prepare",
+        "acquire",
+        "resolve",
+        "release",
+    },
+    "engine/processor/work/file_work_service.py": {
+        "prepare_registered_object",
+        "acquire",
+        "resolve",
+        "release",
     },
 }
 
@@ -63,6 +72,15 @@ def _canonical_imports(tree: ast.Module) -> list[ast.ImportFrom]:
         and any(alias.name == "IdentifierEngine" for alias in node.names)
     ]
 
+def _coordinator_imports(tree: ast.Module) -> list[ast.ImportFrom]:
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module in {"engine.identifier", "engine.identifier.coordinator"}
+        and any(alias.name == "IdentifierCoordinator" for alias in node.names)
+    ]
+
 
 def _identifier_calls(tree: ast.Module) -> set[str]:
     methods: set[str] = set()
@@ -74,6 +92,11 @@ def _identifier_calls(tree: ast.Module) -> set[str]:
             "generate_for_level",
             "render_identifier",
             "allocate_sequence",
+            "prepare",
+            "prepare_registered_object",
+            "acquire",
+            "resolve",
+            "release",
         }:
             methods.add(node.func.attr)
     return methods
@@ -92,8 +115,21 @@ class IdentifierCallerContractTest(unittest.TestCase):
                     f"{relative_path} must import engine.identifier_engine.IdentifierEngine",
                 )
 
+    def test_coordinator_callers_import_canonical_coordinator(self) -> None:
+        for relative_path in COORDINATOR_CALLER_CONTRACTS:
+            with self.subTest(path=relative_path):
+                tree = _parse(relative_path)
+                self.assertTrue(
+                    _coordinator_imports(tree),
+                    (
+                        f"{relative_path} must import "
+                        "engine.identifier.IdentifierCoordinator"
+                    ),
+                )
+
     def test_generators_and_runtimes_keep_required_call_contracts(self) -> None:
-        for relative_path, expected_methods in CALLER_CONTRACTS.items():
+        contracts = {**CALLER_CONTRACTS, **COORDINATOR_CALLER_CONTRACTS}
+        for relative_path, expected_methods in contracts.items():
             with self.subTest(path=relative_path):
                 actual_methods = _identifier_calls(_parse(relative_path))
                 self.assertTrue(

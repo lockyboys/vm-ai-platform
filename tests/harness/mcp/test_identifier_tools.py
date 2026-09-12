@@ -5,6 +5,7 @@
 # CHANGE HISTORY
 # =============================================================================
 # 20260830 | OpenAI | Repository Object metadata 기반 Identifier 발급 테스트를 추가했음
+# 20260903 | OpenAI | Sequence 즉시 Commit 및 후속 실패 시 번호 폐기 계약을 검증했음
 # =============================================================================
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ class _FakeDatabase:
         self.committed = False
         self.rolled_back = False
         self.closed = False
+        self.events: list[str] = []
         self.__class__.instances.append(self)
 
     def begin(self) -> None:
@@ -32,9 +34,11 @@ class _FakeDatabase:
 
     def commit(self) -> None:
         self.committed = True
+        self.events.append("commit")
 
     def rollback(self) -> None:
         self.rolled_back = True
+        self.events.append("rollback")
 
     def close(self) -> None:
         self.closed = True
@@ -59,7 +63,8 @@ class _FakeIdentifierCoordinator:
     def acquire(self, _: dict[str, str]) -> None:
         self.acquired = True
 
-    def resolve(self, **_: object) -> SimpleNamespace:
+    def reserve(self, **_: object) -> SimpleNamespace:
+        self.database.events.append("reserve")
         return SimpleNamespace(
             blueprint_code="BP_OBJECT",
             sequence_no=7,
@@ -69,6 +74,7 @@ class _FakeIdentifierCoordinator:
         )
 
     def render_resolution(self, **_: object) -> str:
+        self.database.events.append("render")
         return "SP_EG_EXECUTION_HISTORY_20260830_00007"
 
     def release(self, _: dict[str, str]) -> None:
@@ -136,6 +142,42 @@ def test_identifier_generate_apply_allocates_and_commits(
     assert result["sequence_no"] == 7
     database = _FakeDatabase.instances[0]
     assert database.began is True
+    assert database.committed is True
+    assert database.rolled_back is False
+    assert database.events == ["reserve", "commit", "render"]
+    assert database.closed is True
+
+
+def test_identifier_generate_keeps_committed_sequence_when_rendering_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    object_metadata: dict[str, str],
+) -> None:
+    class _RenderFailureCoordinator(_FakeIdentifierCoordinator):
+        def render_resolution(self, **_: object) -> str:
+            self.database.events.append("render")
+            raise ValueError("render failed")
+
+    monkeypatch.setattr(identifier_tools, "CommonDatabase", _FakeDatabase)
+    monkeypatch.setattr(
+        identifier_tools,
+        "IdentifierCoordinator",
+        _RenderFailureCoordinator,
+    )
+    monkeypatch.setattr(
+        identifier_tools,
+        "_load_registered_object_metadata",
+        lambda *_: object_metadata,
+    )
+    _FakeDatabase.instances.clear()
+
+    with pytest.raises(ValueError, match="render failed"):
+        identifier_tools.identifier_generate(
+            object_code="EXECUTION_HISTORY",
+            apply=True,
+        )
+
+    database = _FakeDatabase.instances[0]
+    assert database.events == ["reserve", "commit", "render"]
     assert database.committed is True
     assert database.rolled_back is False
     assert database.closed is True

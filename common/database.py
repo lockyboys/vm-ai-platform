@@ -11,11 +11,14 @@
 # 20260627 | SYSTEM | CommonDatabase를 생성했고, MariaDB 연결과 조회 기능을 지원했음
 # 20260707 | SYSTEM | database_role 기반 연결과 Transaction 기능을 추가했음
 # 20260726 | OpenAI | MongoDB 연결과 CRUD를 통합해 SPDF Database Framework로 승격했음
+# 20260830 | CODEX | MariaMongoWriteService commit 실패 시 MongoDB 보상 rollback을 보장했음
+# 20260830 | OpenAI | STORY 역할이 SPS_REPOSITORY_* 공통 연결정보를 후순위로 재사용하도록 보완했음
 # =============================================================================
 
 from __future__ import annotations
 
 import os
+from urllib.parse import quote_plus
 from typing import Any, Iterable, Mapping, Sequence
 
 import pymysql
@@ -23,6 +26,8 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database as MongoDatabase
+from common.common_function import normalize_required_text
+from core.database.database_manager import DatabaseManager
 from pymongo.results import (
     DeleteResult,
     InsertManyResult,
@@ -60,8 +65,8 @@ class CommonDatabase:
         self.database_role = self._normalize_database_role(database_role)
         self._environment_prefix = self._ROLE_PREFIX_MAP[self.database_role]
 
-        self.config = self._load_mariadb_config()
-        self.database_name = self.config["database"]
+        self.config = self._load_mariadb_config() if connect_mariadb else {}
+        self.database_name = self.config.get("database")
         self.connection = None
 
         self._mongodb_config: dict[str, Any] | None = None
@@ -88,12 +93,29 @@ class CommonDatabase:
     # -------------------------------------------------------------------------
     def _load_mariadb_config(self) -> dict[str, Any]:
         prefix = f"{self._environment_prefix}_MARIADB"
+        repository_fallback_yn = self.database_role in {
+            "STORY",
+            "STORY_PLATFORM",
+        }
+
+        def resolve(role_key: str, repository_key: str) -> str | None:
+            role_value = os.getenv(f"{prefix}_{role_key}")
+            if role_value or not repository_fallback_yn:
+                return role_value
+            return os.getenv(repository_key)
+
+        def resolve_database() -> str | None:
+            role_database = os.getenv(f"{prefix}_DATABASE")
+            if role_database or not repository_fallback_yn:
+                return role_database
+            return DatabaseManager().get_database_name(self.database_role)
+
         config = {
-            "host": os.getenv(f"{prefix}_HOST", "127.0.0.1"),
-            "port": os.getenv(f"{prefix}_PORT", "3306"),
-            "user": os.getenv(f"{prefix}_USER"),
-            "password": os.getenv(f"{prefix}_PASSWORD"),
-            "database": os.getenv(f"{prefix}_DATABASE"),
+            "host": resolve("HOST", "SPS_REPOSITORY_HOST") or "127.0.0.1",
+            "port": resolve("PORT", "SPS_REPOSITORY_PORT") or "3306",
+            "user": resolve("USER", "SPS_REPOSITORY_USER"),
+            "password": resolve("PASSWORD", "SPS_REPOSITORY_PASSWORD"),
+            "database": resolve_database(),
         }
         self._validate_required_config(config, f"MariaDB/{self.database_role}")
         return config
@@ -106,8 +128,25 @@ class CommonDatabase:
             return self._mongodb_config
 
         prefix = f"{self._environment_prefix}_MONGODB"
+
+        def resolve(config_key: str) -> str | None:
+            return os.getenv(f"{prefix}_{config_key}") or os.getenv(
+                f"MONGODB_{config_key}"
+            )
+
+        mongodb_uri = resolve("URI")
+        if not mongodb_uri:
+            host = resolve("HOST")
+            port = resolve("PORT") or "27017"
+            user = resolve("USER")
+            password = resolve("PASSWORD")
+            if host and user and password:
+                mongodb_uri = (
+                    f"mongodb://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/"
+                )
+
         config = {
-            "uri": os.getenv(f"{prefix}_URI") or os.getenv("MONGODB_URI"),
+            "uri": mongodb_uri,
             "database": (
                 os.getenv(f"{prefix}_DATABASE")
                 or os.getenv("MONGODB_DATABASE")
@@ -358,3 +397,72 @@ class CommonDatabase:
         if exc_type is not None and self.connection is not None:
             self.rollback()
         self.close()
+
+
+class MariaMongoWriteService:
+    """Coordinate MariaDB with compensating MongoDB deletes."""
+
+    def __init__(self, mariadb_database: CommonDatabase, mongodb_database: CommonDatabase) -> None:
+        self.mariadb_database = mariadb_database
+        self.mongodb_database = mongodb_database
+        self._active = False
+        self._inserted_mongodb_documents: list[tuple[str, dict[str, Any]]] = []
+
+    def __enter__(self) -> "MariaMongoWriteService":
+        self.mariadb_database.begin()
+        self._active = True
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        try:
+            if exc_type is not None:
+                self.mariadb_database.rollback()
+                self._compensate_mongodb()
+                return
+            try:
+                self.mariadb_database.commit()
+            except Exception:
+                self.mariadb_database.rollback()
+                self._compensate_mongodb()
+                raise
+        finally:
+            self._active = False
+
+    def _require_active(self) -> None:
+        if not self._active:
+            raise RuntimeError("active MariaMongoWriteService context is required")
+
+    def execute_verified_mariadb(
+        self, sql_text: str, parameters: tuple[Any, ...] = (),
+        *, expected_affected_rows: int | None = None,
+    ) -> int:
+        self._require_active()
+        affected_rows = self.mariadb_database.execute(sql_text, parameters)
+        if expected_affected_rows is not None and affected_rows != expected_affected_rows:
+            raise RuntimeError(
+                f"MariaDB affected row count mismatch: expected={expected_affected_rows}, actual={affected_rows}"
+            )
+        return affected_rows
+
+    def insert_mongodb_document(
+        self,
+        *,
+        collection_name: str,
+        document: Mapping[str, Any],
+        compensation_filter: Mapping[str, Any] | None = None,
+    ) -> Any:
+        self._require_active()
+        result = self.mongodb_database.insert_one(collection_name, document)
+        inserted_id = result.inserted_id
+        delete_filter = (
+            dict(compensation_filter)
+            if compensation_filter is not None
+            else {"_id": inserted_id}
+        )
+        self._inserted_mongodb_documents.append((collection_name, delete_filter))
+        return inserted_id
+
+    def _compensate_mongodb(self) -> None:
+        for collection_name, delete_filter in reversed(self._inserted_mongodb_documents):
+            self.mongodb_database.delete_one(collection_name, delete_filter)
+        self._inserted_mongodb_documents.clear()
