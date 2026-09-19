@@ -17,7 +17,7 @@ from common.common_function import (
     normalize_required_text,
     validate_common_code_value,
 )
-from common.database import CommonDatabase
+from common.database import CommonDatabase, MariaMongoWriteService
 from engine.common.query_identifier_feature_rule_resolver import (
     QueryIdentifierFeatureRuleResolver,
 )
@@ -146,6 +146,8 @@ def _contains_multiple_statements(sql_text: str) -> bool:
 def _hydrate_query_payload_from_mongodb(
     database: CommonDatabase,
     query: dict[str, Any],
+    *,
+    require_sql_text: bool = True,
 ) -> dict[str, Any]:
     """Load a migrated Verified SQL payload by Query ID, failing closed when absent."""
     if str(query.get("sql_text") or "").strip():
@@ -165,7 +167,7 @@ def _hydrate_query_payload_from_mongodb(
             f"query_id={query['query_id']}"
         )
     payload = documents[0].get("payload", {}).get("verified_sql_payload")
-    if not isinstance(payload, dict) or not str(payload.get("sql_text") or "").strip():
+    if not isinstance(payload, dict) or (require_sql_text and not str(payload.get("sql_text") or "").strip()):
         raise ValueError(
             "MongoDB Verified SQL payload has no executable sql_text. "
             f"query_id={query['query_id']}"
@@ -186,9 +188,7 @@ def _load_executable_query(
         SELECT
             query_id,
             query_name,
-            query_description,
             crud_type,
-            sql_text,
             certified_level_code
         FROM cm_verified_sql_query
         WHERE query_id = %s
@@ -415,6 +415,7 @@ def verified_sql_register(
         identifier_database.close()
 
     repository_database = CommonDatabase(database_role="COMMON")
+    payload_database = CommonDatabase(database_role="COMMON")
     try:
         normalized_crud_type = validate_common_code_value(
             repository_database,
@@ -437,32 +438,29 @@ def verified_sql_register(
                 f"query_id={query_id}"
             )
 
-        repository_database.begin()
-        try:
+        write_service = MariaMongoWriteService(repository_database, payload_database)
+        with write_service:
             inserted_rows = repository_database.execute(
                 """
                 INSERT INTO cm_verified_sql_query (
-                    query_id, query_name, query_description, crud_type, sql_text,
-                    verified_yn, certified_level_code, verification_description,
+                    query_id, query_name, crud_type,
+                    verified_yn, certified_level_code,
                     verified_by, story_programming_rule_pass_yn,
                     snake_case_pass_yn, table_exists_pass_yn,
                     column_exists_pass_yn, crud_match_pass_yn,
                     where_clause_pass_yn, created_by, program_id, client_ip
                 )
                 VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 """,
                 (
                     query_id,
                     normalized_query_name,
-                    normalized_query_description,
                     normalized_crud_type,
-                    normalized_sql_text,
                     normalized_verified_yn,
                     normalized_certified_level_code,
-                    normalized_verification_description,
                     normalized_verified_by,
                     "Y" if story_programming_rule_pass_yn else "N",
                     "Y" if snake_case_pass_yn else "N",
@@ -480,12 +478,29 @@ def verified_sql_register(
                     "Verified SQL registration did not insert exactly one row. "
                     f"inserted_rows={inserted_rows}"
                 )
-            repository_database.commit()
-        except Exception:
-            repository_database.rollback()
-            raise
+            write_service.insert_mongodb_document(
+                collection_name="verified_sql_payload",
+                document={
+                    "_sps": {
+                        "source_table_name": "cm_verified_sql_query",
+                        "source_identifier": query_id,
+                    },
+                    "payload": {
+                        "verified_sql_payload": {
+                            "query_description": normalized_query_description,
+                            "sql_text": normalized_sql_text,
+                            "verification_description": normalized_verification_description,
+                        }
+                    },
+                },
+                compensation_filter={
+                    "_sps.source_table_name": "cm_verified_sql_query",
+                    "_sps.source_identifier": query_id,
+                },
+            )
     finally:
         repository_database.close()
+        payload_database.close()
 
     result.update(
         {

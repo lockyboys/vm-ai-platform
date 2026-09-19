@@ -5,6 +5,7 @@
 # CHANGE HISTORY
 # =============================================================================
 # 20260902 | Codex | Harness 표준 파일 헤더와 OAuth 보안 역할을 보강했음
+# 20260913 | Codex | 허용 사용자에 한해 검증된 CommonAuth access 토큰을 지원함
 # =============================================================================
 # 이 파일은 무엇을 하나요?
 # - Google 로그인 결과를 확인하고, 사용할 수 있는 사람인지 검사합니다.
@@ -68,6 +69,8 @@ class HarnessOAuthSettings:
     login_state_expire_seconds: int
     scopes: tuple[str, ...]
     client_registry_path: str
+    # 비어 있으면 일반 CommonAuth 토큰은 받지 않습니다. 사용자 ID는 정확히 일치해야 합니다.
+    common_auth_allowed_subjects: frozenset[str] = frozenset()
 
     @classmethod
     def from_environment(cls) -> "HarnessOAuthSettings":
@@ -92,6 +95,13 @@ class HarnessOAuthSettings:
         )
         jwt_secret_key = cls._required("SPS_AUTH_JWT_SECRET_KEY")
         client_registry_path = cls._required("SPS_MCP_OAUTH_CLIENT_REGISTRY_PATH")
+        common_auth_allowed_subjects = frozenset(
+            subject.strip()
+            for subject in os.getenv("SPS_MCP_COMMON_AUTH_ALLOWED_SUBJECTS", "").split(",")
+            if subject.strip()
+        )
+        if "*" in common_auth_allowed_subjects:
+            raise RuntimeError("SPS_MCP_COMMON_AUTH_ALLOWED_SUBJECTS must list explicit user IDs.")
 
         cls._require_https_url("SPS_MCP_OAUTH_ISSUER_URL", issuer_url)
         cls._require_https_url("SPS_MCP_OAUTH_RESOURCE_URL", resource_url)
@@ -129,6 +139,7 @@ class HarnessOAuthSettings:
             ),
             scopes=scopes,
             client_registry_path=client_registry_path,
+            common_auth_allowed_subjects=common_auth_allowed_subjects,
         )
 
     @staticmethod
@@ -531,7 +542,7 @@ class HarnessOAuthProvider(
     async def load_access_token(self, token: str) -> AccessToken | None:
         claims = self._decode_jwt(token, expected_token_use="access")
         if claims is None:
-            return None
+            return self._load_common_auth_access_token(token)
         scopes = self._claim_scopes(claims)
         if not set(self.settings.scopes).issubset(scopes):
             return None
@@ -550,12 +561,67 @@ class HarnessOAuthProvider(
             },
         )
 
+    def _decode_common_auth_token(
+        self, token: str, *, allow_revoked: bool = False
+    ) -> dict[str, Any] | None:
+        """일반 토큰도 서명·만료·용도·허용 사용자 확인을 모두 거쳐야 합니다.
+
+        이 경로는 aud가 없는 기존 SPS 토큰을 위한 명시적 호환 모드이며,
+        표준 OAuth 발급 흐름을 대체하지 않습니다. 다른 서비스용 aud/iss가
+        명시된 토큰은 거부하고, 기존 MCP OAuth 토큰 검증도 완화하지 않습니다.
+        """
+        if not self.settings.common_auth_allowed_subjects:
+            return None
+        try:
+            # base64 해석만으로 신뢰하지 않고 CommonAuth에서 HMAC 서명까지 검사합니다.
+            # 일반 access 토큰은 만료 유예 없이 검사하며 refresh 토큰은 거부합니다.
+            claims = self._auth.verify_token(token, expected_type="access")
+        except (AuthenticationError, ValueError, TypeError, AttributeError):
+            return None
+        if (
+            claims["sub"] not in self.settings.common_auth_allowed_subjects
+            or not isinstance(claims.get("jti"), str)
+            or not claims["jti"]
+            or type(claims.get("iat")) is not int
+            or claims["iat"] > int(time.time())
+            or ("iss" in claims and claims["iss"] != self.settings.issuer_url)
+            or ("aud" in claims and claims["aud"] != self.settings.resource_url)
+            or ("token_use" in claims and claims["token_use"] != "access")
+        ):
+            return None
+        if "scope" in claims and (
+            not isinstance(claims["scope"], str)
+            or not set(self.settings.scopes).issubset(self._claim_scopes(claims))
+        ):
+            return None
+        if not allow_revoked and claims["jti"] in self._revoked_jti:
+            return None
+        return claims
+
+    def _load_common_auth_access_token(self, token: str) -> AccessToken | None:
+        """검증된 사용자에게 서버에 설정된 MCP 권한만 부여합니다."""
+        claims = self._decode_common_auth_token(token)
+        if claims is None:
+            return None
+        return AccessToken(
+            token=token,
+            client_id=f"common-auth:{claims['sub']}",
+            subject=claims["sub"],
+            scopes=list(self.settings.scopes),
+            expires_at=claims["exp"],
+            resource=self.settings.resource_url,
+            # 없는 iss/aud를 서명된 정보인 것처럼 만들어 넣지 않습니다.
+            claims={"auth_source": "common_auth", "token_type": "access", "jti": claims["jti"]},
+        )
+
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         claims = self._decode_jwt(
             token.token,
             expected_token_use="access" if isinstance(token, AccessToken) else "refresh",
             allow_revoked=True,
         )
+        if claims is None and isinstance(token, AccessToken):
+            claims = self._decode_common_auth_token(token.token, allow_revoked=True)
         if claims is None:
             return
         async with self._lock:
@@ -626,7 +692,7 @@ class HarnessOAuthProvider(
                 expected_type=f"mcp_${expected_token_use}",
                 leeway_seconds=30,
             )
-        except AuthenticationError:
+        except (AuthenticationError, ValueError, TypeError, AttributeError):
             return None
         required_claims = {
             "iss",

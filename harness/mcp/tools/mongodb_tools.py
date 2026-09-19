@@ -328,19 +328,18 @@ def verified_sql(
     It does not execute SQL batches.
     """
 
-    selected_sql_text = "sql_text" if include_sql_text else "NULL AS sql_text"
-    sql = f"""
+    # Payload columns were moved out of MariaDB; approval metadata stays here.
+    from harness.mcp.tools.verified_sql_tools import _hydrate_query_payload_from_mongodb
+
+    sql = """
     SELECT
         query_id,
         query_name,
-        query_description,
         crud_type,
         verified_yn,
         certified_level_code,
-        verification_description,
         verified_by,
-        verified_dt,
-        {selected_sql_text}
+        verified_dt
     FROM cm_verified_sql_query
     WHERE verified_yn = 'Y'
       AND status_code = 'ACTIVE'
@@ -356,6 +355,11 @@ def verified_sql(
 
     database = CommonDatabase(database_role="COMMON")
     try:
-        return database.fetch_all(sql, params)
+        queries = database.fetch_all(sql, params)
+        hydrated = [_hydrate_query_payload_from_mongodb(database, query, require_sql_text=include_sql_text) for query in queries]
+        if not include_sql_text:
+            for query in hydrated:
+                query["sql_text"] = None
+        return hydrated
     finally:
         database.close()
