@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from dataclasses import replace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 
+from common.auth import CommonAuth
 from harness.mcp.oauth_provider import (
     HarnessOAuthProvider,
     HarnessOAuthSettings,
@@ -155,3 +158,122 @@ def test_unlisted_google_account_is_denied() -> None:
             )
 
     asyncio.run(scenario())
+
+
+def make_common_auth(settings: HarnessOAuthSettings) -> CommonAuth:
+    """실제 CommonAuth 발급기를 사용하되 운영 비밀키는 사용하지 않습니다."""
+    return CommonAuth(
+        secret_key=settings.jwt_secret_key,
+        jwt_expire_seconds=settings.access_token_expire_seconds,
+        refresh_token_expire_seconds=settings.refresh_token_expire_seconds,
+    )
+
+
+def test_common_auth_is_disabled_unless_subject_is_explicitly_allowed() -> None:
+    settings = make_settings()
+    auth = make_common_auth(settings)
+    token = auth.issue_access_token("local-user")
+    assert asyncio.run(HarnessOAuthProvider(settings).load_access_token(token)) is None
+    provider = HarnessOAuthProvider(
+        replace(settings, common_auth_allowed_subjects=frozenset({"local-user"}))
+    )
+    assert asyncio.run(provider.load_access_token(auth.issue_access_token("other-user"))) is None
+    assert asyncio.run(provider.load_access_token(auth.issue_access_token("Local-User"))) is None
+
+
+def test_common_auth_access_token_acceptance_and_revocation() -> None:
+    async def scenario() -> None:
+        settings = replace(make_settings(), common_auth_allowed_subjects=frozenset({"local-user"}))
+        provider = HarnessOAuthProvider(settings)
+        auth = make_common_auth(settings)
+        token = auth.issue_access_token("local-user")
+        access = await provider.load_access_token(token)
+        assert access is not None
+        assert access.subject == "local-user"
+        assert access.scopes == list(settings.scopes)
+        assert access.resource == settings.resource_url
+        assert access.expires_at > time.time()
+        assert access.claims["auth_source"] == "common_auth"
+        assert "iss" not in access.claims and "aud" not in access.claims
+        await provider.revoke_token(access)
+        assert await provider.load_access_token(token) is None
+        assert await provider.load_access_token(auth.issue_access_token("local-user")) is not None
+        assert await provider.load_refresh_token(make_client(), token) is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("case", ["malformed", "bad_payload", "tampered", "wrong_key", "expired", "future", "refresh"])
+def test_common_auth_invalid_tokens_are_rejected(case: str) -> None:
+    settings = replace(make_settings(), common_auth_allowed_subjects=frozenset({"local-user"}))
+    provider = HarnessOAuthProvider(settings)
+    auth = make_common_auth(settings)
+    token = auth.issue_access_token("local-user")
+    if case == "malformed":
+        token = "x" * 24  # 사용자 오류와 같은 점(.)이 없는 단일 문자열 형태
+    elif case == "bad_payload":
+        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.W10.invalid"
+    elif case == "tampered":
+        segments = token.split(".")
+        segments[2] = ("A" if segments[2][0] != "A" else "B") + segments[2][1:]
+        token = ".".join(segments)
+    elif case == "wrong_key":
+        token = make_common_auth(replace(settings, jwt_secret_key="different-test-secret-key-with-32-bytes")).issue_access_token("local-user")
+    elif case == "expired":
+        token = auth.issue_token("local-user", token_type="access", expires_in=1, issued_at=int(time.time()) - 5)
+    elif case == "future":
+        token = auth.issue_token("local-user", token_type="access", expires_in=60, issued_at=int(time.time()) + 60)
+    elif case == "refresh":
+        token = auth.issue_refresh_token("local-user")
+    assert asyncio.run(provider.load_access_token(token)) is None
+
+
+@pytest.mark.parametrize("claims", [
+    {"aud": "https://other.example.test/mcp"},
+    {"iss": "https://other.example.test"},
+    {"token_use": "refresh"},
+    {"scope": "other:scope"},
+    {"scope": ["mcp:tools"]},
+])
+def test_common_auth_rejects_conflicting_signed_claims(claims: dict[str, object]) -> None:
+    settings = replace(make_settings(), common_auth_allowed_subjects=frozenset({"local-user"}))
+    token = make_common_auth(settings).issue_token(
+        "local-user", token_type="access", expires_in=60, additional_claims=claims
+    )
+    assert asyncio.run(HarnessOAuthProvider(settings).load_access_token(token)) is None
+
+
+def test_common_auth_does_not_grant_extra_token_scopes() -> None:
+    settings = replace(make_settings(), common_auth_allowed_subjects=frozenset({"local-user"}))
+    token = make_common_auth(settings).issue_token(
+        "local-user", token_type="access", expires_in=60,
+        additional_claims={"aud": settings.resource_url, "iss": settings.issuer_url, "scope": "mcp:tools admin:all"},
+    )
+    access = asyncio.run(HarnessOAuthProvider(settings).load_access_token(token))
+    assert access is not None
+    assert access.scopes == ["mcp:tools"]
+
+
+def test_oauth_wrong_audience_cannot_fall_back_to_common_auth() -> None:
+    settings = replace(make_settings(), common_auth_allowed_subjects=frozenset({"local-user"}))
+    other_provider = HarnessOAuthProvider(replace(settings, resource_url="https://other.example.test/mcp"))
+    token = other_provider._issue_token_pair(subject="local-user", client_id="test-client", scopes=["mcp:tools"])
+    assert asyncio.run(HarnessOAuthProvider(settings).load_access_token(token.access_token)) is None
+
+
+def test_common_auth_allowlist_environment_is_explicit(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("SPS_MCP_OAUTH_ISSUER_URL", "https://auth.example.test")
+    monkeypatch.setenv("SPS_MCP_OAUTH_ALLOWED_EMAILS", "allowed@example.test")
+    monkeypatch.setenv("SPS_AUTH_JWT_SECRET_KEY", "test-only-key-" * 4)
+    monkeypatch.setenv("SPS_MCP_GOOGLE_CLIENT_ID", "test-client")
+    monkeypatch.setenv("SPS_MCP_GOOGLE_CLIENT_SECRET", "test-secret")
+    monkeypatch.setenv("SPS_MCP_OAUTH_CLIENT_REGISTRY_PATH", str(tmp_path / "clients.json"))
+    monkeypatch.setenv("SPS_MCP_OAUTH_RESOURCE_URL", "https://auth.example.test/mcp")
+    monkeypatch.setenv("SPS_MCP_GOOGLE_REDIRECT_URI", "https://auth.example.test/oauth/google/callback")
+    monkeypatch.delenv("SPS_MCP_COMMON_AUTH_ALLOWED_SUBJECTS", raising=False)
+    assert HarnessOAuthSettings.from_environment().common_auth_allowed_subjects == frozenset()
+    monkeypatch.setenv("SPS_MCP_COMMON_AUTH_ALLOWED_SUBJECTS", " local-user , other-user,local-user,,")
+    assert HarnessOAuthSettings.from_environment().common_auth_allowed_subjects == frozenset({"local-user", "other-user"})
+    monkeypatch.setenv("SPS_MCP_COMMON_AUTH_ALLOWED_SUBJECTS", "*")
+    with pytest.raises(RuntimeError, match="explicit user IDs"):
+        HarnessOAuthSettings.from_environment()
