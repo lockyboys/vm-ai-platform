@@ -1,3 +1,9 @@
+"""Object Definition 입력 정규화와 형식 검증.
+
+Change History
+20260912 | Codex | 단일 Engine 통합 시 구형 버전·선택 Level 입력의 호환성을 보존한다.
+"""
+
 from __future__ import annotations
 
 import re
@@ -62,10 +68,10 @@ class ObjectDefinitionRequestProcessor:
             else None
         )
 
-        if normalized.get("object_level") is not None:
-            normalized["object_level"] = int(
-                normalized["object_level"]
-            )
+        if normalized.get("object_level") not in (None, ""):
+            normalized["object_level"] = int(normalized["object_level"])
+        else:
+            normalized.pop("object_level", None)
 
         if normalized.get("sequence_length") is not None:
             normalized["sequence_length"] = int(
@@ -74,7 +80,16 @@ class ObjectDefinitionRequestProcessor:
 
         normalized.setdefault("status_code", "ACTIVE")
         normalized.setdefault("active_yn", "Y")
-        normalized.setdefault("version_no", "v1.0")
+        # 실제 저장 컬럼은 version_num이다. 구형 별칭은 한 번만 변환한다.
+        legacy_version = normalized.pop("version_no", None)
+        version_num = normalized.get("version_num")
+        if (
+            legacy_version not in (None, "")
+            and version_num not in (None, "")
+            and legacy_version != version_num
+        ):
+            raise ValueError("version_no and version_num must agree.")
+        normalized["version_num"] = version_num or legacy_version or "v1.0"
         normalized.setdefault("sort_no", 0)
         normalized.setdefault(
             "created_by",
@@ -126,10 +141,10 @@ class ObjectDefinitionRequestProcessor:
 
         if request.get("object_level") is not None:
             object_level = int(request["object_level"])
-            if object_level < 0 or object_level > 4:
-                raise ValueError(
-                    "object_level must be between 0 and 4."
-                )
+            # 허용 Level의 상한은 코드가 아닌 활성 Rule·Blueprint가 결정한다.
+            # 여기서는 입력 형식만 검사하고, 실제 저장 Level은 prepare에서 확정한다.
+            if object_level < 0:
+                raise ValueError("object_level must be non-negative.")
 
         sequence_length = int(request["sequence_length"])
         if sequence_length < 1 or sequence_length > 20:

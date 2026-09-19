@@ -1,5 +1,12 @@
+"""Object Definition의 단일 실행 원본.
+
+Change History
+20260912 | Codex | #24: 구형 create·Sequence 준비 계약을 공통 Engine에서 호환한다.
+"""
+
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from common.database import CommonDatabase
@@ -51,8 +58,76 @@ class ObjectDefinitionEngine(BaseEngine):
         self,
         request: dict[str, Any],
     ) -> dict[str, Any]:
-        """기존 Runtime Adapter 호환 진입점."""
-        return self.execute(request)
+        """구형 호출의 CREATED/ALREADY_EXISTS 응답을 유지하는 공통 진입점.
+
+        신규 Object는 BaseEngine의 검증·저장·트랜잭션 경로로 실행한다.
+        이미 등록된 Object는 재생성하거나 번호를 증가시키지 않고, 구형
+        등록 도구가 필요로 하는 Sequence 기준 행만 공통 Allocator로 보장한다.
+        """
+        normalized = self.normalize_request(request)
+        self.request_processor.validate(normalized)
+        self.repository_resolver.validate_references(normalized)
+        existing = self.repository_resolver.find_existing(normalized["object_code"])
+
+        if existing is None:
+            result = self.execute(normalized)
+            return {
+                **result,
+                "status": "CREATED",
+                "message": "Object Definition created successfully.",
+                "identifier_target_code": normalized["identifier_target_code"],
+                "object": self.repository_resolver.find_existing(normalized["object_code"]),
+            }
+
+        prepared = self.identifier_coordinator.prepare(request=normalized)
+        normalized["object_level"] = prepared["object_level"]
+        self.identifier_coordinator.acquire(prepared)
+        try:
+            with self.transaction():
+                self._ensure_sequence_metadata(
+                    normalized,
+                    prepared["blueprint"],
+                    prepared["sequence_date"],
+                    prepared["sequence_length"],
+                    prepared["now"],
+                )
+        finally:
+            self.identifier_coordinator.release(prepared)
+
+        rule = prepared["rule_resolution"]
+        return {
+            "success": False,
+            "status": "ALREADY_EXISTS",
+            "message": f"Object already exists. object_code={normalized['object_code']}",
+            "affected_rows": 0,
+            "object": existing,
+            "rule_id": rule.rule_id,
+            "rule_code": rule.rule_code,
+            "rule_action_id": rule.rule_action_id,
+            "rule_action_type_code": rule.action_type_code,
+            "resolution_source": rule.resolution_source,
+        }
+
+    def _ensure_sequence_metadata(
+        self,
+        normalized: dict[str, Any],
+        blueprint: dict[str, Any],
+        sequence_date: str,
+        sequence_length: int,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """구형 도구의 호출 형식만 유지하고 실제 준비는 공통 Allocator에 위임한다.
+
+        이 호환 메서드는 채번이나 트랜잭션 시작·종료를 하지 않는다.
+        기존 호출자가 소유한 트랜잭션과 감사값을 그대로 사용한다.
+        """
+        return self.identifier_coordinator.sequence_allocator.ensure_sequence(
+            request=normalized,
+            blueprint=blueprint,
+            sequence_date=sequence_date,
+            sequence_length=sequence_length,
+            now=now,
+        )
 
     def normalize_request(
         self,

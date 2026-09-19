@@ -1,6 +1,6 @@
 """Synchronize physical database metadata into SPS repositories.
 
-cm_business_domain is the SSOT for selectable business domain codes.
+cm_common_code_group/cm_common_code are the SSOT for business and domain codes.
 Only DML is performed; no database structure is created or altered.
 """
 from __future__ import annotations
@@ -170,11 +170,22 @@ class BusinessDomainRepositorySyncBatch:
     def _load_business_domains(self) -> dict[str, dict[str, Any]]:
         rows = self.common.fetch_all(
             """
-            SELECT business_domain_code, business_domain_name, description, sort_no
-            FROM cm_business_domain
-            WHERE status_code = 'ACTIVE'
+            SELECT code AS business_domain_code,
+                   code_name AS business_domain_name,
+                   common_code_description AS description,
+                   sort_no
+            FROM cm_common_code
+            WHERE group_code = 'CM_DOMAIN'
+              AND status_code = 'ACTIVE'
               AND deleted_dt IS NULL
-            ORDER BY sort_no, business_domain_code
+              AND EXISTS (
+                  SELECT 1
+                  FROM cm_common_code_group AS code_group
+                  WHERE code_group.group_code = 'CM_DOMAIN'
+                    AND code_group.status_code = 'ACTIVE'
+                    AND code_group.deleted_dt IS NULL
+              )
+            ORDER BY sort_no, code
             """
         )
         if not rows:
@@ -182,13 +193,18 @@ class BusinessDomainRepositorySyncBatch:
         return {str(row["business_domain_code"]).upper(): dict(row) for row in rows}
 
     def _validate_business(self) -> None:
-        row = self.repository.fetch_one(
+        row = self.common.fetch_one(
             """
-            SELECT business_code
-            FROM sp_business
-            WHERE business_code = %s
-              AND active_yn = 'Y'
-              AND deleted_dt IS NULL
+            SELECT common_code.code
+            FROM cm_common_code AS common_code
+            INNER JOIN cm_common_code_group AS code_group
+                    ON code_group.group_code = common_code.group_code
+            WHERE common_code.group_code = 'CM_BUSINESS'
+              AND common_code.code = %s
+              AND common_code.status_code = 'ACTIVE'
+              AND common_code.deleted_dt IS NULL
+              AND code_group.status_code = 'ACTIVE'
+              AND code_group.deleted_dt IS NULL
             """,
             (self.business_code,),
         )
@@ -374,7 +390,7 @@ class BusinessDomainRepositorySyncBatch:
             if mapped_domain_code in domains:
                 return mapped_domain_code
             raise ValueError(
-                "Table prefix domain mapping is not registered in cm_business_domain: "
+                "Table prefix domain mapping is not registered in CM_DOMAIN common-code metadata: "
                 f"table_name={table_name}, prefix={prefix}, domain_code={mapped_domain_code}"
             )
         if prefix in domains:
