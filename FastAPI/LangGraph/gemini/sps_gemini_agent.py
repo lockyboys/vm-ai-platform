@@ -1,4 +1,11 @@
 """FastAPI를 사용해 SPS Harness MCP 답을 구하는 LangGraph 에이전트 서버."""
+# export SPS_AUTH_JWT_EXPIRE_SECONDS=900 SPS_AUTH_REFRESH_TOKEN_EXPIRE_SECONDS=86400
+# sudo systemctl show sps-harness.service --property=Environment | grep SPS_MCP_COMMON_AUTH_ALLOWED_SUBJECTS
+# /data/vm_project/venv/bin/python /data/vm_project/FastAPI/LangGraph/gemini/sps_gemini_agent.py --common-auth-user jeaje --check-mcp
+# 확인 항목	             결과	                                    상태 => 결과 확인
+# CommonAuth 토큰	    발급·현재 프로세스 적용 확인(원문 비노출)	    확인    
+# SPS Harness MCP 연결	MCP_OK tools=41	                          정상 연결 완료
+# python /data/vm_project/FastAPI/LangGraph/gemini/sps_gemini_agent.py --common-auth-user jeaje "table_schema 도구로 verified_sql 관련 테이블 스키마를 직접 조회하고 결과를 표로 출력해줘"
 # 20260913 | Codex | CommonAuth 비노출 발급·연결 점검 옵션과 CLI thread_id 추가
 from __future__ import annotations
 
@@ -32,6 +39,7 @@ from FastAPI.LangGraph.agent_memory import PersistentMemory, load_settings
 load_dotenv(PROJECT_ROOT / ".env")
 
 MCP_URL = os.getenv("SPS_MCP_URL", "http://127.0.0.1:8000/mcp")
+MCP_HOST_HEADER = os.getenv("SPS_MCP_HOST_HEADER")
 BEARER_TOKEN = os.getenv("SPS_MCP_BEARER_TOKEN")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("SPS_GEMINI_AGENT_TIMEOUT_SECONDS", "120"))
@@ -112,15 +120,19 @@ def issue_common_auth_token(user_id: str) -> None:
 def create_mcp_client() -> MultiServerMCPClient:
     """SPS Harness MCP Streamable HTTP 클라이언트를 생성한다."""
 
+    headers = {
+        "Authorization": f"Bearer {BEARER_TOKEN}",
+        "Accept": "application/json, text/event-stream",
+    }
+    if MCP_HOST_HEADER:
+        headers["Host"] = MCP_HOST_HEADER
+
     return MultiServerMCPClient(
         {
             "sps_harness": {
                 "transport": "streamable_http",
                 "url": MCP_URL,
-                "headers": {
-                    "Authorization": f"Bearer {BEARER_TOKEN}",
-                    "Accept": "application/json, text/event-stream",
-                },
+                "headers": headers,
             }
         }
     )

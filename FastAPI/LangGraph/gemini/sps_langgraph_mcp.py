@@ -7,18 +7,18 @@
 # export SPS_AUTH_JWT_EXPIRE_SECONDS=900
 # export SPS_AUTH_REFRESH_TOKEN_EXPIRE_SECONDS=86400
 # 2. 실행 직전에 토큰 발급
-# export SPS_MCP_BEARER_TOKEN="$(
-#   PYTHONPATH=/data/vm_project venv/bin/python -c \
-#   'from dotenv import load_dotenv; load_dotenv("/data/vm_project/.env"); from common.auth import CommonAuth; print(CommonAuth().issue_access_token("jeaje"))'
-# )"
+#  export SPS_MCP_BEARER_TOKEN="$(
+#    PYTHONPATH=/data/vm_project venv/bin/python -c \
+#    'from dotenv import load_dotenv; load_dotenv("/data/vm_project/.env"); from common.auth import CommonAuth; print(CommonAuth().issue_access_token("jeaje"))'
+#  )"
 # 토큰은 900초 후 만료되므로 재실행할 때 다시 발급합니다.
 
 # 3. 툴 41개 목록 조회
 # PYTHONPATH=/data/vm_project venv/bin/python "$SCRIPT"
 # 4. 조회 툴 실행
-# PYTHONPATH=/data/vm_project venv/bin/python "$SCRIPT" \
-#   --tool git_status \
-#   --args '{}'
+#  PYTHONPATH=/data/vm_project venv/bin/python "$SCRIPT" \
+#    --tool git_status \
+#    --args '{}'
 # 5. 변경 툴 실행
 # PYTHONPATH=/data/vm_project venv/bin/python "$SCRIPT" \
 #   --tool update_current_checkpoint \
