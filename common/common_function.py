@@ -21,8 +21,8 @@ def load_rule_common_code_contract(
     common_database: Any,
     rule_code: str,
 ) -> dict[str, Any]:
-    """활성 Rule Action이 선택한 ACTION_TYPE 공통코드 계약을 읽는다."""
-    row = common_database.fetch_one(
+    """활성 Rule Action의 ACTION_TYPE 공통코드 계약을 모두 읽는다."""
+    rows = common_database.fetch_all(
         """
         SELECT r.rule_id,
                r.rule_code,
@@ -43,26 +43,32 @@ def load_rule_common_code_contract(
           AND r.status_code = 'ACTIVE'
           AND r.deleted_dt IS NULL
         ORDER BY a.sort_no, a.rule_action_id
-        LIMIT 1
         """,
         (rule_code,),
     )
-    if not row:
+    if not rows:
         raise ValueError(f"Active Rule common-code contract not found: {rule_code}")
 
-    try:
-        contract = json.loads(row.get("common_code_json") or "")
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise ValueError(
-            "ACTION_TYPE common_code_json must be valid JSON. "
-            f"rule_code={rule_code}, action_type_code={row['action_type_code']}"
-        ) from exc
-    if not isinstance(contract, dict) or not contract:
-        raise ValueError(
-            "ACTION_TYPE common-code contract is empty. "
-            f"rule_code={rule_code}, action_type_code={row['action_type_code']}"
-        )
-    return {**dict(row), **contract}
+    actions: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            contract = json.loads(row.get("common_code_json") or "")
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                "ACTION_TYPE common_code_json must be valid JSON. "
+                f"rule_code={rule_code}, action_type_code={row['action_type_code']}"
+            ) from exc
+        if not isinstance(contract, dict) or not contract:
+            raise ValueError(
+                "ACTION_TYPE common-code contract is empty. "
+                f"rule_code={rule_code}, action_type_code={row['action_type_code']}"
+            )
+        actions.append({**dict(row), **contract})
+
+    # Keep the historical first-contract mapping for existing callers and
+    # expose every active Action in deterministic repository order.
+    return {**actions[0], "actions": actions}
+
 
 
 def validate_common_code_value(
