@@ -96,7 +96,8 @@ Thumbs.db
 # ============================================
 **/*backup_*.py
 !utils_backup_20260830.py
-
+*_backup_*
+*_credentials*
 # ============================================
 # SQL 문
 # ============================================
@@ -123,3 +124,5 @@ output/sps_document_generation_standard_v1_0.docx
 output/sps_document_generation_standard_v1_0_report.md
 output/sps_story_document_demo.docx
 output/sps_story_document_demo_report.md
+ollama_models/
+ollama_runtime/
