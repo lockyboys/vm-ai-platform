@@ -9,6 +9,7 @@
 # =============================================================================
 
 from __future__ import annotations
+import json
 
 from typing import Any
 
@@ -25,6 +26,7 @@ def identifier_generate(
     program_id: str = "SPS_HARNESS_IDENTIFIER_GENERATE",
     client_ip: str = "127.0.0.1",
     apply: bool = False,
+    registration_metadata_json: str = "",
 ) -> dict[str, Any]:
     """Generate one Identifier from one active Repository Object.
 
@@ -43,10 +45,40 @@ def identifier_generate(
 
     identifier_database = CommonDatabase(database_role="STORY")
     try:
-        object_metadata = _load_registered_object_metadata(
-            identifier_database,
-            normalized_object_code,
-        )
+        if registration_metadata_json.strip():
+            try:
+                object_metadata = json.loads(registration_metadata_json)
+            except json.JSONDecodeError as error:
+                raise ValueError("registration_metadata_json must be valid JSON.") from error
+            if not isinstance(object_metadata, dict):
+                raise ValueError("registration_metadata_json must be a JSON object.")
+            supplied_code = normalize_required_text(
+                object_metadata.get("object_code"),
+                "registration_metadata.object_code",
+            ).upper()
+            if supplied_code != normalized_object_code:
+                raise ValueError(
+                    "registration_metadata.object_code must match object_code."
+                )
+            for field_name in (
+                "object_name",
+                "business_code",
+                "domain_code",
+                "object_type_code",
+                "identifier_target_code",
+                "sequence_scope_code",
+                "target_identifier_field",
+            ):
+                normalize_required_text(
+                    object_metadata.get(field_name),
+                    f"registration_metadata.{field_name}",
+                )
+            object_metadata["object_code"] = supplied_code
+        else:
+            object_metadata = _load_registered_object_metadata(
+                identifier_database,
+                normalized_object_code,
+            )
         identifier_coordinator = IdentifierCoordinator(identifier_database)
         identifier_maximum_length = (
             identifier_coordinator.resolve_identifier_maximum_length(

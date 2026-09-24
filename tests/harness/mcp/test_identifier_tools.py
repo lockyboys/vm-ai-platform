@@ -181,3 +181,36 @@ def test_identifier_generate_keeps_committed_sequence_when_rendering_fails(
     assert database.committed is True
     assert database.rolled_back is False
     assert database.closed is True
+    
+def test_identifier_generate_accepts_bootstrap_metadata_without_repository_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bootstrap_metadata = {
+        "object_code": "EXECUTION_HISTORY",
+        "object_name": "te_story_platform.sp_execution_history",
+        "business_code": "SP",
+        "domain_code": "RP",
+        "object_type_code": "TABLE",
+        "identifier_target_code": "EG",
+        "sequence_scope_code": "DAILY",
+        "sequence_length": 5,
+        "target_identifier_field": "execution_history_id",
+    }
+    monkeypatch.setattr(identifier_tools, "CommonDatabase", _FakeDatabase)
+    monkeypatch.setattr(identifier_tools, "IdentifierCoordinator", _FakeIdentifierCoordinator)
+    monkeypatch.setattr(
+        identifier_tools,
+        "_load_registered_object_metadata",
+        lambda *_: (_ for _ in ()).throw(AssertionError("bootstrap must not query Repository")),
+    )
+    _FakeDatabase.instances.clear()
+
+    result = identifier_tools.identifier_generate(
+        object_code="EXECUTION_HISTORY",
+        registration_metadata_json=__import__("json").dumps(bootstrap_metadata),
+        apply=False,
+    )
+
+    assert result["dry_run"] is True
+    assert result["object_code"] == "EXECUTION_HISTORY"
+    assert _FakeDatabase.instances[0].closed is True
