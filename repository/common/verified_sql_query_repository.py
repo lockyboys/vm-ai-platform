@@ -7,7 +7,7 @@ class VerifiedSqlQueryRepository:
 
     def get_verified_query(self, query_id):
         sql = """
-            SELECT query_id, query_name, query_description
+            SELECT query_id, query_name, crud_type, certified_level_code
             FROM cm_verified_sql_query
             WHERE query_id = %s
               AND verified_yn = 'Y'
