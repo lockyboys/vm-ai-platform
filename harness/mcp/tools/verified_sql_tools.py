@@ -22,6 +22,7 @@ from engine.common.query_identifier_feature_rule_resolver import (
     QueryIdentifierFeatureRuleResolver,
 )
 from engine.identifier import IdentifierCoordinator
+from engine.common.repository_schema_guard import assert_schema_documented
 
 
 _READ_STATEMENTS = {"SELECT", "SHOW", "DESCRIBE", "EXPLAIN"}
@@ -306,14 +307,13 @@ def verified_sql_register(
     where_clause_pass_yn: bool = False,
     program_id: str = "",
     client_ip: str = "",
+    evidence_json: str = "",
     apply: bool = False,
 ) -> dict[str, Any]:
     """
-    Register one new Verified SQL Query without executing it.
-
-    The default is validation-only. Set apply=true to allocate the Repository
-    Query ID and insert exactly one new cm_verified_sql_query row. SQL execution
-    remains available only through verified_sql_execute(query_id=...).
+    Register one Verified SQL Query and its MongoDB payload with an execution
+    history and link. Optional evidence_json registers an explicit ev_evidence
+    row in the same MariaDB transaction. Validation-only by default.
     """
 
     normalized_query_name = normalize_required_text(query_name, "query_name")
@@ -324,6 +324,19 @@ def verified_sql_register(
     normalized_crud_type = normalize_required_text(crud_type, "crud_type").upper()
     normalized_registered_by = normalize_required_text(registered_by, "registered_by")
     normalized_sql_text, statement_keyword = _validate_registration_sql(sql_text)
+    evidence = None
+    if evidence_json.strip():
+        try:
+            evidence = json.loads(evidence_json)
+        except json.JSONDecodeError as error:
+            raise ValueError("evidence_json must be a JSON object.") from error
+        if not isinstance(evidence, dict):
+            raise ValueError("evidence_json must be a JSON object.")
+        evidence = {
+            key: normalize_required_text(evidence.get(key), key)
+            for key in ("evidence_code", "evidence_name", "evidence_level_code",
+                        "evidence_category_code", "source_title")
+        }
     query_feature_resolution = _resolve_query_identifier_feature(
         query_feature_code
     )
@@ -364,11 +377,22 @@ def verified_sql_register(
         "query_feature_rule_id": query_feature_resolution.rule_id,
         "query_feature_rule_code": query_feature_resolution.rule_code,
     }
+    if evidence:
+        result["evidence_code"] = evidence["evidence_code"]
     if not apply:
         return result
 
     identifier_database = CommonDatabase(database_role="STORY")
     try:
+        assert_schema_documented(
+            identifier_database, identifier_database.database_name,
+            ("sp_object", "sp_execution_history", "sp_object_execution_link"),
+        )
+        assert_schema_documented(
+            identifier_database, "te_common",
+            ("cm_verified_sql_query", "ev_evidence") if evidence
+            else ("cm_verified_sql_query",),
+        )
         identifier_object_code = _resolve_verified_sql_object_code(identifier_database)
         identifier_coordinator = IdentifierCoordinator(identifier_database)
         identifier_object_metadata = _load_registered_object_metadata(
@@ -390,27 +414,84 @@ def verified_sql_register(
             )
         )
         identifier_database.begin()
+        acquired_locks = []
         try:
             identifier_coordinator.acquire(identifier_preparation)
-            try:
-                identifier_resolution = identifier_coordinator.resolve(
-                    request=identifier_request,
-                    prepared=identifier_preparation,
-                    maximum_length=identifier_maximum_length,
+            acquired_locks.append(identifier_preparation)
+            identifier_resolution = identifier_coordinator.resolve(
+                request=identifier_request,
+                prepared=identifier_preparation,
+                maximum_length=identifier_maximum_length,
+            )
+            query_id = identifier_coordinator.render_resolution(
+                request=identifier_request,
+                prepared=identifier_preparation,
+                resolution=identifier_resolution,
+                object_code=normalized_query_feature_code,
+                maximum_length=identifier_maximum_length,
+            )
+            # Reserve the execution attempt from its registered Object on the
+            # same identifier transaction as the Query ID. These are sequences,
+            # not durable history rows; MariaMongoWriteService writes the rows.
+            history_metadata = _load_registered_object_metadata(
+                identifier_database, "EXECUTION_HISTORY",
+            )
+            history_column = identifier_database.fetch_one(
+                """SELECT character_maximum_length
+                   FROM information_schema.columns
+                   WHERE table_schema = %s AND table_name = %s AND column_name = %s""",
+                (identifier_database.database_name, "sp_execution_history", "execution_history_id"),
+            )
+            if not history_column or not history_column.get("character_maximum_length"):
+                raise RuntimeError("sp_execution_history identifier column is missing")
+            history_request, history_preparation = identifier_coordinator.prepare_registered_object(
+                object_metadata=history_metadata, created_by=normalized_registered_by,
+                updated_by=normalized_registered_by, client_ip=client_ip.strip() or "127.0.0.1",
+                program_id=program_id.strip() or "VERIFIED_SQL_REGISTER",
+            )
+            identifier_coordinator.acquire(history_preparation)
+            acquired_locks.append(history_preparation)
+            execution_history_id = identifier_coordinator.resolve(
+                request=history_request, prepared=history_preparation,
+                maximum_length=int(history_column["character_maximum_length"]),
+            ).identifier
+            mongo_objects = {
+                code: _load_registered_object_metadata(identifier_database, code)["object_id"]
+                for code in ("MDB", "MCO", "MCM")
+            }
+            evidence_id = None
+            if evidence:
+                evidence_metadata = _load_registered_object_metadata(
+                    identifier_database, "TE_COMMON_EV_EVIDENCE",
                 )
-                query_id = identifier_coordinator.render_resolution(
-                    request=identifier_request,
-                    prepared=identifier_preparation,
-                    resolution=identifier_resolution,
-                    object_code=normalized_query_feature_code,
-                    maximum_length=identifier_maximum_length,
+                evidence_max = identifier_coordinator.resolve_identifier_maximum_length(
+                    object_metadata=evidence_metadata,
                 )
-            finally:
-                identifier_coordinator.release(identifier_preparation)
+                evidence_request, evidence_preparation = identifier_coordinator.prepare_registered_object(
+                    object_metadata=evidence_metadata, created_by=normalized_registered_by,
+                    updated_by=normalized_registered_by, client_ip=client_ip.strip() or "127.0.0.1",
+                    program_id=program_id.strip() or "VERIFIED_SQL_REGISTER",
+                )
+                identifier_coordinator.acquire(evidence_preparation)
+                acquired_locks.append(evidence_preparation)
+                evidence_id = identifier_coordinator.resolve(
+                    request=evidence_request, prepared=evidence_preparation,
+                    maximum_length=evidence_max,
+                ).identifier
+            source_object_id = identifier_object_metadata["object_id"]
+            story_schema = identifier_database.database_name
+            story_endpoint = (
+                identifier_database.config["host"], identifier_database.config["port"],
+            )
             identifier_database.commit()
         except Exception:
             identifier_database.rollback()
             raise
+        finally:
+            # The allocation locks protect the committed sequence numbers;
+            # releasing them before commit can let another caller reuse an ID.
+            for prepared_lock in reversed(acquired_locks):
+                identifier_coordinator.release(prepared_lock)
     finally:
         identifier_database.close()
 
@@ -437,10 +518,34 @@ def verified_sql_register(
                 "Generated Query ID already exists in cm_verified_sql_query. "
                 f"query_id={query_id}"
             )
+        if evidence:
+            evidence["evidence_level_code"] = validate_common_code_value(
+                repository_database, "EVIDENCE_LEVEL", evidence["evidence_level_code"],
+            )
 
+        repository_endpoint = (
+            repository_database.config["host"], repository_database.config["port"],
+        )
+        if story_endpoint != repository_endpoint:
+            raise RuntimeError("COMMON and STORY must use one MariaDB instance for atomic registration")
+        if not re.fullmatch(r"[A-Za-z0-9_]+", story_schema):
+            raise RuntimeError("Invalid STORY schema name")
         write_service = MariaMongoWriteService(repository_database, payload_database)
         with write_service:
-            inserted_rows = repository_database.execute(
+            write_service.execute_verified_mariadb(
+                f"""INSERT INTO `{story_schema}`.sp_execution_history
+                   (execution_history_id, trace_id, engine_code, object_code,
+                    object_id, generated_identifier, repository_status_code,
+                    mongodb_status_code, execution_status_code, history_status_code,
+                    created_by, program_id, client_ip)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (execution_history_id, execution_history_id, "OBJECT_RUNTIME",
+                 identifier_object_code, source_object_id, query_id,
+                 "READY", "READY", "RUNNING", "READY", normalized_registered_by,
+                 program_id.strip() or "VERIFIED_SQL_REGISTER", client_ip.strip() or "127.0.0.1"),
+                expected_affected_rows=1,
+            )
+            inserted_rows = write_service.execute_verified_mariadb(
                 """
                 INSERT INTO cm_verified_sql_query (
                     query_id, query_name, crud_type,
@@ -478,12 +583,29 @@ def verified_sql_register(
                     "Verified SQL registration did not insert exactly one row. "
                     f"inserted_rows={inserted_rows}"
                 )
+            if evidence:
+                write_service.execute_verified_mariadb(
+                    """INSERT INTO ev_evidence
+                       (evidence_id, evidence_code, evidence_name, evidence_level_code,
+                        evidence_category_code, source_title, created_by, updated_by,
+                        program_id, client_ip)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (evidence_id, evidence["evidence_code"], evidence["evidence_name"],
+                     evidence["evidence_level_code"], evidence["evidence_category_code"],
+                     evidence["source_title"], normalized_registered_by,
+                     normalized_registered_by,
+                     program_id.strip() or "VERIFIED_SQL_REGISTER",
+                     client_ip.strip() or "127.0.0.1"),
+                    expected_affected_rows=1,
+                )
             write_service.insert_mongodb_document(
                 collection_name="verified_sql_payload",
                 document={
                     "_sps": {
                         "source_table_name": "cm_verified_sql_query",
                         "source_identifier": query_id,
+                        "execution_history_id": execution_history_id,
+                        **({"evidence_id": evidence_id} if evidence_id else {}),
                     },
                     "payload": {
                         "verified_sql_payload": {
@@ -498,6 +620,29 @@ def verified_sql_register(
                     "_sps.source_identifier": query_id,
                 },
             )
+            write_service.execute_verified_mariadb(
+                f"""INSERT INTO `{story_schema}`.sp_object_execution_link
+                   (object_attempt_id, object_id, target_object_id,
+                    execution_link_type_code, mongodb_database_id, mongodb_collection_id,
+                    mongodb_document_master_id, created_by, client_ip, program_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (execution_history_id, source_object_id, mongo_objects["MCM"],
+                 "MONGODB", mongo_objects["MDB"], mongo_objects["MCO"],
+                 mongo_objects["MCM"], normalized_registered_by,
+                 client_ip.strip() or "127.0.0.1",
+                 program_id.strip() or "VERIFIED_SQL_REGISTER"),
+                expected_affected_rows=1,
+            )
+            write_service.execute_verified_mariadb(
+                f"""UPDATE `{story_schema}`.sp_execution_history
+                   SET repository_status_code = %s, mongodb_status_code = %s,
+                       execution_status_code = %s, history_status_code = %s,
+                       updated_by = %s, updated_dt = CURRENT_TIMESTAMP
+                   WHERE execution_history_id = %s""",
+                ("SUCCESS", "SUCCESS", "SUCCESS", "SAVED",
+                 normalized_registered_by, execution_history_id),
+                expected_affected_rows=1,
+            )
     finally:
         repository_database.close()
         payload_database.close()
@@ -508,6 +653,8 @@ def verified_sql_register(
             "query_id": query_id,
             "certified_level_code": normalized_certified_level_code,
             "inserted_rows": inserted_rows,
+            "execution_history_id": execution_history_id,
+            **({"evidence_id": evidence_id} if evidence_id else {}),
         }
     )
     return result
@@ -602,6 +749,7 @@ def _load_registered_object_metadata(
     object_metadata = identifier_database.fetch_one(
         """
         SELECT
+            object_id,
             object_code,
             object_name,
             business_code,

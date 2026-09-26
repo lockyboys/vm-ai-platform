@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import json
 
 import pytest
 
@@ -11,9 +12,14 @@ from harness.mcp.tools import verified_sql_tools
 
 class _FakeDatabase:
     instances: list["_FakeDatabase"] = []
+    fail_next_link = False
 
     def __init__(self, database_role: str) -> None:
         self.database_role = database_role
+        self.database_name = "te_story_platform" if database_role == "STORY" else "te_common"
+        self.config = {"host": "127.0.0.1", "port": "3306"}
+        self.documents: list[dict[str, object]] = []
+        self.fail_link = _FakeDatabase.fail_next_link
         self.executed: list[tuple[str, tuple[object, ...]]] = []
         self.closed = False
         self.committed = False
@@ -25,11 +31,16 @@ class _FakeDatabase:
             return None
         if "FROM cm_common_code" in sql:
             return {"code": params[1]}
+        if "information_schema.tables" in sql:
+            return {"table_comment": "SPS Repository"}
+        if "information_schema.columns" in sql:
+            return {"character_maximum_length": 99}
         if "FROM sp_object" in sql:
             assert self.database_role == "STORY"
-            assert params == ("TE_COMMON_CM_VERIFIED_SQL_QUERY",)
+            code = params[0]
             return {
-                "object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY",
+                "object_id": "SP_RP_OBJECT_" + code,
+                "object_code": code,
                 "object_name": "te_common.cm_verified_sql_query",
                 "business_code": "COMMON",
                 "domain_code": "CM",
@@ -46,14 +57,36 @@ class _FakeDatabase:
         sql: str,
         params: tuple[object, ...],
     ) -> list[dict[str, object]]:
+        if "information_schema.columns" in sql:
+            return [{"column_name": "id", "column_comment": "Identifier"}]
         assert "FROM sp_object" in sql
         assert params == ("query_id",)
         return [{"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}]
 
 
     def execute(self, sql: str, params: tuple[object, ...]) -> int:
+        if "sp_object_execution_link" in sql and self.fail_link:
+            raise RuntimeError("execution link failed")
         self.executed.append((sql, params))
         return 1
+
+    def insert_one(self, collection_name, document):
+        stored = {"_id": "mongo-" + str(len(self.documents) + 1), **document}
+        self.documents.append(stored)
+        return SimpleNamespace(inserted_id=stored["_id"])
+
+    def delete_one(self, collection_name, filter_document):
+        def nested_value(document, path):
+            value = document
+            for part in path.split("."):
+                value = value.get(part) if isinstance(value, dict) else None
+            return value
+
+        self.documents = [
+            document for document in self.documents
+            if not all(nested_value(document, key) == value
+                       for key, value in filter_document.items())
+        ]
 
     def begin(self) -> None:
         return None
@@ -81,7 +114,10 @@ class _FakeIdentifierCoordinator:
         client_ip: str,
         program_id: str,
     ) -> tuple[dict[str, object], dict[str, object]]:
-        assert object_metadata["object_code"] == "TE_COMMON_CM_VERIFIED_SQL_QUERY"
+        assert object_metadata["object_code"] in {
+            "TE_COMMON_CM_VERIFIED_SQL_QUERY", "EXECUTION_HISTORY",
+            "TE_COMMON_EV_EVIDENCE",
+        }
         assert created_by == updated_by == "SPS_ADMIN"
         assert client_ip == "127.0.0.1"
         assert program_id == "SPS_HARNESS_MCP"
@@ -106,9 +142,15 @@ class _FakeIdentifierCoordinator:
         prepared: dict[str, object],
         maximum_length: int,
     ) -> SimpleNamespace:
-        assert request == {"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}
+        assert request["object_code"] in {
+            "TE_COMMON_CM_VERIFIED_SQL_QUERY", "EXECUTION_HISTORY", "TE_COMMON_EV_EVIDENCE",
+        }
         assert prepared == {"lock": "prepared"}
         assert maximum_length == 99
+        if request["object_code"] == "EXECUTION_HISTORY":
+            return SimpleNamespace(identifier="SP_RP_EXECUTION_HISTORY_20260803_00001")
+        if request["object_code"] == "TE_COMMON_EV_EVIDENCE":
+            return SimpleNamespace(identifier="CM_EV_EVIDENCE_20260803_00001")
         return SimpleNamespace(
             identifier="CM_CO_TE_COMMON_CM_VERIFIED_SQL_QUERY_20260803_00001",
             sequence_no=1,
@@ -244,10 +286,13 @@ def test_verified_sql_register_allocates_identifier_and_inserts_once(
         for database in _FakeDatabase.instances
         if database.database_role == "COMMON" and database.executed
     )
-    assert len(common_database.executed) == 1
+    assert len(common_database.executed) == 4
     assert common_database.committed is True
     assert common_database.closed is True
-    assert "INSERT INTO cm_verified_sql_query" in common_database.executed[0][0]
+    assert "INSERT INTO cm_verified_sql_query" in common_database.executed[1][0]
+    assert "sp_execution_history" in common_database.executed[0][0]
+    assert "sp_object_execution_link" in common_database.executed[2][0]
+    assert result["execution_history_id"] == "SP_RP_EXECUTION_HISTORY_20260803_00001"
 
 
 def test_verified_sql_register_rejects_unsafe_sql_before_opening_database() -> None:
@@ -326,3 +371,60 @@ def test_verified_sql_register_rejects_invalid_query_feature_code(
 
     assert len(_FakeDatabase.instances) == 1
     assert _FakeDatabase.instances[0].closed is True
+
+def test_verified_sql_register_inserts_supplied_evidence_in_same_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(verified_sql_tools, "CommonDatabase", _FakeDatabase)
+    monkeypatch.setattr(verified_sql_tools, "IdentifierCoordinator", _FakeIdentifierCoordinator)
+    monkeypatch.setattr(verified_sql_tools, "QueryIdentifierFeatureRuleResolver",
+                        _FakeQueryIdentifierFeatureRuleResolver)
+    _FakeDatabase.instances.clear()
+    result = verified_sql_tools.verified_sql_register(
+        query_name="Check Object Lifecycle Count",
+        query_feature_code="CHECK_OBJECT_LIFECYCLE_COUNT",
+        query_description="Object lifecycle integrity query.",
+        crud_type="READ",
+        sql_text="SELECT COUNT(*) AS lifecycle_count FROM sp_object_lifecycle",
+        registered_by="SPS_ADMIN", program_id="SPS_HARNESS_MCP", client_ip="127.0.0.1",
+        evidence_json=json.dumps({
+            "evidence_code": "TEST_EVIDENCE",
+            "evidence_name": "Test source",
+            "evidence_level_code": "A",
+            "evidence_category_code": "DOCUMENT",
+            "source_title": "Source",
+        }), apply=True,
+    )
+    common = next(db for db in _FakeDatabase.instances
+                  if db.database_role == "COMMON" and db.executed)
+    assert result["evidence_id"] == "CM_EV_EVIDENCE_20260803_00001"
+    assert any("INSERT INTO ev_evidence" in sql for sql, _ in common.executed)
+    assert len(common.executed) == 5
+    mongo = next(db for db in _FakeDatabase.instances
+                 if db.database_role == "COMMON" and db.documents)
+    assert mongo.documents[0]["_sps"]["evidence_id"] == result["evidence_id"]
+
+
+def test_verified_sql_register_link_failure_compensates_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(verified_sql_tools, "CommonDatabase", _FakeDatabase)
+    monkeypatch.setattr(verified_sql_tools, "IdentifierCoordinator", _FakeIdentifierCoordinator)
+    monkeypatch.setattr(verified_sql_tools, "QueryIdentifierFeatureRuleResolver",
+                        _FakeQueryIdentifierFeatureRuleResolver)
+    _FakeDatabase.instances.clear()
+    monkeypatch.setattr(_FakeDatabase, "fail_next_link", True)
+    with pytest.raises(RuntimeError, match="execution link failed"):
+        verified_sql_tools.verified_sql_register(
+            query_name="Check Object Lifecycle Count",
+            query_feature_code="CHECK_OBJECT_LIFECYCLE_COUNT",
+            query_description="Object lifecycle integrity query.",
+            crud_type="READ",
+            sql_text="SELECT COUNT(*) AS lifecycle_count FROM sp_object_lifecycle",
+            registered_by="SPS_ADMIN", program_id="SPS_HARNESS_MCP",
+            client_ip="127.0.0.1", apply=True,
+        )
+    common = next(db for db in _FakeDatabase.instances
+                  if db.database_role == "COMMON" and db.rolled_back)
+    assert common.committed is False
+    assert all(not db.documents for db in _FakeDatabase.instances)

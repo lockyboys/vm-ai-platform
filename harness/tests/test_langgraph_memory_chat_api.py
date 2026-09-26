@@ -26,6 +26,15 @@ class DatabaseDouble:
             raise OSError("storage unavailable")
         self.rows.setdefault(selector["_id"], deepcopy(update["$setOnInsert"]))
         return SimpleNamespace(acknowledged=True)
+    def insert_one(self, collection, document):
+        if self.fail:
+            raise OSError("storage unavailable")
+        if document["_id"] in self.rows:
+            raise ValueError("duplicate request_id")
+        self.rows[document["_id"]] = deepcopy(document)
+        return SimpleNamespace(inserted_id=document["_id"])
+    def delete_one(self, collection, selector):
+        self.rows.pop(selector["_id"], None)
     def find(self, collection, selector, projection=None, limit=None, sort=None):
         import re
         def matches(row, clause):
@@ -49,11 +58,43 @@ class DatabaseDouble:
 @pytest.fixture
 def api(monkeypatch):
     database = DatabaseDouble()
+    # Isolate the API contract from live DB while exercising the real writer.
+    class StoryDouble:
+        database_name = "te_story_platform"
+        def fetch_one(self, sql, params):
+            if "information_schema.tables" in sql:
+                return {"table_comment": "SPS Repository"}
+            if "information_schema.columns" in sql:
+                return {"character_maximum_length": 99}
+            return {"object_id": "SP_RP_OBJECT_" + params[0],
+                    "object_code": params[0], "object_name": "te_story_platform.sp_execution_history",
+                    "business_code": "SP", "domain_code": "RP", "object_level": 3,
+                    "identifier_target_code": "EG", "sequence_scope_code": "DAILY",
+                    "sequence_length": 5, "target_identifier_field": "execution_history_id"}
+        def fetch_all(self, sql, params):
+            return [{"column_name": "id", "column_comment": "Identifier"}]
+        def begin(self): pass
+        def execute(self, sql, params): return 1
+        def commit(self): pass
+        def rollback(self): pass
+        def close(self): pass
+    class CoordinatorDouble:
+        def __init__(self, repository): pass
+        def prepare_registered_object(self, **kwargs):
+            return {"object_code": "EXECUTION_HISTORY"}, {"lock": "ready"}
+        def acquire(self, prepared): pass
+        def release(self, prepared): pass
+        def resolve(self, **kwargs):
+            return SimpleNamespace(identifier="SP_RP_EXECUTION_HISTORY_20260924_00001")
+    story = StoryDouble()
+    monkeypatch.setattr(memory_module, "CommonDatabase", lambda **kwargs: story)
+    monkeypatch.setattr(memory_module, "IdentifierCoordinator", CoordinatorDouble)
     memory = memory_module.PersistentMemory(database=database)
     graph = AsyncMock()
     graph.ainvoke.return_value = {"verified_response": "테스트 응답", "token_usage": {}}
     monkeypatch.setattr(agent, "get_agent_graph", lambda: graph)
     agent.app.dependency_overrides[agent.get_subject] = lambda: "subject-a"
+    agent.app.dependency_overrides[agent.get_subject_for_route] = lambda: "subject-a"
     agent.app.dependency_overrides[agent.get_memory] = lambda: memory
     with TestClient(agent.app) as client:
         yield client, graph, memory, database
@@ -123,5 +164,6 @@ def test_storage_failure_does_not_report_success(api):
 def test_no_access_token_is_rejected(api):
     client, graph, _, _ = api
     del agent.app.dependency_overrides[agent.get_subject]
+    del agent.app.dependency_overrides[agent.get_subject_for_route]
     assert client.post("/api/memory/chat", json={"query": "test", "thread_id": "one"}).status_code == 401
     graph.ainvoke.assert_not_awaited()
