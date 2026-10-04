@@ -63,6 +63,7 @@ VERSION_PATCH = int(_ver[2]) if len(_ver) > 2 else 0   # 패치버전
 # 이 파일이 있는 폴더의 절대 경로 (배포해도 경로가 안 바뀌어요)
 # 초등학생 설명: "내가 어디 있는지" 항상 알 수 있는 GPS 같은 것이에요!
 BASE_DIR = Path(__file__).parent.absolute()
+INSURANCE_POLICY_DIR = BASE_DIR / "insurance_policies"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,6 +179,7 @@ REQUIRED_DIRS = [
     DATA_PATH,
     UPLOAD_PATH,
     DATA_LAKE_PATH,
+    str(INSURANCE_POLICY_DIR),
 ]
 
 
@@ -446,6 +448,24 @@ STANDARD_DIRS = [
 AI_JOB_DEFAULT_LIMIT = 100
 AI_JOB_MAX_LIMIT = 500
 
+# ============================================================
+# Multi-Persona Agent 호출 예산
+# 숫자 상한은 이 공용 설정에서만 바꿉니다. agent 소스에는 기본 수치를 두지 않습니다.
+# ============================================================
+
+# 한 요청에서 모든 페르소나 LLM 호출(도구 후속 호출과 재요청 포함)의 최대 횟수입니다.
+MULTI_PERSONA_MAX_PERSONA_CALLS = 6
+# 계획 단계에서 선택할 서로 다른 페르소나 수의 상한입니다.
+MULTI_PERSONA_MAX_PERSONAS = 4
+# 한 요청에서 실제 실행할 Tavily 검색 호출의 최대 횟수입니다.
+MULTI_PERSONA_MAX_TAVILY_CALLS = 3
+# 계획·페르소나·검증 단계를 합친 전체 LLM 호출의 최대 횟수입니다.
+MULTI_PERSONA_MAX_LLM_CALLS = 12
+# 검증자 LLM을 포함한 검증 단계 호출의 최대 횟수입니다.
+MULTI_PERSONA_MAX_VERIFIER_CALLS = 3
+# 검증 응답이 비었을 때 페르소나에게 다시 요청할 수 있는 횟수입니다.
+MULTI_PERSONA_MAX_VERIFIER_RETRIES = 2
+
 
 # =========================================================
 # SPS Asset / Runtime Directory Configuration
@@ -519,3 +539,17 @@ def get_model_path(file_name: str) -> Path:
 
 def get_template_path(file_name: str) -> Path:
     return get_asset_path(TEMPLATE_DIR, file_name)
+
+
+# ============================================================
+# SPS Object Definition / Identifier Runtime Defaults
+# ============================================================
+
+# 엔진 요청에서 감사 필드가 생략된 경우 사용하는 기본값입니다. 호출자가 전달한 값이 우선합니다.
+SPS_OBJECT_DEFINITION_AUDIT_USER = "OBJECT_DEFINITION_ENGINE"
+SPS_OBJECT_DEFINITION_PROGRAM_ID = "ObjectDefinitionEngine"
+SPS_DEFAULT_CLIENT_IP = "127.0.0.1"
+
+# Identifier sequence 갱신의 감사 필드 기본값입니다. 운영 호출별 식별 정보는 추후 인자로 전달합니다.
+SPS_IDENTIFIER_AUDIT_USER = "IDENTIFIER_ENGINE"
+SPS_IDENTIFIER_PROGRAM_ID = "IdentifierEngine"
