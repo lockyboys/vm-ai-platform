@@ -6,7 +6,7 @@
 #   AI 탐정이에요! 단계별로 차근차근 추론해요.
 #
 # [버전 이력]
-#   7.16.4 (2026-06-16): 주석 강화, 신뢰도 계산 추가
+#   7.16.5 (2026-10-04): 실행되지 않은 단계를 완료로 보고하지 않음
 #   7.0.0  (2026-06-15): 최초 생성
 
 from common.common_function import logger
@@ -20,14 +20,8 @@ class ReasoningAgent:
         계획표를 받으면 "1단계 했어요, 2단계 했어요..."
         처럼 순서대로 생각하고 결과를 정리해줘요!
 
-    신뢰도(confidence) 계산:
-        단계가 많을수록 더 정확한 결과 → 신뢰도 높아짐
-        기본 신뢰도: 0.85 (85%)
+    이 클래스는 단계 실행기를 호출하지 않는다. 실제 처리 여부를 미실행으로 반환한다.
     """
-
-    # 기본 신뢰도 (AI가 얼마나 확신하는지)
-    # 초등학생 설명: "나 85% 확신해요!" 같은 느낌이에요.
-    BASE_CONFIDENCE = 0.85
 
     def execute(self, plan: dict, context: dict) -> dict:
         """
@@ -45,6 +39,7 @@ class ReasoningAgent:
             {
                 "에이전트":  "ReasoningAgent",
                 "추론결과": 단계별 실행 결과 목록,
+                "실행상태": 실행 여부,
                 "결론":     최종 결론 문장,
                 "신뢰도":   0~1 사이 확신도 (1=100% 확신)
             }
@@ -54,27 +49,28 @@ class ReasoningAgent:
         task  = plan.get("task",  "알 수 없는 작업")
         steps = plan.get("steps", [])
 
-        # 각 단계별 추론 수행
-        # 초등학생 설명: 계획표의 1번, 2번, 3번...을 차례로 실행해요
+        # 실행기 호출 경로가 없으므로 실제 단계 처리는 하지 않는다.
+        # 초등학생 설명: 하지 않은 일은 완료로 기록하지 않아요.
         step_results = []
         for i, step in enumerate(steps, 1):
             step_results.append({
                 "단계번호": i,
                 "단계명":   step,
-                "상태":     "완료",
-                "메모":     f"'{step}' 단계를 성공적으로 처리했습니다.",
+                "상태":     "미실행",
+                "메모":     "실행기 미연결: 계획 단계만 기록했으며 실제 처리는 확인되지 않았습니다.",
             })
-            logger.info(f"  {i}/{len(steps)} 단계 완료: {step}")
+            logger.info(f"  {i}/{len(steps)} 단계 미실행: {step}")
 
-        # 단계가 많을수록 신뢰도 소폭 향상 (최대 0.95)
-        confidence = min(self.BASE_CONFIDENCE + len(steps) * 0.01, 0.95)
+        # 실행·검증 증거가 없으므로 성공 신뢰도를 산출하지 않는다.
+        confidence = 0.0
 
         result = {
             "에이전트":  "ReasoningAgent",
             "추론결과": step_results,
-            "결론":     f"'{task}' 작업을 {len(steps)}단계로 성공적으로 완료했습니다.",
+            "실행상태": "미실행",
+            "결론":     f"'{task}' 작업의 계획 단계 {len(steps)}개를 기록했습니다. 실제 실행은 수행하지 않았습니다.",
             "신뢰도":   round(confidence, 2),
         }
 
-        logger.info(f"✅ 추론 완료 | 단계={len(steps)}개 | 신뢰도={confidence:.0%}")
+        logger.info(f"ℹ️ 계획 단계 기록 | 실행 미확인 | 단계={len(steps)}개")
         return result
