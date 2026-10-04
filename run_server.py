@@ -1,6 +1,6 @@
 # run_server.py ★ 7.16.4 — 서버 시작 진입점
 # 실행: python3 run_server.py
-# 🆕 시작 시 DB 테이블 자동 생성 + crontab 자동 등록 안내
+# 서버 시작은 애플리케이션 구동만 담당한다. 스키마 변경은 별도 마이그레이션으로 실행한다.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -15,12 +15,7 @@ def main():
     # 1. 폴더 초기화
     ensure_dirs()
 
-    # 2. DB 테이블 자동 생성 (첫 접속 시)
-    logger.info("🔧 DB 테이블 자동 초기화 중...")
-    from services.db.db_service import init_db
-    init_db()
-
-    # 3. 서버 시작
+    # 2. 서버 시작
     logger.info(f"🌐 서버 시작: http://{API_HOST}:{API_PORT}")
     print(f"\n  🌐 대시보드: http://0.0.0.0:{API_PORT}")
     print(f"  📡 API:      http://0.0.0.0:{API_PORT}/api/status")

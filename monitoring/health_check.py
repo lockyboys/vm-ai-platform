@@ -16,6 +16,7 @@
 #   7.0.0  (2026-06-15): 최초 생성
 
 import os, socket, sys, time, subprocess
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common.common_function import logger, log_event
@@ -38,11 +39,7 @@ class SelfHealingSystem:
 
     # 서비스별 재시작 명령어
     # 초등학생 설명: "어떻게 다시 켜야 하는지" 방법을 적어둔 매뉴얼이에요!
-    RESTART_COMMANDS = {
-        "flask":   "cd {project_dir} && nohup python3 run_server.py > logs/flask.log 2>&1 &",
-        "mongod":  "sudo systemctl restart mongod",
-        "mariadb": "sudo systemctl restart mariadb",
-    }
+    RESTART_COMMANDS = {"mongod": "mongod", "mariadb": "mariadb"}
 
     def __init__(self, interval: int = None):
         """
@@ -102,15 +99,37 @@ class SelfHealingSystem:
             True = 재시작 성공
             False = 재시작 실패
         """
-        cmd  = self.RESTART_COMMANDS.get(name, "")
+        service = self.RESTART_COMMANDS.get(name)
         port = self.services[name]
 
-        if not cmd:
+        if name == "flask":
+            project_dir = Path(__file__).resolve().parents[1]
+            log_path = project_dir / "logs" / "flask.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("ab") as log_file:
+                process = subprocess.Popen(
+                    [sys.executable, "run_server.py"],
+                    cwd=str(project_dir),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            if process.poll() is not None:
+                logger.error(f"❌ {name}: 재시작 프로세스 시작 실패")
+                return False
+        elif service:
+            completed = subprocess.run(
+                ["sudo", "systemctl", "restart", service],
+                check=False,
+            )
+            if completed.returncode != 0:
+                logger.error(f"❌ {name}: 재시작 명령 실패 (exit={completed.returncode})")
+                return False
+        else:
             logger.error(f"❌ {name}: 재시작 명령어 없음")
             return False
 
         logger.warning(f"🔧 {name} 재시작 시도 (포트: {port})")
-        os.system(cmd)
 
         # 재시작 후 안정화 대기
         time.sleep(5)
