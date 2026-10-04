@@ -11,7 +11,7 @@ from core.shap_service   import generate_shap, get_feature_importance
 from ml.trainer          import auto_retrain
 from agents.orchestrator import AGIOrchestrator
 from agents.self_improve_agent import SelfImproveAgent
-from services.db.db_service import save_both, save_pipeline_result
+from services.db.pipeline_results_repository import save_pipeline_results
 from services.history_service import save_pipeline_history, save_model_history
 
 _orch     = None
@@ -123,13 +123,15 @@ def run_pipeline(file_path: str | None = None, user_id: str | None = None,
     }
 
     # ── 8. DB 저장 ────────────────────────────────────────
-    db_status = save_both("pipeline_results", {
-        k: v for k, v in result.items()
-        if not isinstance(v, (dict, list)) or k in ("점수", "ML결과")
-    })
-    save_pipeline_result(user_id, os.path.basename(file_path),
-                         analysis.get("태스크_유형", "classification"),
-                         learning_type, accuracy, result)
+    db_status = save_pipeline_results(
+        user_id=str(user_id),
+        file_name=os.path.basename(file_path),
+        task_type=analysis.get("태스크_유형", "classification"),
+        learning_type=learning_type,
+        accuracy=accuracy,
+        data=result,
+        actor_id=str(user_id),
+    )
     result["DB_저장"] = db_status
 
     # 🆕 JSON 파일로 이력 저장 (DB 없어도 항상 남음!)
