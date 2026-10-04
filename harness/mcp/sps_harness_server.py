@@ -53,6 +53,7 @@ from harness.mcp.tools.repository_tools import (
 )
 from harness.mcp.tools.mongodb_tools import (
     mongodb_collection_stats,
+    mongodb_create_collection,
     mongodb_documents,
     mongodb_list_collections,
     mongodb_rename_collection,
@@ -72,6 +73,8 @@ from harness.mcp.tools.verified_sql_tools import (
     verified_sql_register,
     verified_sql_execute,
 )
+from harness.mcp.tools.mongodb_delete_tool import mongodb_delete_document
+from harness.mcp.tools.model_history_audit_ddl_tool import mariadb_ddl_execute
 from harness.mcp.tools.identifier_tools import (
     identifier_generate,
 )
@@ -93,8 +96,14 @@ from harness.mcp.tools.git_mutation_tools import (
 from harness.mcp.tools.operational_tools import (
     operational_service_diagnostics,
 )
+from harness.mcp.tools.agent_memory_tools import (
+    agent_long_term_memory_save,
+)
 from harness.mcp.tools.pytest_tools import (
     run_pytest_verification,
+)
+from harness.mcp.tools.execution_tools import (
+    mcp_codex_apps_run_python_source,
 )
 
 PROJECT_ROOT = Path("/data/vm_project")
@@ -336,6 +345,8 @@ mcp.tool()(source_patch)
 mcp.tool()(source_delete)
 mcp.tool()(source_rename)
 mcp.tool()(run_pytest_verification)
+mcp.tool(name="mcp_codex_apps_run_python_source")(mcp_codex_apps_run_python_source)
+mcp.tool()(agent_long_term_memory_save)
 
 mcp.tool()(table_schema)
 mcp.tool()(table_data)
@@ -346,15 +357,18 @@ mcp.tool()(repository_logical_relations)
 mcp.tool()(verified_sql)
 mcp.tool()(verified_sql_register)
 mcp.tool()(verified_sql_execute)
+mcp.tool()(mariadb_ddl_execute)
 mcp.tool()(identifier_generate)
 mcp.tool()(object_lifecycle_reconcile)
 mcp.tool()(repository_table_object_reconcile)
 mcp.tool()(mongodb_list_collections)
+mcp.tool()(mongodb_create_collection)
 mcp.tool()(mongodb_collection_stats)
 mcp.tool()(mongodb_documents)
 mcp.tool()(mongodb_rename_collection)
 mcp.tool()(mongodb_save_document)
 mcp.tool()(mongodb_update_document)
+mcp.tool()(mongodb_delete_document)
 mcp.tool()(database_backup_create)
 mcp.tool()(database_backup_verify)
 mcp.tool()(mongodb_backup_collection)

@@ -295,14 +295,14 @@ def test_verified_sql_register_allocates_identifier_and_inserts_once(
     assert result["execution_history_id"] == "SP_RP_EXECUTION_HISTORY_20260803_00001"
 
 
-def test_verified_sql_register_rejects_unsafe_sql_before_opening_database() -> None:
+def test_verified_sql_register_rejects_drop_before_opening_database() -> None:
     with pytest.raises(ValueError, match="not allowed"):
         verified_sql_tools.verified_sql_register(
-            query_name="Alter Object Lifecycle",
-            query_feature_code="ALTER_OBJECT_LIFECYCLE",
-            query_description="Must not register DDL through Harness.",
-            crud_type="ALTER",
-            sql_text="ALTER TABLE sp_object_lifecycle ADD COLUMN invalid_column INT",
+            query_name="Drop Object Lifecycle",
+            query_feature_code="DROP_OBJECT_LIFECYCLE",
+            query_description="Must not register destructive DDL through Harness.",
+            crud_type="DELETE",
+            sql_text="DROP TABLE sp_object_lifecycle",
             registered_by="SPS_ADMIN",
             apply=True,
         )

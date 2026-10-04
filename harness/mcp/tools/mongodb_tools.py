@@ -96,6 +96,159 @@ def mongodb_list_collections(role: str) -> list[dict[str, Any]]:
         database.close()
 
 
+def mongodb_create_collection(
+    role: str,
+    collection_name: str,
+    apply: bool = False,
+    validator_json: str = "{}",
+    indexes_json: str = "[]",
+    ttl_field: str | None = None,
+    ttl_seconds: int | None = None,
+    options_json: str = "{}",
+) -> dict[str, Any]:
+    """Dry-run 또는 실행으로 validator/index/TTL 옵션을 포함한 Collection을 생성한다."""
+    normalized_collection_name = _validate_collection_name(collection_name)
+    validator = _parse_json_object(validator_json, "validator_json")
+    options = _parse_json_object(options_json, "options_json")
+    try:
+        indexes = json.loads(indexes_json)
+    except json.JSONDecodeError as error:
+        raise ValueError("indexes_json must be valid JSON.") from error
+    if not isinstance(indexes, list):
+        raise ValueError("indexes_json must contain a JSON array.")
+
+    allowed_collection_options = {
+        "capped",
+        "size",
+        "max",
+        "timeseries",
+        "collation",
+        "validationLevel",
+        "validationAction",
+        "changeStreamPreAndPostImages",
+        "clusteredIndex",
+    }
+    unsupported_options = set(options) - allowed_collection_options
+    if unsupported_options:
+        raise ValueError(
+            "Unsupported collection options: "
+            + ", ".join(sorted(unsupported_options))
+        )
+    if ttl_field is not None and ttl_seconds is None:
+        raise ValueError("ttl_seconds is required when ttl_field is provided.")
+    if ttl_field is None and ttl_seconds is not None:
+        raise ValueError("ttl_field is required when ttl_seconds is provided.")
+    if ttl_field is not None:
+        ttl_field = _validate_collection_name(ttl_field)
+        if int(ttl_seconds) < 0:
+            raise ValueError("ttl_seconds must be non-negative.")
+
+    normalized_indexes: list[dict[str, Any]] = []
+    for index in indexes:
+        if not isinstance(index, dict):
+            raise ValueError("Each index specification must be a JSON object.")
+        raw_keys = index.get("keys")
+        if not isinstance(raw_keys, list) or not raw_keys:
+            raise ValueError("Each index specification requires a non-empty keys list.")
+        keys: list[tuple[str, int]] = []
+        for key in raw_keys:
+            if not isinstance(key, list) or len(key) != 2:
+                raise ValueError("Index keys must be [field_name, direction] pairs.")
+            field_name = _validate_collection_name(str(key[0]))
+            direction = int(key[1])
+            if direction not in (-1, 1):
+                raise ValueError("Index direction must be 1 or -1.")
+            keys.append((field_name, direction))
+        index_options = {
+            key: value
+            for key, value in index.items()
+            if key not in {"keys"}
+        }
+        normalized_indexes.append({"keys": keys, "options": index_options})
+
+    if ttl_field is not None:
+        normalized_indexes.append(
+            {
+                "keys": [(ttl_field, 1)],
+                "options": {
+                    "name": f"ttl_{ttl_field}",
+                    "expireAfterSeconds": int(ttl_seconds),
+                },
+            }
+        )
+
+    database = CommonDatabase(
+        database_role=role,
+        connect_mariadb=False,
+        connect_mongodb=True,
+    )
+    try:
+        collection_names = set(database.list_collection_names())
+        if normalized_collection_name in collection_names:
+            return {
+                "database_role": database.database_role,
+                "collection_name": normalized_collection_name,
+                "created_yn": "N",
+                "already_exists_yn": "Y",
+                "document_count": database.count_documents(normalized_collection_name),
+                "index_count_requested": len(normalized_indexes),
+                "validator_requested_yn": "Y" if validator else "N",
+                "ttl_requested_yn": "Y" if ttl_field is not None else "N",
+                "applied": False,
+                "status": "ALREADY_EXISTS",
+            }
+
+        result = {
+            "database_role": database.database_role,
+            "collection_name": normalized_collection_name,
+            "created_yn": "N",
+            "already_exists_yn": "N",
+            "document_count": 0,
+            "index_count_requested": len(normalized_indexes),
+            "validator_requested_yn": "Y" if validator else "N",
+            "ttl_requested_yn": "Y" if ttl_field is not None else "N",
+            "applied": False,
+            "status": "DRY_RUN",
+        }
+        if not apply:
+            return result
+
+        create_options = dict(options)
+        if validator:
+            create_options["validator"] = validator
+        database.get_mongodb_database().create_collection(
+            normalized_collection_name,
+            **create_options,
+        )
+        collection = database.get_collection(normalized_collection_name)
+        index_names: list[str] = []
+        for index in normalized_indexes:
+            index_names.append(
+                collection.create_index(index["keys"], **index["options"])
+            )
+        if normalized_collection_name not in set(database.list_collection_names()):
+            raise RuntimeError(
+                f"MongoDB collection creation verification failed: {normalized_collection_name}"
+            )
+        document_count = database.count_documents(normalized_collection_name)
+        if document_count != 0:
+            raise RuntimeError(
+                "MongoDB collection must be created empty: "
+                f"collection={normalized_collection_name}, count={document_count}"
+            )
+        return {
+            **result,
+            "created_yn": "Y",
+            "document_count": document_count,
+            "index_names": index_names,
+            "validator_applied_yn": "Y" if validator else "N",
+            "applied": True,
+            "status": "CREATED",
+        }
+    finally:
+        database.close()
+
+
 def mongodb_collection_stats(
     role: str,
     collection_name: str,

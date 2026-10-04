@@ -33,6 +33,12 @@ def test_mongodb_update_document_is_exposed_in_fastmcp_catalog() -> None:
     assert "mongodb_update_document" in tool_names
 
 
+def test_mongodb_delete_document_is_exposed_in_fastmcp_catalog() -> None:
+    tool_names = {tool.name for tool in mcp._tool_manager.list_tools()}
+
+    assert "mongodb_delete_document" in tool_names
+
+
 def test_openid_discovery_alias_exposes_oauth_metadata() -> None:
     async def scenario() -> None:
         app = mcp.streamable_http_app()
@@ -64,3 +70,19 @@ def test_backup_tools_are_exposed_in_fastmcp_catalog() -> None:
         "mongodb_backup_delete",
         "mongodb_delete_backup",
     }.issubset(tool_names)
+
+
+def test_mariadb_ddl_execute_is_exposed_in_fastmcp_catalog() -> None:
+    tool_names = {tool.name for tool in mcp._tool_manager.list_tools()}
+
+    assert "mariadb_ddl_execute" in tool_names
+
+
+def test_codex_apps_run_python_source_has_requested_catalog_name() -> None:
+    # 서버가 함수명을 MCP 카탈로그에 정확한 이름으로 공개하는지 확인한다.
+    catalog = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
+
+    assert "mcp_codex_apps_run_python_source" in catalog
+    assert "Plan or execute one approved project-relative Python source file." in catalog[
+        "mcp_codex_apps_run_python_source"
+    ].description

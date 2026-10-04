@@ -26,9 +26,8 @@ from engine.common.repository_schema_guard import assert_schema_documented
 
 
 _READ_STATEMENTS = {"SELECT", "SHOW", "DESCRIBE", "EXPLAIN"}
-_MUTATION_STATEMENTS = {"INSERT", "UPDATE", "DELETE", "CALL"}
+_MUTATION_STATEMENTS = {"INSERT", "UPDATE", "DELETE", "CALL", "ALTER"}
 _DISALLOWED_STATEMENTS = {
-    "ALTER",
     "CREATE",
     "DROP",
     "GRANT",
@@ -155,7 +154,7 @@ def _hydrate_query_payload_from_mongodb(
         return query
 
     documents = database.find(
-        collection_name="verified_sql_payload",
+        collection_name="cm_verified_sql_query_payload",
         filter_document={
             "_sps.source_table_name": "cm_verified_sql_query",
             "_sps.source_identifier": query["query_id"],
@@ -599,7 +598,7 @@ def verified_sql_register(
                     expected_affected_rows=1,
                 )
             write_service.insert_mongodb_document(
-                collection_name="verified_sql_payload",
+                collection_name="cm_verified_sql_query_payload",
                 document={
                     "_sps": {
                         "source_table_name": "cm_verified_sql_query",
@@ -669,9 +668,10 @@ def verified_sql_execute(
     """
     Execute one certified, active Verified SQL Query by Query ID.
 
-    Arbitrary SQL text is never accepted. The default is dry-run; set apply=true
-    only after reviewing the registered Query ID and its verified SQL contract.
-    DDL and multi-statement batches are deliberately rejected.
+    Arbitrary SQL text is never accepted. ALTER is accepted only as a single,
+    registered and verified Query ID. The default is dry-run; set apply=true
+    only after reviewing the Query ID and its verified SQL contract. Other DDL
+    and multi-statement batches remain rejected.
     """
 
     normalized_query_id = query_id.strip()
@@ -728,7 +728,12 @@ def verified_sql_execute(
                     result["row_count"] = len(rows)
                     result["rows"] = rows
                     result["result_row_limit"] = _MAX_RESULT_ROWS
-                    connection.rollback()
+                    # CALL can return rows and still mutate state; commit based on
+                    # the certified statement class instead of cursor.description.
+                    if statement_keyword in _MUTATION_STATEMENTS:
+                        connection.commit()
+                    else:
+                        connection.rollback()
                 else:
                     result["affected_rows"] = int(cursor.rowcount)
                     connection.commit()
