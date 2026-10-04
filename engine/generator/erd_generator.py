@@ -640,9 +640,8 @@ class ErdGenerator:
                 if exists:
                     continue
 
-                relationship_id = identifier_engine.generate_for_level(
+                relationship_id = identifier_engine.generate(
                     object_code="RELATIONSHIP",
-                    object_level=3,
                     manage_transaction=False,
                 )
                 identifying_yn = (

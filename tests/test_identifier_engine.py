@@ -34,6 +34,7 @@ class IdentifierEngineTest(TestCase):
     def test_generate_uses_rule_resolved_object_level(self) -> None:
         metadata = {"object_code": "TABLE", "object_level": 3}
         self.rule_resolver.resolve_object_level.return_value = self._resolution(4)
+        now = datetime(2026, 8, 5, tzinfo=timezone.utc)
 
         with (
             patch.object(
@@ -50,6 +51,7 @@ class IdentifierEngineTest(TestCase):
             result = self.engine.generate(
                 "TABLE",
                 manage_transaction=False,
+                now=now,
             )
 
         self.assertEqual(result, "SP_RP_TABLE_20260728_00001")
@@ -58,6 +60,7 @@ class IdentifierEngineTest(TestCase):
             object_metadata=metadata,
             object_level=4,
             timezone_id="UTC",
+            now=now,
             manage_transaction=False,
         )
 

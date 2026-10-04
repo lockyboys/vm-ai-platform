@@ -102,9 +102,8 @@ class MetadataGenerator:
 
             for request in normalized_requests:
                 metadata_id = (
-                    self.identifier_engine.generate_for_level(
+                    self.identifier_engine.generate(
                         object_code=self.OBJECT_CODE,
-                        object_level=4,
                         now=batch_dt,
                         manage_transaction=False,
                     )

@@ -193,7 +193,7 @@ class ObjectRuntimeEngine:
 
         pre_identity_decision = self.pre_identity_intelligence.decide(
             object_code,
-            {}
+            input_data,
         )
 
         self.logger.step(3, "Pre-Identity Intelligence")
@@ -819,13 +819,11 @@ class ObjectRuntimeEngine:
             "intelligence_type": "REPOSITORY_INTELLIGENCE",
             "object_code": object_metadata["object_code"],
             "object_role": "Semantic Object",
-            "repository_thinking_yn": "Y",
+            "repository_thinking_yn": "N",
             "ai_ready_yn": "Y" if self.ai_engine.is_ready() else "N",
-            "interpretation": (
-                "Repository preserves object knowledge. "
-                "Engine interprets repository knowledge."
-            ),
-            "status": "SUCCESS"
+            "analysis_status": "NOT_RUN",
+            "interpretation": "Repository/AI reasoning is not executed by this runtime path.",
+            "status": "NOT_EXECUTED"
         }
     #################################################################
     # 메서드 추가

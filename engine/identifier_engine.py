@@ -43,6 +43,8 @@ class IdentifierEngine:
         self,
         object_code: str,
         manage_transaction: bool = True,
+        *,
+        now: datetime | None = None,
     ) -> str:
         """Rule Resolver가 선택한 Level로 Identifier를 생성한다."""
         object_metadata = self.load_object_metadata(object_code)
@@ -52,6 +54,7 @@ class IdentifierEngine:
             object_metadata=object_metadata,
             object_level=rule_resolution.object_level,
             timezone_id=timezone_id,
+            now=now,
             manage_transaction=manage_transaction,
         )
 

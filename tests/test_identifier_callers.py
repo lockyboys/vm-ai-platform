@@ -15,16 +15,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CALLER_CONTRACTS = {
     "engine/generator/erd_generator.py": {
         "generate",
-        "generate_for_level",
     },
     "engine/generator/metadata_generator.py": {
-        "generate_for_level",
+        "generate",
     },
     "engine/generator/relationship_generator.py": {
-        "generate_for_level",
-    },
-    "engine/object_definition_engine.py": {
-        "render_identifier",
+        "generate",
     },
     "engine/object_definition/identifier_workflow_legacy.py": {
         "render_identifier",

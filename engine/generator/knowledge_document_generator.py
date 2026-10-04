@@ -27,14 +27,27 @@ class KnowledgeDocumentGenerator:
 
         raw_text = str(analyzer_result.get("text") or "")
         normalized_text = self._normalize_text(raw_text)
-        keywords = self._extract_keywords(normalized_text)
+        # Analyzer 결과가 있으면 그것을 우선 사용하고, 누락된 경우에만 중립적인 빈도 추출을 한다.
+        analyzer_keywords = analyzer_result.get("keywords")
+        keywords = (
+            analyzer_keywords
+            if isinstance(analyzer_keywords, list)
+            else self._extract_keywords(
+                normalized_text,
+                stopwords=analyzer_result.get("stopwords"),
+            )
+        )
 
         return {
             "knowledge_document_id": identifier_result["generated_identifier"],
             "source_object_id": object_metadata["object_id"],
             "source_object_code": object_metadata["object_code"],
             "source_type_code": input_data.get("source_type", "UNKNOWN"),
-            "language_code": "ko",
+            "language_code": (
+                analyzer_result.get("language_code")
+                or input_data.get("language_code")
+                or "und"
+            ),
             "source": {
                 "file_name": file_metadata.get("file_name"),
                 "file_path": file_metadata.get("file_path"),
@@ -44,7 +57,7 @@ class KnowledgeDocumentGenerator:
             "knowledge": {
                 "normalized_text": normalized_text,
                 "keywords": keywords,
-                "entities": [],
+                "entities": analyzer_result.get("entities", []),
             },
             "analysis": {
                 "status": analyzer_result.get("status"),
@@ -67,37 +80,24 @@ class KnowledgeDocumentGenerator:
         return normalized.strip()
 
     @staticmethod
-    def _extract_keywords(text: str, limit: int = 30) -> list[dict[str, Any]]:
+    def _extract_keywords(
+        text: str,
+        limit: int = 30,
+        stopwords: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """
-        Prototype 키워드 추출.
+        Analyzer의 키워드 결과가 없을 때 사용하는 빈도 기반 대체 추출.
 
-        형태소 분석 엔진 연결 전까지 한글·영문·숫자 토큰 빈도를 사용한다.
+        stopwords는 Analyzer가 전달한 경우에만 적용하며 목록을 내장하지 않는다.
         """
         tokens = re.findall(r"[가-힣]{2,}|[A-Za-z]{2,}|[0-9]+", text.lower())
 
-        stopwords = {
-            "그리고",
-            "그러나",
-            "하지만",
-            "대한",
-            "위한",
-            "에서",
-            "으로",
-            "입니다",
-            "합니다",
-            "있는",
-            "없는",
-            "the",
-            "and",
-            "for",
-            "with",
-            "from",
-        }
+        excluded_tokens = {str(token).lower() for token in (stopwords or [])}
 
         filtered_tokens = [
             token
             for token in tokens
-            if token not in stopwords
+            if token not in excluded_tokens
         ]
 
         frequencies = Counter(filtered_tokens)

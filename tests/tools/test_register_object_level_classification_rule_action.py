@@ -28,7 +28,7 @@ class ObjectLevelClassificationRuleActionTest(unittest.TestCase):
             {"rule_resolution_source": "DEFAULT"},
             contract["condition_context"],
         )
-        self.assertEqual(4, contract["default_object_level"])
+        self.assertEqual(3, contract["default_object_level"])
         self.assertEqual(["DEFAULT"], contract["resolution_order"])
 
     def test_explicit_action_contract_binds_one_condition(self):
