@@ -64,8 +64,21 @@ class StoryDouble:
         raise AssertionError(sql)
 
     def fetch_all(self, sql, params):
-        assert "information_schema.columns" in sql
-        return [{"column_name": "id", "column_comment": "Identifier"}]
+        if "FROM sp_object" in sql:
+            # Mirror the batched Repository lookup used by agent_memory.
+            return [
+                {
+                    "object_id": self.objects[code], "object_code": code,
+                    "object_name": "te_story_platform.sp_execution_history",
+                    "business_code": "SP", "domain_code": "RP", "object_level": 3,
+                    "identifier_target_code": "EG", "sequence_scope_code": "DAILY",
+                    "sequence_length": 5, "target_identifier_field": "execution_history_id",
+                }
+                for code in params if code in self.objects
+            ]
+        if "information_schema.columns" in sql:
+            return [{"column_name": "id", "column_comment": "Identifier"}]
+        raise AssertionError(sql)
 
     def begin(self):
         self.statements.clear()
