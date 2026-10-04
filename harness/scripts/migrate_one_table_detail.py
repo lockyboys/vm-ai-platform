@@ -201,7 +201,7 @@ def _hydrate_verified_sql_text_from_mongodb(
     if str(row.get("sql_text") or "").strip():
         return row
     documents = common_database.find(
-        collection_name="verified_sql_payload",
+        collection_name="cm_verified_sql_query_payload",
         filter_document={
             "_sps.source_table_name": "cm_verified_sql_query",
             "_sps.source_identifier": row["query_id"],

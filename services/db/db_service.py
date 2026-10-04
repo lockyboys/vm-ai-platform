@@ -374,10 +374,24 @@ def save_both(collection_or_table: str, data: dict) -> dict:
     MongoDB + MariaDB 동시 저장
     초등학생 설명: 같은 내용을 서랍장이랑 엑셀 두 곳에 동시에 넣어요!
     """
-    return {
-        "MongoDB": "성공" if save_to_mongo(collection_or_table, data.copy()) else "실패",
-        "MariaDB": "성공" if save_to_mysql(collection_or_table, data.copy()) else "실패",
-    }
+    # 두 저장 시도를 모두 수행해 결과를 수집하되, 저장소별 예외는 상태로 기록한다.
+    results = {}
+    for store_name, save_function in (
+        ("MongoDB", save_to_mongo),
+        ("MariaDB", save_to_mysql),
+    ):
+        try:
+            results[store_name] = "성공" if save_function(collection_or_table, data.copy()) else "실패"
+        except Exception as exc:
+            # 예외 메시지는 연결 문자열 등 민감정보를 포함할 수 있어 외부 예외에는 넣지 않는다.
+            logger.exception("%s 저장 중 예외가 발생했습니다", store_name)
+            results[store_name] = f"오류({type(exc).__name__})"
+
+    # 부분 저장은 분산 원자성/보상이 없으므로 명시적으로 실패시켜 후속 성공 기록을 막는다.
+    if any(status != "성공" for status in results.values()):
+        raise RuntimeError(f"Pipeline 저장 실패: {results}")
+
+    return results
 
 
 def get_user_by_email(email: str) -> dict:

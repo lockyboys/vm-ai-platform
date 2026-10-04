@@ -19,7 +19,7 @@ _IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
 # Source role, source table, preserved backup table, MongoDB role, collection,
 # and every field requested for physical separation.
 TARGETS = (
-    ("COMMON", "cm_verified_sql_query", "cm_verified_sql_query_payload_backup_20260902", "COMMON", "verified_sql_payload", ("query_description", "sql_text", "verification_description")),
+    ("COMMON", "cm_verified_sql_query", "cm_verified_sql_query_payload_backup_20260902", "COMMON", "cm_verified_sql_query_payload", ("query_description", "sql_text", "verification_description")),
     ("COMMON", "model_history", "model_history_payload_backup_20260902", "COMMON", "model_history_payload", ("features",)),
     ("COMMON", "health_report", "health_report_payload_backup_20260830", "HEALTH", "health_report_content", ("report_content", "change_story")),
     ("COMMON", "cm_repository", "cm_repository_payload_backup_20260902", "COMMON", "cm_repository", ("data_json", "footer_json", "code_description")),

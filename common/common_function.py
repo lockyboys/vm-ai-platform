@@ -338,9 +338,9 @@ def get_ts_file() -> str:
         "20260616_143022" 처럼 숫자와 언더바만 써요.
 
     Returns:
-        "YYYYMMDD_HHMMSS" 형식의 문자열 (파일명에 안전)
+        "YYYYMMDD_HHMMSS_ffffff" 형식의 문자열 (파일명에 안전하고 충돌 방지)
     """
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

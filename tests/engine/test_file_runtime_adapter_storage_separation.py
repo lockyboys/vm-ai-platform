@@ -149,7 +149,8 @@ class _RuntimeDatabase:
                 "identifier_target_code": "EG",
             },
             "DOCUMENT": {
-                "object_id": "OBJECT_DOCUMENT",
+                                # Match the active Repository Object supplied for Mongo input.
+                "object_id": "SP_RP_OBJECT_20260707_212013_00004",
                 "object_code": "DOCUMENT",
                 "target_identifier_field": "document_id",
                 "identifier_target_code": "DC",
@@ -473,6 +474,8 @@ def test_execute_persists_index_execution_link_and_document_in_order(
     assert document["mongodb_collection_id"] == "OBJECT_MCO"
     assert document["mongodb_document_master_id"] == "OBJECT_MCM"
     assert document["mongodb_document_details_id"] == "MDD_20260802_00001"
+    assert document["source_object_id"] == "SP_RP_OBJECT_20260707_212013_00004"
+    assert document["source_object_code"] == "DOCUMENT"
     assert document["content"] == "검증용 상세 Document 본문"
 
     link_sql, link_params = next(

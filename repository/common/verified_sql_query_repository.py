@@ -22,7 +22,7 @@ class VerifiedSqlQueryRepository:
             raise LookupError(f"Active verified query not found: {query_id}")
 
         payload_document = self.database.find_one(
-            collection_name="verified_sql_payload",
+            collection_name="cm_verified_sql_query_payload",
             filter_document={
                 "_sps.source_table_name": "cm_verified_sql_query",
                 "_sps.source_identifier": row["query_id"],

@@ -7,7 +7,7 @@ from harness.scripts import migrate_one_table_detail as migration
 
 class FakeMongoLookupDatabase:
     def find(self, *, collection_name, filter_document, limit):
-        assert collection_name == "verified_sql_payload"
+        assert collection_name == "cm_verified_sql_query_payload"
         assert filter_document["_sps.source_identifier"] == "CM_CO_QUERY_1"
         assert limit == 1
         return [{"payload": {"verified_sql_payload": {"sql_text": "SELECT 1"}}}]
@@ -28,7 +28,7 @@ class FakeVerifiedQueryDatabase:
         }
 
     def find(self, *, collection_name, filter_document, limit):
-        assert collection_name == "verified_sql_payload"
+        assert collection_name == "cm_verified_sql_query_payload"
         assert filter_document["_sps.source_identifier"].startswith("QUERY_")
         assert limit == 1
         return [{"payload": {"verified_sql_payload": {"sql_text": "SELECT 1"}}}]
