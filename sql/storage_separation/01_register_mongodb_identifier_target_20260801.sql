@@ -50,11 +50,12 @@ VALUES
 ),
 (
     'SPS_IDENTIFIER_TARGET', 'MCM', 'MongoDB Document Master',
-    'MongoDB Document Master 식별자 Target. Execution Link가 참조하는 MongoDB Document Master를 식별한다.',
+    'MCM 클래스의 object_id(Level 3)와 구분되는 Execution Link 테이블 식별자 Target. sp_object_execution_link.mongodb_document_master_id는 Rule 기준 Level 4다.',
     230, 'ACTIVE', @actor_id, @actor_id, @client_ip, @program_id,
     JSON_OBJECT(
         'identifier_token', 'MCM',
-        'identifier_level', 3,
+        'identifier_level', 3, 'object_id_level', 3,
+        'table_identifier_level', 4,
         'target_identifier_field', 'mongodb_document_master_id',
         'mariadb_repository_yn', 'Y',
         'mongodb_internal_yn', 'N'

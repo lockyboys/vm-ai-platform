@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import json
+import re
 
 import pytest
 
@@ -38,17 +39,35 @@ class _FakeDatabase:
         if "FROM sp_object" in sql:
             assert self.database_role == "STORY"
             code = params[0]
+            # Return Repository metadata for each registered Object type under test.
+            object_id = "SP_RP_OBJECT_" + code
+            object_name = "te_common.cm_verified_sql_query"
+            object_level = 4
+            target_field = "query_id"
+            business_code = "COMMON"
+            domain_code = "CM"
+            if code == "MCM":
+                object_id = "SP_RP_MCM_20260801_00001"
+                object_name = "MongoDB Collection Master"
+                object_level = 3
+                target_field = "mongodb_document_master_id"
+                business_code, domain_code = "SP", "RP"
+            elif code == "TE_STORY_PLATFORM_SP_OBJECT_EXECUTION_LINK":
+                object_name = "te_story_platform.sp_object_execution_link"
+                target_field = "object_attempt_id"
+                object_level = 3
+                business_code, domain_code = "SP", "RP"
             return {
-                "object_id": "SP_RP_OBJECT_" + code,
+                "object_id": object_id,
                 "object_code": code,
-                "object_name": "te_common.cm_verified_sql_query",
-                "business_code": "COMMON",
-                "domain_code": "CM",
-                "object_level": 4,
-                "identifier_target_code": "QUERY",
+                "object_name": object_name,
+                "business_code": business_code,
+                "domain_code": domain_code,
+                "object_level": object_level,
+                "identifier_target_code": "MCM" if code == "MCM" else "QUERY",
                 "sequence_scope_code": "DAILY",
                 "sequence_length": 5,
-                "target_identifier_field": "query_id",
+                "target_identifier_field": target_field,
             }
         raise AssertionError(sql)
 
@@ -102,6 +121,8 @@ class _FakeDatabase:
 
 
 class _FakeIdentifierCoordinator:
+    # Simulate the active Rule result to verify Level 4 fail-closed behavior.
+    document_master_level = 4
     def __init__(self, database: _FakeDatabase) -> None:
         assert database.database_role == "STORY"
 
@@ -116,7 +137,7 @@ class _FakeIdentifierCoordinator:
     ) -> tuple[dict[str, object], dict[str, object]]:
         assert object_metadata["object_code"] in {
             "TE_COMMON_CM_VERIFIED_SQL_QUERY", "EXECUTION_HISTORY",
-            "TE_COMMON_EV_EVIDENCE",
+            "TE_COMMON_EV_EVIDENCE", "MCM",
         }
         assert created_by == updated_by == "SPS_ADMIN"
         assert client_ip == "127.0.0.1"
@@ -128,6 +149,9 @@ class _FakeIdentifierCoordinator:
         *,
         object_metadata: dict[str, object],
     ) -> int:
+        if object_metadata["target_identifier_field"] == "mongodb_document_master_id":
+            assert object_metadata["object_name"] == "te_story_platform.sp_object_execution_link"
+            return 99
         assert object_metadata["object_name"] == "te_common.cm_verified_sql_query"
         assert object_metadata["target_identifier_field"] == "query_id"
         return 99
@@ -144,6 +168,7 @@ class _FakeIdentifierCoordinator:
     ) -> SimpleNamespace:
         assert request["object_code"] in {
             "TE_COMMON_CM_VERIFIED_SQL_QUERY", "EXECUTION_HISTORY", "TE_COMMON_EV_EVIDENCE",
+            "MCM",
         }
         assert prepared == {"lock": "prepared"}
         assert maximum_length == 99
@@ -151,10 +176,18 @@ class _FakeIdentifierCoordinator:
             return SimpleNamespace(identifier="SP_RP_EXECUTION_HISTORY_20260803_00001")
         if request["object_code"] == "TE_COMMON_EV_EVIDENCE":
             return SimpleNamespace(identifier="CM_EV_EVIDENCE_20260803_00001")
+        if request["object_code"] == "MCM":
+            return SimpleNamespace(
+                identifier="SP_RP_MCM_20261005_171500_00001",
+                sequence_no=1,
+                sequence_length=5,
+                object_level=self.document_master_level,
+            )
         return SimpleNamespace(
             identifier="CM_CO_TE_COMMON_CM_VERIFIED_SQL_QUERY_20260803_00001",
             sequence_no=1,
             sequence_length=5,
+            object_level=4,
         )
 
     def render_resolution(
@@ -166,11 +199,14 @@ class _FakeIdentifierCoordinator:
         object_code: str,
         maximum_length: int,
     ) -> str:
-        assert request == {"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}
         assert prepared == {"lock": "prepared"}
         assert resolution.sequence_no == 1
         assert resolution.sequence_length == 5
         assert maximum_length == 99
+        if request["object_code"] == "MCM":
+            assert object_code == "MCM"
+            return resolution.identifier
+        assert request == {"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}
         assert object_code == "CHECK_OBJECT_LIFECYCLE_COUNT"
         return "CM_CO_CHECK_OBJECT_LIFECYCLE_COUNT_20260803_00001"
 
@@ -293,6 +329,50 @@ def test_verified_sql_register_allocates_identifier_and_inserts_once(
     assert "sp_execution_history" in common_database.executed[0][0]
     assert "sp_object_execution_link" in common_database.executed[2][0]
     assert result["execution_history_id"] == "SP_RP_EXECUTION_HISTORY_20260803_00001"
+    link_parameters = common_database.executed[2][1]
+    assert link_parameters[2] == "SP_RP_MCM_20260801_00001"
+    assert link_parameters[6] == "SP_RP_MCM_20261005_171500_00001"
+    assert re.fullmatch(r"SP_RP_MCM_\d{8}_\d{6}_\d{5}", link_parameters[6])
+
+
+def test_verified_sql_register_rolls_back_when_mcm_table_identifier_is_not_level4(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stale or misconfigured Rule must stop registration before any business write.
+    monkeypatch.setattr(verified_sql_tools, "CommonDatabase", _FakeDatabase)
+    monkeypatch.setattr(
+        verified_sql_tools, "IdentifierCoordinator", _FakeIdentifierCoordinator
+    )
+    monkeypatch.setattr(
+        verified_sql_tools, "QueryIdentifierFeatureRuleResolver",
+        _FakeQueryIdentifierFeatureRuleResolver,
+    )
+    _FakeDatabase.instances.clear()
+    _FakeIdentifierCoordinator.document_master_level = 3
+
+    with pytest.raises(RuntimeError, match="must resolve to Level 4"):
+        verified_sql_tools.verified_sql_register(
+            query_name="Check Object Lifecycle Count",
+            query_feature_code="CHECK_OBJECT_LIFECYCLE_COUNT",
+            query_description="Object lifecycle integrity query.",
+            crud_type="READ",
+            sql_text="SELECT COUNT(*) AS lifecycle_count FROM sp_object_lifecycle",
+            registered_by="SPS_ADMIN",
+            program_id="SPS_HARNESS_MCP",
+            apply=True,
+        )
+
+    story_database = next(
+        database for database in _FakeDatabase.instances
+        if database.database_role == "STORY"
+    )
+    assert story_database.rolled_back is True
+    assert story_database.committed is False
+    assert not any(
+        database.executed for database in _FakeDatabase.instances
+        if database.database_role == "COMMON"
+    )
+    _FakeIdentifierCoordinator.document_master_level = 4
 
 
 def test_verified_sql_register_rejects_drop_before_opening_database() -> None:

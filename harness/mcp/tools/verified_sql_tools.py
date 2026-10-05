@@ -454,10 +454,53 @@ def verified_sql_register(
                 request=history_request, prepared=history_preparation,
                 maximum_length=int(history_column["character_maximum_length"]),
             ).identifier
-            mongo_objects = {
-                code: _load_registered_object_metadata(identifier_database, code)["object_id"]
+            # Keep registered class Object IDs separate from the Level 4 row identifier.
+            mongo_object_metadata = {
+                code: _load_registered_object_metadata(identifier_database, code)
                 for code in ("MDB", "MCO", "MCM")
             }
+            mongo_objects = {
+                code: metadata["object_id"]
+                for code, metadata in mongo_object_metadata.items()
+            }
+            link_table_metadata = _load_registered_object_metadata(
+                identifier_database, "TE_STORY_PLATFORM_SP_OBJECT_EXECUTION_LINK",
+            )
+            document_master_metadata = dict(mongo_object_metadata["MCM"])
+            document_master_metadata["object_name"] = link_table_metadata["object_name"]
+            document_master_maximum_length = (
+                identifier_coordinator.resolve_identifier_maximum_length(
+                    object_metadata=document_master_metadata,
+                )
+            )
+            document_master_request, document_master_preparation = (
+                identifier_coordinator.prepare_registered_object(
+                    object_metadata=document_master_metadata,
+                    created_by=normalized_registered_by,
+                    updated_by=normalized_registered_by,
+                    client_ip=client_ip.strip() or "127.0.0.1",
+                    program_id=program_id.strip() or "VERIFIED_SQL_REGISTER",
+                )
+            )
+            identifier_coordinator.acquire(document_master_preparation)
+            acquired_locks.append(document_master_preparation)
+            document_master_resolution = identifier_coordinator.resolve(
+                request=document_master_request,
+                prepared=document_master_preparation,
+                maximum_length=document_master_maximum_length,
+            )
+            if document_master_resolution.object_level != 4:
+                raise RuntimeError(
+                    "mongodb_document_master_id must resolve to Level 4 from the active Rule; "
+                    f"resolved_level={document_master_resolution.object_level}"
+                )
+            mongodb_document_master_id = identifier_coordinator.render_resolution(
+                request=document_master_request,
+                prepared=document_master_preparation,
+                resolution=document_master_resolution,
+                object_code="MCM",
+                maximum_length=document_master_maximum_length,
+            )
             evidence_id = None
             if evidence:
                 evidence_metadata = _load_registered_object_metadata(
@@ -627,7 +670,7 @@ def verified_sql_register(
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (execution_history_id, source_object_id, mongo_objects["MCM"],
                  "MONGODB", mongo_objects["MDB"], mongo_objects["MCO"],
-                 mongo_objects["MCM"], normalized_registered_by,
+                 mongodb_document_master_id, normalized_registered_by,
                  client_ip.strip() or "127.0.0.1",
                  program_id.strip() or "VERIFIED_SQL_REGISTER"),
                 expected_affected_rows=1,

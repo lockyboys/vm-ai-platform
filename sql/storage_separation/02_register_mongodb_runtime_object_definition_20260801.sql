@@ -92,7 +92,7 @@ VALUES
     JSON_OBJECT(
         'object_code', 'MCM',
         'object_name', 'MongoDB Collection Master',
-        'object_description', 'SPS Platform 하위 MongoDB 저장소 계층의 Level 3 Collection Master Object. sp_object_execution_link.target_object_id와 mongodb_document_master_id가 동일한 MCM Object ID를 참조한다.',
+        'object_description', 'MCM Object의 sp_object.object_id는 Level 3 클래스 식별자다. sp_object_execution_link.target_object_id는 이 Level 3 Object를 참조하며 mongodb_document_master_id는 RULE에 따라 별도 생성하는 Level 4 테이블 식별자다.',
         'business_code', 'SP', 'domain_code', 'RP', 'object_type_code', 'REPOSITORY',
         'object_level', 3, 'sort_no', 30,
         'target_identifier_field', 'mongodb_document_master_id',
