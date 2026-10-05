@@ -7,7 +7,7 @@
 #   준지도학습 = 일부만 정답 주고 나머지는 혼자 유추
 #   강화학습   = 잘하면 칭찬, 못하면 벌칙으로 스스로 개선
 
-import os, json, joblib
+import os, json, joblib, uuid
 from datetime import datetime
 from common.common_function import logger
 from config import MODEL_PATH
@@ -274,16 +274,15 @@ def _save_model(model, name: str) -> str:
     """모델 버전 관리 저장"""
     os.makedirs(MODEL_PATH, exist_ok=True)
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(MODEL_PATH, f"{name}_{ts}.pkl")
+    path = os.path.join(MODEL_PATH, f"{name}_{ts}_{uuid.uuid4().hex}.pkl")
     joblib.dump(model, path)
-    joblib.dump(model, os.path.join(MODEL_PATH, "latest_model.pkl"))
     logger.info(f"💾 모델 저장: {path}")
     return path
 
-def load_model():
-    path = os.path.join(MODEL_PATH, "latest_model.pkl")
-    if not os.path.exists(path):
-        logger.warning("⚠️ 저장된 모델 없음")
+def load_model(path: str | None = None):
+    """명시된 학습 결과만 읽어 교차 요청 간 전역 latest 모델 사용을 막는다."""
+    if not path or not os.path.isfile(path):
+        logger.warning("⚠️ 지정된 모델 파일 없음")
         return None
     return joblib.load(path)
 

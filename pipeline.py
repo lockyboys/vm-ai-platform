@@ -1,10 +1,10 @@
 # pipeline.py ★ 7.16.4 — 전체 AI 시스템 핵심 엔진
 # ⭐ 지도/비지도/준지도/강화학습 + AutoML + SHAP + AGI + DB 전부 통합
 # 초등학생 설명: 공장 컨베이어 벨트처럼 데이터가 들어오면 자동으로 분석→학습→저장→리포트!
-import time, os
+import time, os, re, uuid
 import pandas as pd
 from common.common_function import logger, log_event, get_timestamp, ensure_dirs, read_file_auto, file_hash
-from config import DATA_PATH, UPLOAD_PATH
+from config import DATA_PATH, UPLOAD_PATH, OUTPUT_PATH
 from core.analyzer       import run as analyze
 from core.metrics        import calculate
 from core.shap_service   import generate_shap, get_feature_importance
@@ -16,6 +16,13 @@ from services.history_service import save_pipeline_history, save_model_history
 
 _orch     = None
 _improver = SelfImproveAgent()
+
+def _shap_output_path(user_id: str) -> str:
+    """사용자별 디렉터리 아래 매 실행마다 고유한 SHAP 경로를 만든다."""
+    safe_user_id = re.sub(r"[^A-Za-z0-9_.-]", "_", str(user_id)).strip("._") or "user"
+    run_id = uuid.uuid4().hex
+    return os.path.join(OUTPUT_PATH, "users", safe_user_id, "runs", run_id, "charts", "shap_summary.png")
+
 
 def get_orchestrator():
     global _orch
@@ -77,10 +84,12 @@ def run_pipeline(file_path: str | None = None, user_id: str | None = None,
         # SHAP (지도/강화학습만)
         if learning_type in ("supervised", "reinforcement") and accuracy > 0:
             from ml.trainer import load_model
-            model = load_model()
+            model_path = ml_result.get("모델_경로")
+            model = load_model(model_path) if model_path else None
             if model and auto_features:
                 X = df[auto_features].fillna(0)
-                shap_path  = generate_shap(model, X)
+                # 사용자·실행별 고유 산출물로 SHAP 파일의 경합·교차 덮어쓰기를 막는다.
+                shap_path = generate_shap(model, X, output_path=_shap_output_path(user_id))
                 importance = get_feature_importance(model, auto_features)
     except Exception as e:
         logger.error(f"❌ 학습 실패: {e}")

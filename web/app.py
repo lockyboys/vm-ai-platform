@@ -973,27 +973,3 @@ def upload_sheet():
 
 
 
-def _check_duplicate_file(fhash: str) -> dict:
-    """
-    업로드 파일 중복 확인
-
-    목적:
-        같은 파일이 이미 업로드되었는지 file_hash 기준으로 확인한다.
-
-    관련 테이블:
-        DT_UPLOAD_FILES
-        DT_DATASETS
-    """
-    try:
-        import mysql.connector
-        from config import MYSQL_CONFIG
-
-        conn = mysql.connector.connect(**MYSQL_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-
-        cursor.execute(
-            """
-            SELECT
-                uf.upload_file_id AS id,
-                uf.original_file_name AS file_name,
-                uf.file_hash,
