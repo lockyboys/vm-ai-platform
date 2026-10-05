@@ -102,10 +102,9 @@ def permission_error(plan: str, feature: str, msg: str = ""):
         "upgrade_url":   upgrade_info.get("upgrade_url", "/register"),
     }), 403
 
-# ── DB 초기화 ──────────────────────────────────────────
 def init_app():
-    from services.db.db_service import init_db
-    init_db()
+    """Application hook kept side-effect free; migrations run explicitly."""
+    return None
 
 
 # ════════════════════════════════════════════════════════
@@ -998,73 +997,3 @@ def _check_duplicate_file(fhash: str) -> dict:
                 uf.upload_file_id AS id,
                 uf.original_file_name AS file_name,
                 uf.file_hash,
-                uf.file_path AS save_path,
-                d.row_count,
-                d.column_count AS col_count,
-                uf.created_at AS uploaded_at
-            FROM DT_UPLOAD_FILES uf
-            LEFT JOIN DT_DATASETS d
-                ON d.dataset_id = uf.dataset_id
-            WHERE uf.file_hash = %s
-            ORDER BY uf.created_at DESC
-            LIMIT 1
-            """,
-            (fhash,)
-        )
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return dict(row) if row else None
-    except Exception:
-        return None
-
-
-def _save_upload_record(user_id, filename, save_path,
-                        fhash, row_count, col_count, col_info) -> None:
-    """Persist dataset and upload rows as one transaction."""
-    import mysql.connector
-    from config import MYSQL_CONFIG
-
-    conn = mysql.connector.connect(**MYSQL_CONFIG)
-    conn.start_transaction()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            INSERT INTO DT_DATASETS
-            (dataset_name, file_name, file_path, row_count, column_count,
-             uploaded_by, is_active)
-            VALUES (%s, %s, %s, %s, %s, %s, TRUE)
-            """,
-            (filename, filename, save_path, row_count, col_count, user_id)
-        )
-        dataset_id = cursor.lastrowid
-        cursor.execute(
-            """
-            INSERT INTO DT_UPLOAD_FILES
-            (dataset_id, original_file_name, stored_file_name, file_path,
-             file_size, file_hash, mime_type, uploaded_by)
-            VALUES (%s, %s, %s, %s, NULL, %s, NULL, %s)
-            ON DUPLICATE KEY UPDATE
-                dataset_id = VALUES(dataset_id),
-                file_path = VALUES(file_path),
-                uploaded_by = VALUES(uploaded_by)
-            """,
-            (dataset_id, filename, filename, save_path, fhash, user_id)
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
-
-
-# Process-control and deployment routes are intentionally absent from the web
-# boundary. Operations use the authenticated Harness operational channel.
-
-
-if __name__ == "__main__":
-    init_app()
-    app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
