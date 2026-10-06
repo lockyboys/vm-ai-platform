@@ -626,7 +626,10 @@ def enterprise_highlights():
 
 @app.route("/api/permissions")
 def permissions():
-    plan = request.args.get("plan","free")
+    # A caller may read only permissions from the plan in its signed token.
+    plan = get_plan(request)
+    if plan not in {"free", "pro", "enterprise"}:
+        return jsonify({"error": "인증된 플랜 정보가 없습니다."}), 401
     return jsonify({
         "plan":        plan,
         "permissions": get_all_permissions(plan),
@@ -634,24 +637,9 @@ def permissions():
     })
 
 @app.route("/api/admin/set-plan", methods=["POST"])
-def set_plan():
-    """관리자 전용 — 플랜 변경"""
-    plan = get_plan(request)
-    if plan != "enterprise":
-        return permission_error(plan, "관리자기능")
-    data  = request.json or {}
-    email = data.get("email","")
-    new_plan = data.get("plan","free")
-    try:
-        import mysql.connector
-        from config import MYSQL_CONFIG
-        conn = mysql.connector.connect(**MYSQL_CONFIG)
-        cur  = conn.cursor()
-        cur.execute("UPDATE AU_USERS SET plan_code=UPPER(%s) WHERE email=%s", (new_plan, email))
-        conn.commit(); cur.close(); conn.close()
-        return jsonify({"success": True, "email": email, "new_plan": new_plan})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+def admin_set_plan_disabled():
+    """Keep one fail-closed route until a signed admin-role Repository contract exists."""
+    return jsonify({"error": "관리자 플랜 변경은 승인된 권한 Runtime 연결 후 활성화됩니다."}), 403
 
 
 
@@ -699,33 +687,6 @@ def admin_users():
     return jsonify({"users": users, "count": len(users)})
 
 
-@app.route("/api/admin/set-plan", methods=["POST"])
-def admin_set_plan():
-    """
-    사용자 플랜 변경 (관리자용)
-    초등학생 설명: 관리자가 회원의 등급을 바꿔줄 수 있어요!
-    """
-    data     = request.json or {}
-    user_id  = data.get("user_id")
-    new_plan = data.get("plan", "free")
-
-    if new_plan not in ("free", "pro", "enterprise"):
-        return jsonify({"error": "잘못된 플랜"}), 400
-
-    try:
-        import mysql.connector
-        from config import MYSQL_CONFIG
-        conn   = mysql.connector.connect(**MYSQL_CONFIG)
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE AU_USERS SET plan_code=UPPER(%s) WHERE user_id=%s",
-            (new_plan, user_id)
-        )
-        conn.commit(); cursor.close(); conn.close()
-        logger.info(f"🔑 관리자 플랜 변경: user_id={user_id} → {new_plan}")
-        return jsonify({"success": True, "user_id": user_id, "new_plan": new_plan})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/admin/deploy/upload", methods=["POST"])

@@ -153,3 +153,36 @@ def test_deleted_work_session_is_excluded_from_owner_verification() -> None:
     assert repository.verify_owner("deleted-session", "member-1") is False
     assert database.params == ("deleted-session", "member-1")
     assert "AND deleted_dt IS NULL" in database.query
+
+def test_permissions_endpoint_uses_the_signed_plan_not_query_input() -> None:
+    from web.app import app
+
+    client = app.test_client()
+    token = auth_service.create_token("member-1", "member@example.test", "free")["token"]
+    response = client.get(
+        "/api/permissions?plan=enterprise",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["plan"] == "free"
+    assert body["permissions"] == auth_service.get_all_permissions("free")
+
+
+def test_set_plan_route_is_unique_and_fail_closed() -> None:
+    from web.app import app
+
+    matching_routes = [
+        rule for rule in app.url_map.iter_rules()
+        if rule.rule == "/api/admin/set-plan" and "POST" in rule.methods
+    ]
+    assert len(matching_routes) == 1
+
+    token = auth_service.create_token("admin-1", "admin@example.test", "enterprise")["token"]
+    response = app.test_client().post(
+        "/api/admin/set-plan",
+        json={"user_id": "member-1", "plan": "enterprise"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 403
