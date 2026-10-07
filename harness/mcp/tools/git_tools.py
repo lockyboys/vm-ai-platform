@@ -22,21 +22,45 @@ PROJECT_ROOT = Path("/data/vm_project")
 DEFAULT_MAX_LINES = 500
 MAX_ALLOWED_LINES = 2000
 
+# Git queries must fail promptly instead of pinning an MCP request indefinitely.
+GIT_TIMEOUT_SECONDS = 30
+MAX_HISTORY_COMMITS = 100
+MAX_BLAME_LINES = 200
+
+
+def _run_git(command: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a read-only Git query with a hard timeout and actionable errors."""
+    try:
+        return subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError(
+            f"Git query exceeded {GIT_TIMEOUT_SECONDS} seconds."
+        ) from exc
+
+
+def _validate_repo_file(path: str) -> str:
+    """Accept only an existing file within the configured repository root."""
+    normalized = path.strip()
+    if not normalized:
+        raise ValueError("A non-empty repository-relative file path is required.")
+    requested = (PROJECT_ROOT / normalized).resolve()
+    root = PROJECT_ROOT.resolve()
+    if requested == root or root not in requested.parents or not requested.is_file():
+        raise ValueError("The requested path must be an existing file inside the project root.")
+    return requested.relative_to(root).as_posix()
+
 
 def git_status() -> dict:
     """Return the current Git working tree status."""
 
-    result = subprocess.run(
-        [
-            "git",
-            "status",
-            "--short",
-        ],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _run_git(["git", "status", "--short"])
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -53,6 +77,43 @@ def git_status() -> dict:
     )
 
     return status_result
+
+
+def git_log(path: str | None = None, limit: int = 20) -> dict:
+    """Return bounded recent commit summaries, optionally for one repo file."""
+    normalized_limit = max(1, min(int(limit), MAX_HISTORY_COMMITS))
+    command = [
+        "git", "log", "--no-color", "--date=iso-strict",
+        "--format=%H%x09%an%x09%ad%x09%s", f"-n{normalized_limit}",
+    ]
+    normalized_path = None
+    if path is not None:
+        normalized_path = _validate_repo_file(path)
+        command.extend(["--", normalized_path])
+    result = _run_git(command)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "git log failed.")
+    commits = result.stdout.splitlines()
+    return {"path": normalized_path, "limit": normalized_limit, "commits": commits}
+
+
+def git_blame(path: str, start_line: int = 1, end_line: int | None = None) -> dict:
+    """Return attribution for a bounded line range in one repository file."""
+    normalized_path = _validate_repo_file(path)
+    if start_line < 1 or (end_line is not None and end_line < start_line):
+        raise ValueError("Blame line range must be positive and ordered.")
+    normalized_end = end_line if end_line is not None else start_line + MAX_BLAME_LINES - 1
+    if normalized_end - start_line + 1 > MAX_BLAME_LINES:
+        raise ValueError(f"Blame range cannot exceed {MAX_BLAME_LINES} lines.")
+    result = _run_git([
+        "git", "blame", "--date=short", "-L", f"{start_line},{normalized_end}",
+        "--", normalized_path,
+    ])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "git blame failed.")
+    lines = result.stdout.splitlines()
+    return {"path": normalized_path, "start_line": start_line,
+            "end_line": normalized_end, "returned_lines": len(lines), "blame": lines}
 
 
 def git_diff(
@@ -108,13 +169,7 @@ def git_diff(
             ]
         )
 
-    result = subprocess.run(
-        command,
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = _run_git(command)
 
     if result.returncode != 0:
         raise RuntimeError(

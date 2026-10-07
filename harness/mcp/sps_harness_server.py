@@ -86,6 +86,8 @@ from harness.mcp.tools.repository_table_object_tools import (
 )
 from harness.mcp.tools.git_tools import (
     git_diff,
+    git_blame,
+    git_log,
     git_status,
 )
 from harness.mcp.tools.git_mutation_tools import (
@@ -378,6 +380,9 @@ mcp.tool()(mongodb_delete_backup)
 
 mcp.tool()(git_status)
 mcp.tool()(git_diff)
+# Expose bounded, read-only Git history and line attribution queries.
+mcp.tool()(git_log)
+mcp.tool()(git_blame)
 mcp.tool()(git_add)
 mcp.tool()(git_stage_delete)
 mcp.tool()(git_commit)

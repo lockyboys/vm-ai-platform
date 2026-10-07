@@ -81,7 +81,17 @@ def _strip_leading_sql_comments(sql_text: str) -> str:
 
 
 def _statement_keyword(sql_text: str) -> str:
-    executable_sql = _strip_leading_sql_comments(sql_text)
+    # Normalize MongoDB updateOne text to the shared UPDATE CRUD contract.
+    # MongoDB execution remains handled by the MongoDB payload path.
+    executable_sql = (
+        "UPDATE"
+        if re.match(
+            r"^\s*db\.[A-Za-z_][A-Za-z0-9_]*\.updateOne\s*\(",
+            sql_text,
+            re.IGNORECASE,
+        )
+        else _strip_leading_sql_comments(sql_text)
+    )
     matched = _SQL_KEYWORD_PATTERN.match(executable_sql.upper())
 
     if not matched:

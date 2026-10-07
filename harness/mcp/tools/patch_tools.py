@@ -89,7 +89,9 @@ def _file_sha256(path: str) -> str:
 
 
 def _run_git_apply(patch_text: str, check_only: bool) -> subprocess.CompletedProcess[str]:
-    arguments = ["git", "apply", "--whitespace=error-all"]
+    # Recount hunk lines so contextual patches tolerate generated count drift.
+    # Existing path and safety checks remain unchanged.
+    arguments = ["git", "apply", "--recount", "--whitespace=error-all"]
     if check_only:
         arguments.append("--check")
     arguments.append("-")
