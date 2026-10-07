@@ -5,8 +5,27 @@ AGENT_NAME="${GIT_AGENT_NAME:-ChatGPT}"
 AGENT_ID="${GIT_AGENT_ID:-codex-$(date -u +%Y%m%dT%H%M%SZ)}"
 REQUESTED_BY="${GIT_REQUESTED_BY:-PARK HEAKYU}"
 
+if [ -z "${GIT_FEATURE:-}" ]; then
+  CHANGED_FILES="$(git diff --cached --name-only)"
+
+  case "$CHANGED_FILES" in
+    *LangGraph_email_RAG_Agent.py*|*main.py*)
+      FEATURE="main-routing"
+      ;;
+    *insurance*|*pdf*)
+      FEATURE="insurance-rag"
+      ;;
+    *)
+      FEATURE="repository-change"
+      ;;
+  esac
+else
+  FEATURE="$GIT_FEATURE"
+fi
+
 {
   printf '\nExecuted-by: %s\n' "$AGENT_NAME"
   printf 'Agent-id: %s\n' "$AGENT_ID"
+  printf 'Feature: %s\n' "$FEATURE"
   printf 'Requested-by: %s\n' "$REQUESTED_BY"
 } >> "$MSG_FILE"
