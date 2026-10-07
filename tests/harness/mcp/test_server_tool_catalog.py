@@ -11,10 +11,53 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+from types import SimpleNamespace
 
 import httpx
+import pytest
 
+from harness.mcp.tools import git_tools
 from harness.mcp.sps_harness_server import OAUTH_SETTINGS, mcp
+
+
+def test_git_history_tools_are_exposed_and_queries_are_bounded(monkeypatch, tmp_path) -> None:
+    # Verify tool registration and argument bounds without invoking real Git.
+    names = {tool.name for tool in mcp._tool_manager.list_tools()}
+    assert {"git_log", "git_blame"}.issubset(names)
+    target = tmp_path / "sample.py"
+    target.write_text("pass\n", encoding="utf-8")
+    monkeypatch.setattr(git_tools, "PROJECT_ROOT", tmp_path)
+    seen = {}
+
+    def fake_run(command):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="abc\tAuthor\tdate\tsubject\n", stderr="")
+
+    monkeypatch.setattr(git_tools, "_run_git", fake_run)
+    result = git_tools.git_log("sample.py", limit=999)
+    assert result["limit"] == git_tools.MAX_HISTORY_COMMITS
+    assert seen["command"][-2:] == ["--", "sample.py"]
+
+
+def test_git_query_timeout_is_reported(monkeypatch) -> None:
+    # Verify a stuck subprocess becomes a bounded, caller-visible failure.
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    monkeypatch.setattr(git_tools.subprocess, "run", timeout)
+    with pytest.raises(TimeoutError, match="exceeded"):
+        git_tools._run_git(["git", "log"])
+
+
+def test_git_blame_rejects_oversized_range_without_running_git(monkeypatch, tmp_path) -> None:
+    # Verify invalid blame ranges fail before any Git process can start.
+    target = tmp_path / "sample.py"
+    target.write_text("pass\n", encoding="utf-8")
+    monkeypatch.setattr(git_tools, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(git_tools, "_run_git", lambda command: pytest.fail("Git must not run"))
+    with pytest.raises(ValueError, match="cannot exceed"):
+        git_tools.git_blame("sample.py", 1, git_tools.MAX_BLAME_LINES + 1)
 
 
 def test_identifier_generate_is_exposed_in_fastmcp_catalog() -> None:
