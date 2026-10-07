@@ -31,6 +31,8 @@ import requests
 import os
 import sys
 import hashlib
+import smtplib
+from email.message import EmailMessage
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -84,6 +86,7 @@ class EmailAgentState(TypedDict):
 
     # 원본 검색/API 결과
     search_results: list[str] | None  # 원본 약관 문서 조각 목록
+    tavily_status: str
     customer_history: dict | None  # CRM의 원본 고객 데이터
 
     # 생성된 콘텐츠
@@ -109,20 +112,23 @@ def _normalize_response_content(content: object) -> str:
     return str(content).strip()
 
 
-def _create_embedding(text: str) -> list[float]:
-    """로컬 Ollama bge-m3로 텍스트 임베딩을 생성합니다."""
+def _create_embeddings(texts: list[str]) -> list[list[float]]:
+    """Ollama bge-m3에 여러 청크를 한 번에 보내 임베딩 호출을 줄입니다."""
+    if not texts:
+        return []
     base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     model = os.getenv("OLLAMA_EMBEDDING_MODEL", "bge-m3")
     response = requests.post(
-        f"{base_url}/api/embeddings",
-        json={"model": model, "prompt": text},
-        timeout=30,
+        f"{base_url}/api/embed",
+        json={"model": model, "input": texts, "keep_alive": "10m"},
+        timeout=int(os.getenv("OLLAMA_EMBEDDING_TIMEOUT", "180")),
     )
     response.raise_for_status()
-    embedding = response.json().get("embedding")
-    if not isinstance(embedding, list) or not embedding:
-        raise RuntimeError("Ollama embedding 응답이 비어 있습니다.")
-    return embedding
+    embeddings = response.json().get("embeddings")
+    if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+        raise RuntimeError("Ollama 배치 임베딩 응답 수가 입력 청크 수와 다릅니다.")
+    logger.info("Ollama 배치 임베딩 완료: model=%s chunks=%s", model, len(embeddings))
+    return embeddings
 
 
 def _save_mongodb_payload(state: EmailAgentState) -> None:
@@ -136,10 +142,16 @@ def _save_mongodb_payload(state: EmailAgentState) -> None:
     document_id = state.get("email_id", "")
     object_id = os.getenv("MONGODB_DOCUMENT_MASTER_ID", "SP_RP_MDM_20261004_00001")
     embedding_text = state.get("email_content", "")
-    embedding = _create_embedding(embedding_text)
+    embedding = _create_embeddings([embedding_text])[0]
     payload = {
         "object_id": object_id,
         "document_id": document_id,
+        "audit": {
+            "created_dt": datetime.now(timezone.utc),
+            "created_by": "CODEX",
+            "client_ip": os.getenv("CLIENT_IP", "127.0.0.1"),
+            "program_id": "SPS_MONGODB_EMAIL_RAG",
+        },
         "payload": {
             "email_content": state.get("email_content", ""),
             "classification": state.get("classification"),
@@ -159,6 +171,118 @@ def _save_mongodb_payload(state: EmailAgentState) -> None:
             raise RuntimeError("MongoDB payload count verification failed")
     finally:
         client.close()
+
+
+def _chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
+    """Split extracted PDF text while preserving configured overlap and the final tail."""
+    if chunk_size <= 0 or overlap < 0 or overlap >= chunk_size:
+        raise ValueError("chunk_size must be positive and overlap must be smaller than chunk_size.")
+    if not text:
+        return []
+    step = chunk_size - overlap
+    return [text[pos:pos + chunk_size] for pos in range(0, len(text), step)]
+
+
+def _create_embeddings_in_batches(texts: list[str]) -> list[list[float]]:
+    """Embed all supplied chunks in bounded batches and fail if any chunk is omitted."""
+    batch_size = int(os.getenv("OLLAMA_EMBEDDING_BATCH_SIZE", "16"))
+    if batch_size <= 0:
+        raise ValueError("OLLAMA_EMBEDDING_BATCH_SIZE must be greater than zero.")
+    embeddings: list[list[float]] = []
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start:start + batch_size]
+        batch_embeddings = _create_embeddings(batch)
+        if len(batch_embeddings) != len(batch):
+            raise RuntimeError(
+                f"Ollama returned {len(batch_embeddings)} embeddings for {len(batch)} input chunks."
+            )
+        embeddings.extend(batch_embeddings)
+    return embeddings
+
+
+def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
+    """Read every insurance PDF, embed every chunk, and verify each source file's saved rows."""
+    if MongoClient is None or PdfReader is None:
+        raise RuntimeError("PDF ingestion requires pymongo and pypdf; no input is silently skipped.")
+
+    pdf_folder = Path(os.getenv("AGENT_DOCUMENT_DIR", str(PROJECT_ROOT / "FastAPI" / "LangGraph" / "insurance_docs")))
+    pdf_paths = sorted(path for path in pdf_folder.rglob("*") if path.is_file() and path.suffix.lower() == ".pdf")
+    if not pdf_paths:
+        raise FileNotFoundError(f"보험 약관 PDF가 없습니다: {pdf_folder}")
+
+    # Extract all PDFs before database writes so an unreadable source cannot produce a partial first pass.
+    source_documents: list[tuple[str, str, list[str]]] = []
+    for pdf_path in pdf_paths:
+        source_name = pdf_path.relative_to(pdf_folder).as_posix()
+        extracted_text = "\\n".join((page.extract_text() or "") for page in PdfReader(str(pdf_path)).pages)
+        if not extracted_text.strip():
+            raise RuntimeError(f"PDF에서 텍스트를 추출하지 못했습니다: {source_name}")
+        chunks = _chunk_text(extracted_text)
+        source_documents.append((source_name, extracted_text, chunks))
+        logger.info("PDF 텍스트 추출 완료: file=%s chars=%s chunks=%s", source_name, len(extracted_text), len(chunks))
+
+    uri = os.getenv("MONGODB_URI") or os.getenv("HEALTH_COMPANION_MONGODB_URI") or MONGO_URI
+    collection_name = os.getenv("MONGODB_COLLECTION", "insurance_policy_terms_payload")
+    database_name = os.getenv("MONGODB_DATABASE", "health_companion_ai")
+    client = MongoClient(uri, serverSelectionTimeoutMS=MONGO_TIMEOUT_MS)
+    source_chunk_counts: dict[str, int] = {}
+    try:
+        collection = client[database_name][collection_name]
+        for source_name, _extracted_text, chunks in source_documents:
+            # Bounded batch calls process every chunk while avoiding one oversized request per large PDF.
+            embeddings = _create_embeddings_in_batches(chunks)
+            expected_document_ids: list[str] = []
+            for index, (chunk, embedding) in enumerate(zip(chunks, embeddings), start=1):
+                # Relative source path and chunk number keep IDs stable and avoid same-basename collisions.
+                source_digest = hashlib.sha256(source_name.encode("utf-8")).hexdigest()[:12]
+                document_id = f"{Path(source_name).stem}:{source_digest}:{index:05d}"
+                expected_document_ids.append(document_id)
+                document = {
+                    "object_id": os.getenv("MONGODB_DOCUMENT_MASTER_ID", "SP_RP_MDM_20261004_00001"),
+                    "mongodb_database_id": os.getenv("MONGODB_DATABASE_ID", "SP_RP_MDB_2026_00001"),
+                    "mongodb_collection_id": os.getenv("MONGODB_COLLECTION_ID", "SP_RP_MCO_202608_00001"),
+                    "mongodb_document_master_id": os.getenv("MONGODB_DOCUMENT_MASTER_ID", "SP_RP_MCM_20260801_00001"),
+                    "document_id": document_id,
+                    "source_file": source_name,
+                    "chunk_index": index,
+                    "chunk_size": len(chunk),
+                    "payload": {
+                        "normalized_text": chunk,
+                        "embedding": embedding,
+                        "embedding_model": os.getenv("OLLAMA_EMBEDDING_MODEL", "bge-m3"),
+                    },
+                    "audit": {
+                        "created_dt": datetime.now(timezone.utc),
+                        "created_by": "CODEX",
+                        "client_ip": os.getenv("CLIENT_IP", "127.0.0.1"),
+                        "program_id": "SPS_MONGODB_DOCUMENT_PDF",
+                    },
+                }
+                collection.update_one({"document_id": document_id}, {"$set": document}, upsert=True)
+
+            # Verify this PDF's exact IDs and embeddings, independent of unrelated collection rows.
+            verified_count = collection.count_documents({
+                "document_id": {"$in": expected_document_ids},
+                "source_file": source_name,
+                "payload.embedding": {"$exists": True},
+            })
+            if verified_count != len(expected_document_ids):
+                raise RuntimeError(
+                    f"PDF 저장 검증 실패: file={source_name} expected={len(expected_document_ids)} actual={verified_count}"
+                )
+            source_chunk_counts[source_name] = verified_count
+            logger.info(
+                "PDF별 저장·검증 성공: file=%s chunks=%s collection=%s",
+                source_name, verified_count, collection_name,
+            )
+    finally:
+        client.close()
+
+    return {
+        "pdf_file_count": len(source_documents),
+        "pdf_chunk_count": sum(source_chunk_counts.values()),
+        "source_chunk_counts": source_chunk_counts,
+    }
 
 
 def read_email(state: EmailAgentState) -> dict:
@@ -191,7 +315,7 @@ def classify_intent(state: EmailAgentState) -> Command[Literal["search_documenta
     if classification['intent'] == 'billing' or classification['urgency'] == 'critical':
         goto = "human_review"
     elif classification['intent'] in ['question', 'feature']:
-        goto = "search_documentation"
+        goto = "search_router"
     elif classification['intent'] == 'bug':
         goto = "bug_tracking"
     else:
@@ -206,12 +330,13 @@ def classify_intent(state: EmailAgentState) -> Command[Literal["search_documenta
 
 # 검색 및 추적 노드
 
-def search_documentation(state: EmailAgentState) -> Command[Literal["draft_response"]]:
+def search_documentation(state: EmailAgentState) -> dict:
     """보험 약관·상품설명서에서 관련 정보를 검색합니다."""
 
     # 분류 결과로 검색 질의를 구성합니다.
     classification = state.get('classification', {})
     query = f"{classification.get('intent', '')} {classification.get('topic', '')}"
+    tavily_status = "disabled"
 
     try:
         # 실제 검색 로직을 이 위치에 연결합니다.
@@ -223,6 +348,7 @@ def search_documentation(state: EmailAgentState) -> Command[Literal["draft_respo
         ]
         if tavily_search:
             web_result = tavily_search.invoke(query)
+            tavily_status = "success"
             if isinstance(web_result, dict):
                 allowed = {
                     d.strip().lower()
@@ -242,13 +368,35 @@ def search_documentation(state: EmailAgentState) -> Command[Literal["draft_respo
                             search_results.append(f"[출처: {url}] {content[:2000]}")
     except Exception as e:
         logger.exception("문서 검색 실패")
+        tavily_status = "failed"
         # 복구 가능한 검색 오류는 오류를 저장하고 계속 진행합니다.
         search_results = [f"검색을 일시적으로 사용할 수 없습니다: {str(e)}"]
 
-    return Command(
-        update={"search_results": search_results},  # Store raw results or error
-        goto="draft_response"
-    )
+    return {"search_results": search_results, "tavily_status": tavily_status}
+
+def search_router(state: EmailAgentState) -> dict:
+    """웹 검색, 내부 RAG, 종료 중 하나를 선택합니다."""
+    text = state.get("email_content", "").lower()
+    web_terms = ("웹", "검색", "최신", "뉴스", "외부", "latest", "current", "news", "web")
+    rag_terms = ("보험", "약관", "보장", "청구", "계약", "면책", "실손", "policy", "coverage")
+    mode = "tavily" if any(term in text for term in web_terms) else "rag_search" if any(term in text for term in rag_terms) else "end"
+    logger.info("검색 경로 선택: mode=%s", mode)
+    return {"search_mode": mode}
+
+def rag_search_node(state: EmailAgentState) -> dict:
+    """내부 보험 약관 RAG 검색 결과를 반환합니다."""
+    return {"search_results": [
+        "실손의료보험 약관의 보장 대상 및 지급 제한",
+        "보험금 청구에 필요한 진료비 영수증과 진료기록",
+        "면책사항·보장 제외 항목은 약관 원문을 확인해야 함",
+    ], "tavily_status": "disabled"}
+
+def tavily_search_node(state: EmailAgentState) -> dict:
+    """Tavily 웹 검색만 수행합니다."""
+    return search_documentation(state)
+
+def route_after_search(state: EmailAgentState) -> Literal["tavily_search", "rag_search", "end"]:
+    return state.get("search_mode", "end")
 
 def bug_tracking(state: EmailAgentState) -> Command[Literal["draft_response"]]:
     """보험금 청구 추적 건을 생성하거나 갱신합니다."""
@@ -342,9 +490,35 @@ def human_review(state: EmailAgentState) -> Command[Literal["send_reply", END]]:
 
 def send_reply(state: EmailAgentState) -> dict:
     """보험 문의 답변을 발송합니다."""
-    # 운영 환경에서는 이메일 서비스와 연동합니다.
     _save_mongodb_payload(state)
-    print(f"Sending reply: {str(state['draft_response'])[:100]}...")
+    # SMTP 비밀값은 소스에 저장하지 않고 .env에서 주입합니다.
+    smtp_username = os.getenv("SMTP_USERNAME")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    sender = os.getenv("EMAIL_FROM", smtp_username)
+    # 수신 주소를 지정하지 않으면 실수로 실제 메일이 발송되지 않도록 중단합니다.
+    recipient = os.getenv("EMAIL_TO")
+    if not smtp_username or not smtp_password or not sender or not recipient:
+        logger.error("이메일 발송 실패: SMTP_USERNAME/SMTP_PASSWORD/EMAIL_FROM 설정 누락")
+        raise RuntimeError("SMTP_USERNAME, SMTP_PASSWORD, EMAIL_FROM, EMAIL_TO 설정이 필요합니다.")
+
+    message = EmailMessage()
+    message["Subject"] = "실손의료보험 문의 답변"
+    message["From"] = sender
+    message["To"] = recipient
+    message.set_content(state.get("draft_response", ""))
+
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as smtp:
+            smtp.starttls()
+            smtp.login(smtp_username, smtp_password)
+            smtp.send_message(message)
+        logger.info("이메일 발송 성공: recipient=%s", recipient)
+        print(f"Email sent successfully: {recipient}")
+    except Exception:
+        logger.exception("이메일 발송 실패: recipient=%s", recipient)
+        raise
     return {}
 
 # 그래프 컴파일 코드
@@ -353,8 +527,12 @@ def send_reply(state: EmailAgentState) -> dict:
 workflow = StateGraph(EmailAgentState)
 
 # 오류 처리를 포함해 노드를 추가합니다.
+workflow.add_node("ingest_insurance_pdfs", ingest_insurance_pdfs)
 workflow.add_node("read_email", read_email)
 workflow.add_node("classify_intent", classify_intent)
+workflow.add_node("search_router", search_router)
+workflow.add_node("rag_search", rag_search_node)
+workflow.add_node("tavily_search", tavily_search_node)
 
 # 일시적 오류가 발생할 수 있는 노드에 재시도 정책을 추가합니다.
 workflow.add_node(
@@ -368,7 +546,11 @@ workflow.add_node("human_review", human_review)
 workflow.add_node("send_reply", send_reply)
 
 # 필수 엣지만 추가합니다.
-workflow.add_edge(START, "read_email")
+workflow.add_edge(START, "ingest_insurance_pdfs")
+workflow.add_edge("ingest_insurance_pdfs", "read_email")
+workflow.add_conditional_edges("search_router", route_after_search, {"tavily_search": "tavily_search", "rag_search": "rag_search", "end": "draft_response"})
+workflow.add_edge("tavily_search", "draft_response")
+workflow.add_edge("rag_search", "draft_response")
 workflow.add_edge("read_email", "classify_intent")
 workflow.add_edge("send_reply", END)
 
@@ -380,7 +562,7 @@ app = workflow.compile(checkpointer=memory)
 if __name__ == "__main__":
     # 직접 실행 시에도 동일한 그래프를 호출할 수 있도록 기본 입력을 구성합니다.
     initial_state: EmailAgentState = {
-        "email_content": "실손의료보험의 입원비 보장 범위를 알려 주세요.",
+        "email_content": "실손의료보험의 최근 리 발목이 부러졌고, 웹으로 산재에서도 보장 및 범위를 알려 주세요.",
         "sender_email": "demo@example.com",
         "email_id": "demo-email-001",
         "classification": None,

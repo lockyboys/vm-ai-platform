@@ -1,0 +1,12 @@
+#!/bin/sh
+
+MSG_FILE="$1"
+AGENT_NAME="${GIT_AGENT_NAME:-ChatGPT}"
+AGENT_ID="${GIT_AGENT_ID:-codex-$(date -u +%Y%m%dT%H%M%SZ)}"
+REQUESTED_BY="${GIT_REQUESTED_BY:-PARK HEAKYU}"
+
+{
+  printf '\nExecuted-by: %s\n' "$AGENT_NAME"
+  printf 'Agent-id: %s\n' "$AGENT_ID"
+  printf 'Requested-by: %s\n' "$REQUESTED_BY"
+} >> "$MSG_FILE"
