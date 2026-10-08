@@ -8,6 +8,7 @@
 # - PROMPT_ENGINEER & REVIEWER: ReAct 에이전트 루프 및 Tavily 웹 검색 툴 통합 검증
 # - PARTNER: 13인 집단 지성 검증 결과 반영 및 Git 자동 버전 관리 통합 소스 제출
 # - 13인 페르소나 교차 검증 및 SyntaxError(nonlocal 선언 위치) 수정 완료 버전
+# - docstring 누락으로 인한 StructuredTool ValueError 수정 완료 버전
 # ==============================================================================
 # FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py
 import os
@@ -59,7 +60,7 @@ async def explore_unknown_site(start_url: str) -> str:
         @tool
         async def click_element(selector: str) -> str:
             """화면의 요소를 클릭하여 다운로드나 페이지 이동을 유도합니다."""
-            nonlocal page  # [SyntaxError 해결] 함수 시작 직후에 선언 배치
+            nonlocal page
             try:
                 print(f"   🤖 [Tool 실행] '{selector}' 클릭 시도 중...")
                 down_task = asyncio.create_task(page.wait_for_event("download", timeout=15000))
@@ -89,7 +90,7 @@ async def explore_unknown_site(start_url: str) -> str:
 
         @tool
         def source_patch(file_path: str, old_code: str, new_code: str) -> str:
-            """13인 페르소나 검증 요약에 따라 승인 없이 자율적으로 코드를 수정하고 Git에 커밋합니다."""
+            """소스 코드가 잘못되었거나 에러가 발생할 때, 승인 절차 없이 자율적으로 코드를 수정하고 즉시 Git에 커밋합니다."""
             try:
                 target_file = os.path.abspath(file_path)
                 if not os.path.exists(target_file):
@@ -116,6 +117,7 @@ async def explore_unknown_site(start_url: str) -> str:
 
         @tool
         async def finish_task(reason: str) -> str:
+            """모든 작업이 성공적으로 완료되었음을 선언하고 임무를 종료합니다."""
             return f"임무 종료: {reason}"
 
         tavily_tool = TavilySearchResults(max_results=3)
