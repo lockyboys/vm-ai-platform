@@ -7,6 +7,7 @@
 # - ARCHITECT & SECURITY: 자율 패치 기능에 대한 가드레일 및 안정성 검증 완료
 # - PROMPT_ENGINEER & REVIEWER: ReAct 에이전트 루프 및 Tavily 웹 검색 툴 통합 검증
 # - PARTNER: 13인 집단 지성 검증 결과 반영 및 Git 자동 버전 관리 통합 소스 제출
+# - 13인 페르소나 교차 검증 및 SyntaxError(nonlocal 선언 위치) 수정 완료 버전
 # ==============================================================================
 # FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py
 import os
@@ -22,7 +23,7 @@ from playwright.async_api import async_playwright
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.tools import tool
-from langchain_community.tools.tavily_search import TavilySearchResults  # Tavily 웹 검색 툴
+from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -58,6 +59,7 @@ async def explore_unknown_site(start_url: str) -> str:
         @tool
         async def click_element(selector: str) -> str:
             """화면의 요소를 클릭하여 다운로드나 페이지 이동을 유도합니다."""
+            nonlocal page  # [SyntaxError 해결] 함수 시작 직후에 선언 배치
             try:
                 print(f"   🤖 [Tool 실행] '{selector}' 클릭 시도 중...")
                 down_task = asyncio.create_task(page.wait_for_event("download", timeout=15000))
@@ -75,7 +77,6 @@ async def explore_unknown_site(start_url: str) -> str:
                     await download.save_as(path)
                     return f"[성공] 파일이 {path}에 저장되었습니다. 즉시 finish_task를 호출하세요."
                 elif popup_task in done and not popup_task.exception():
-                    nonlocal page
                     page = popup_task.result()
                     await page.wait_for_load_state()
                     return "[상황 변화] 새 창(팝업)이 열렸습니다."
@@ -100,13 +101,11 @@ async def explore_unknown_site(start_url: str) -> str:
                 if old_code not in content:
                     return f"[패치 실패] 수정할 대상 코드(old_code)를 찾지 못했습니다."
                 
-                # 소스 코드 즉시 반영
                 new_content = content.replace(old_code, new_code)
                 with open(target_file, "w", encoding="utf-8") as f:
                     f.write(new_content)
                 print(f"   🔧 [13-Persona Autonomous Patch 성공] 파일이 수정되었습니다: {target_file}")
 
-                # Git 자동 커밋 실행 (13인 페르소나 검증 요약 커밋 메시지 반영)
                 subprocess.run(["git", "add", target_file], check=True)
                 subprocess.run(["git", "commit", "-m", "refactor(core): integrate 13-persona verified Tavily search and autonomous self-patching engine"], check=True)
                 print(f"   📦 [Git Commit 성공] 13인 검증 요약이 커밋되었습니다.")
@@ -119,7 +118,6 @@ async def explore_unknown_site(start_url: str) -> str:
         async def finish_task(reason: str) -> str:
             return f"임무 종료: {reason}"
 
-        # Tavily 웹 검색 툴 장착
         tavily_tool = TavilySearchResults(max_results=3)
 
         tools = [click_element, source_patch, finish_task, tavily_tool]
