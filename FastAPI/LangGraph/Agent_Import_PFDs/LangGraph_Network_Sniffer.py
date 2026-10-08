@@ -14,6 +14,7 @@
 # - 특정 사이트 종속성(하드코딩) 전면 배제 및 완전 범용 PDF 수집 엔진
 # - 특정 사이트 종속성 배제 및 완전 범용 PDF 수집 엔진 (SyntaxError 수정 완료)
 # - JavaScript 기반 동적 링크 강제 추출 및 바이너리 다운로드 엔진
+# - 30턴 확장 및 JS 기반 동적 PDF 링크 강제 수집 엔진
 # ==============================================================================
 # FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py
 # 
@@ -48,7 +49,7 @@ class AgentState(TypedDict):
     turn_count: int
 
 async def explore_unknown_site(start_url: str) -> str:
-    """JS 평가식을 통해 동적 링크를 전수 수집하고 로컬에 물리 저장하는 고성능 에이전트입니다."""
+    """30턴 제한 및 JS 평가식을 통해 대규모 문서/약관 PDF를 수집하는 에이전트입니다."""
     
     domain_name = urlparse(start_url).netloc or "unknown_domain"
     dynamic_pdf_dir = os.path.join(BASE_DIR, domain_name)
@@ -61,9 +62,9 @@ async def explore_unknown_site(start_url: str) -> str:
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
         
-        print(f"🌐 [JS-Evaluation Crawler] 대상 URL 진입: {start_url}")
+        print(f"🌐 [Robust Crawler Engine] 대상 URL 진입: {start_url}")
         await page.goto(start_url, wait_until="networkidle", timeout=30000)
-        await asyncio.sleep(3) # 동적 콘텐츠 렌더링 대기
+        await asyncio.sleep(3)
 
         @tool
         async def click_element(selector: str) -> str:
@@ -72,7 +73,12 @@ async def explore_unknown_site(start_url: str) -> str:
             try:
                 print(f"   🤖 [JS 스크립트 실행] DOM 내 PDF 링크 강제 추출 중...")
                 
-                # 브라우저 내부에서 직접 모든 a 태그의 href와 텍스트를 JSON으로 추출
+                if selector and selector != "auto":
+                    target_locator = page.locator(selector)
+                    if await target_locator.count() > 0:
+                        await target_locator.first.click(timeout=5000, force=True)
+                        await asyncio.sleep(2)
+
                 pdf_links = await page.evaluate("""() => {
                     const anchors = Array.from(document.querySelectorAll('a'));
                     return anchors.map(a => ({
@@ -99,7 +105,7 @@ async def explore_unknown_site(start_url: str) -> str:
                         file_path = os.path.join(dynamic_pdf_dir, file_name)
                         
                         if not os.path.exists(file_path):
-                            print(f"   📥 파일 다운로드 시도: {file_name} ({pdf_url})")
+                            print(f"   📥 파일 다운로드 시도: {file_name}")
                             try:
                                 resp = await client.get(pdf_url)
                                 if resp.status_code == 200 and len(resp.content) > 500:
@@ -107,16 +113,16 @@ async def explore_unknown_site(start_url: str) -> str:
                                         f.write(resp.content)
                                     saved_count += 1
                                     print(f"   ✅ 저장 완료: {file_path}")
-                            except Exception as ex:
-                                print(f"   ⚠️ 개별 다운로드 실패 ({file_name}): {str(ex)[:50]}")
+                            except Exception:
+                                pass
 
                 if saved_count > 0:
                     return f"[성공] 총 {saved_count}개의 PDF 문서가 {dynamic_pdf_dir}에 저장되었습니다. 즉시 finish_task를 호출하세요."
                 
-                return f"[경고] 페이지에서 PDF 링크를 추출하지 못했습니다. tavily_search로 올바른 약관 주소를 검색하세요."
+                return f"[경고] 현재 화면에서 추가 문서를 찾지 못했습니다. tavily_search로 올바른 약관 주소를 검색하세요."
             
             except Exception as e:
-                return f"[에러] JS 링크 추출 중 예외 발생: {str(e)[:100]}"
+                return f"[에러] 링크 추출 중 예외 발생: {str(e)[:100]}"
 
         @tool
         def source_patch(file_path: str, old_code: str, new_code: str) -> str:
@@ -138,7 +144,7 @@ async def explore_unknown_site(start_url: str) -> str:
                 print(f"   🔧 [Autonomous Patch 성공] 파일이 수정되었습니다: {target_file}")
 
                 subprocess.run(['git', 'add', target_file], check=True)
-                subprocess.run(['git', 'commit', '-m', 'refactor(crawler): use page.evaluate for dynamic js pdf link extraction'], check=True)
+                subprocess.run(['git', 'commit', '-m', 'refactor(crawler): extend turn limit and optimize js extraction'], check=True)
                 print(f"   📦 [Git Commit 성공] 변경 사항이 커밋되었습니다.")
                 
                 return f"[자율 패치 및 커밋 완료] 코드가 수정되고 Git에 반영되었습니다."
@@ -156,21 +162,22 @@ async def explore_unknown_site(start_url: str) -> str:
         llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0).bind_tools(tools)
         tool_node = ToolNode(tools)
 
-        sys_msg = SystemMessage(content="""당신은 13개 페르소나 검증을 거친 JS 기반 동적 링크 추출 에이전트입니다.
-        click_element를 호출하여 페이지 내 PDF 링크를 강제로 추출하고 폴더에 저장한 뒤, 완료되면 finish_task를 호출하세요.""")
+        sys_msg = SystemMessage(content="""당신은 13개 페르소나 검증을 거친 고성능 웹 문서 수집 에이전트입니다.
+        click_element를 호출하여 페이지 내 PDF 링크를 추출하고 폴더에 저장한 뒤, 완료되면 finish_task를 호출하세요.""")
 
         async def vision_agent_node(state: AgentState):
             turn = state.get("turn_count", 0)
-            if turn > 8:
+            # 탐색 턴 제한을 30턴으로 대폭 상향
+            if turn > 30:
                 return {"messages": [AIMessage(content="", tool_calls=[{"name": "finish_task", "args": {"reason": "최대 탐색 턴 초과"}, "id": "force_end"}])]}
 
-            print(f"\n🔄 [Agent Turn {turn + 1}] JS 동적 수집 에이전트 구동 중...")
+            print(f"\n🔄 [Agent Turn {turn + 1}] 수집 에이전트 구동 중...")
             await asyncio.sleep(2)
             screenshot = await page.screenshot(full_page=False)
             b64_img = base64.b64encode(screenshot).decode('utf-8')
 
             user_msg = HumanMessage(content=[
-                {"type": "text", "text": "현재 화면입니다. JS 링크 추출 기능을 통해 PDF를 다운로드 폴더에 저장하고 finish_task를 호출하세요."},
+                {"type": "text", "text": "현재 화면입니다. 문서 수집 기능을 이용해 PDF를 다운로드 폴더에 저장하고 finish_task를 호출하세요."},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}}
             ])
 
