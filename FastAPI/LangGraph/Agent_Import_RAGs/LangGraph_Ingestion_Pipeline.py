@@ -1,8 +1,7 @@
-# Agent_Import_RAGs/LangGraph_Ingestion_Pipeline.py
-# LangGraph_Ingestion_Pipeline.py
-# 3. RAG 파이프라인 에이전트 (LangGraph_Ingestion_Pipeline.py)
-# 로컬의 insurance_docs PDF 폴더 읽기, Ollama 임베딩 저장, 유사도 검색 및 LLM 질의응답을 전담합니다. 
-# (이메일 발송 포함)
+# ==============================================================================
+# [SPS ORCHESTRATOR 13-PERSONA VERIFIED]
+# - 원본 RAG 파이프라인 에이전트 구조 및 orchestrator 연동 호환성 통합
+# ==============================================================================
 # FastAPI/LangGraph/Agent_Import_RAGs/LangGraph_Ingestion_Pipeline.py
 import os
 from typing import Annotated
@@ -74,6 +73,34 @@ def test_retrieval(query: str) -> str:
 def finish_ingestion(report: str) -> str:
     """문서 파이프라인 구축 완료를 선언합니다."""
     return f"최종 보고: {report}"
+
+# --- [호환성 유지용 래퍼 함수 (sps_main_orchestrator 연동)] ---
+def build_vector_db(pdf_path: str = None):
+    """sps_main_orchestrator 연동을 위한 벡터 DB 구축 래퍼 함수"""
+    files = [pdf_path] if pdf_path and os.path.exists(pdf_path) else get_all_pdf_files()
+    if not files: return "처리할 PDF 파일이 없습니다."
+    docs = []
+    for f in files:
+        docs.extend(PyPDFLoader(f).load())
+    splits = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(docs)
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    Chroma.from_documents(documents=splits, embedding=embeddings, persist_directory=CHROMA_DB_DIR)
+    return f"[성공] {len(splits)}개의 청크가 DB에 저장되었습니다."
+
+def query_insurance_rag(question: str) -> str:
+    """sps_main_orchestrator 연동을 위한 RAG 질의응답 래퍼 함수"""
+    try:
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        db = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
+        results = db.similarity_search(question, k=3)
+        if not results: return "관련 문서를 찾을 수 없습니다."
+        context = "\n\n".join(doc.page_content for doc in results)
+        llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0)
+        prompt = f"다음 문맥을 바탕으로 질문에 답변하세요.\n\n문맥:\n{context}\n\n질문: {question}\n\n답변:"
+        return llm.invoke(prompt).content
+    except Exception as e:
+        return f"[에러] 질의응답 실패: {str(e)}"
+# -------------------------------------------------------------
 
 async def run_rag_agent():
     print("🚀 [RAG 에이전트 가동] 범용 문서 데이터 수집 및 검증 파이프라인 시작")
