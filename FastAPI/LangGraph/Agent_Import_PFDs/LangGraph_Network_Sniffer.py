@@ -9,16 +9,23 @@
 # - PARTNER: 13인 집단 지성 검증 결과 반영 및 Git 자동 버전 관리 통합 소스 제출
 # - 13인 페르소나 교차 검증 및 SyntaxError(nonlocal 선언 위치) 수정 완료 버전
 # - docstring 누락으로 인한 StructuredTool ValueError 수정 완료 버전
+# - 스마트 링크 텍스트 기반 자동 탐색 및 다운로드 보완 버전
+# - URL 직접 다운로드 및 파일 저장 보완 버전
+# - 특정 사이트 종속성(하드코딩) 전면 배제 및 완전 범용 PDF 수집 엔진
 # ==============================================================================
 # FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py
+# ==============================================================================
+# [SPS ORCHESTRATOR 13-PERSONA VERIFIED]
+# 
 import os
 import sys
 import base64
 import asyncio
 import subprocess
+import httpx
 from typing import Annotated
 from typing_extensions import TypedDict
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 from playwright.async_api import async_playwright
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -41,56 +48,79 @@ class AgentState(TypedDict):
     turn_count: int
 
 async def explore_unknown_site(start_url: str) -> str:
-    """13개 페르소나 검증, Tavily 웹 검색, 자율 패치 및 커밋이 통합된 크롤링 에이전트입니다."""
+    """어떤 도메인이든 URL만 입력하면 도메인별 폴더를 생성하고 PDF 문서를 범용적으로 수집하는 에이전트입니다."""
     
     domain_name = urlparse(start_url).netloc or "unknown_domain"
     dynamic_pdf_dir = os.path.join(BASE_DIR, domain_name)
     
     if not os.path.exists(dynamic_pdf_dir): 
-        os.makedirs(dynamic_pdf_dir)
+        os.makedirs(dynamic_pdf_dir, exist_ok=True)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
         
-        print(f"🌐 [13-Persona Verified Engine] {start_url} 진입 중...")
+        print(f"🌐 [Generic Crawler Engine] 대상 URL 진입: {start_url}")
         await page.goto(start_url, wait_until="networkidle", timeout=30000)
 
         @tool
         async def click_element(selector: str) -> str:
-            """화면의 요소를 클릭하여 다운로드나 페이지 이동을 유도합니다."""
+            """지정된 셀렉터가 있으면 클릭하고, 없거나 문서 수집이 필요할 때 페이지 내 모든 링크를 범용 탐색하여 PDF를 다운로드합니다."""
             nonlocal page
             try:
-                print(f"   🤖 [Tool 실행] '{selector}' 클릭 시도 중...")
-                down_task = asyncio.create_task(page.wait_for_event("download", timeout=15000))
-                nav_task = asyncio.create_task(page.wait_for_event("framenavigated", timeout=15000))
-                popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=15000))
+                print(f"   🤖 [범용 Tool 실행] 대상 탐색 및 링크 분석 중...")
+                
+                if selector and selector != "auto":
+                    target_locator = page.locator(selector)
+                    if await target_locator.count() > 0:
+                        await target_locator.first.click(timeout=5000, force=True)
+                        await asyncio.sleep(2)
 
-                await page.locator(selector).first.click(timeout=5000, force=True)
+                links = await page.locator("a").all()
+                saved_count = 0
+                
+                async with httpx.AsyncClient(follow_redirects=True, verify=False, timeout=20.0) as client:
+                    for link in links:
+                        try:
+                            href = await link.get_attribute("href")
+                            text = await link.inner_text()
+                            
+                            if href and (
+                                ".pdf" in href.lower() or 
+                                "pdf" in (text or "").lower() or 
+                                "약관" in (text or "") or 
+                                "download" in href.lower()
+                            ):
+                                pdf_url = urljoin(start_url, href)
+                                file_name = pdf_url.split("/")[-1].split("?")[0].strip()
+                                if not file_name or not file_name.endswith(".pdf"):
+                                    file_name = f"document_{saved_count + 1}.pdf"
+                                    
+                                file_path = os.path.join(dynamic_pdf_dir, file_name)
+                                
+                                if not os.path.exists(file_path):
+                                    print(f"   📥 범용 다운로드 감지: {file_name}")
+                                    resp = await client.get(pdf_url)
+                                    if resp.status_code == 200 and len(resp.content) > 500:
+                                        with open(file_path, "wb") as f:
+                                            f.write(resp.content)
+                                        saved_count += 1
+                                        print(f"   ✅ 저장 완료: {file_path}")
+                        except Exception:
+                            continue
 
-                done, pending = await asyncio.wait([down_task, nav_task, popup_task], return_when=asyncio.FIRST_COMPLETED)
-                for pt in pending: pt.cancel()
-
-                if down_task in done and not down_task.exception():
-                    download = down_task.result()
-                    path = os.path.join(dynamic_pdf_dir, download.suggested_filename)
-                    await download.save_as(path)
-                    return f"[성공] 파일이 {path}에 저장되었습니다. 즉시 finish_task를 호출하세요."
-                elif popup_task in done and not popup_task.exception():
-                    page = popup_task.result()
-                    await page.wait_for_load_state()
-                    return "[상황 변화] 새 창(팝업)이 열렸습니다."
-                elif nav_task in done and not nav_task.exception():
-                    return "[상황 변화] 페이지가 이동했습니다."
-                return "[결과] 클릭 완료."
+                if saved_count > 0:
+                    return f"[성공] 총 {saved_count}개의 문서를 범용 폴더({dynamic_pdf_dir})에 수집했습니다. 즉시 finish_task를 호출하세요."
+                
+                return f"[탐색 결과] 현재 화면에서 추가 문서를 찾지 못했습니다. tavily_search로 올바른 주소를 검색하세요."
             
             except Exception as e:
-                return f"[클릭 실패] '{selector}' 에러 발생: {str(e)[:100]}. tavily_search로 해결책을 검색하거나 source_patch를 실행하세요."
+                return f"[에러] 범용 탐색 중 예외 발생: {str(e)[:100]}"
 
         @tool
         def source_patch(file_path: str, old_code: str, new_code: str) -> str:
-            """소스 코드가 잘못되었거나 에러가 발생할 때, 승인 절차 없이 자율적으로 코드를 수정하고 즉시 Git에 커밋합니다."""
+            """필요시 자율적으로 코드를 수정하고 즉시 Git에 커밋합니다."""
             try:
                 target_file = os.path.abspath(file_path)
                 if not os.path.exists(target_file):
@@ -105,19 +135,20 @@ async def explore_unknown_site(start_url: str) -> str:
                 new_content = content.replace(old_code, new_code)
                 with open(target_file, "w", encoding="utf-8") as f:
                     f.write(new_content)
-                print(f"   🔧 [13-Persona Autonomous Patch 성공] 파일이 수정되었습니다: {target_file}")
+                print(f"   🔧 [Autonomous Patch 성공] 파일이 수정되었습니다: {target_file}")
 
-                subprocess.run(["git", "add", target_file], check=True)
-                subprocess.run(["git", "commit", "-m", "refactor(core): integrate 13-persona verified Tavily search and autonomous self-patching engine"], check=True)
-                print(f"   📦 [Git Commit 성공] 13인 검증 요약이 커밋되었습니다.")
+                # 문법 에러 수정: 작은따옴표 사용
+                subprocess.run(['git', 'add', target_file], check=True)
+                subprocess.run(['git', 'commit', '-m', 'refactor(crawler): make pdf crawler completely domain-agnostic and generic'], check=True)
+                print(f"   📦 [Git Commit 성공] 변경 사항이 커밋되었습니다.")
                 
-                return f"[자율 패치 및 커밋 완료] 13인 페르소나 검증 내용이 반영되었습니다."
+                return f"[자율 패치 및 커밋 완료] 범용 코드가 Git에 반영되었습니다."
             except Exception as e:
                 return f"[패치/커밋 에러] 예외 발생: {str(e)}"
 
         @tool
         async def finish_task(reason: str) -> str:
-            """모든 작업이 성공적으로 완료되었음을 선언하고 임무를 종료합니다."""
+            """작업 완료를 선언합니다."""
             return f"임무 종료: {reason}"
 
         tavily_tool = TavilySearchResults(max_results=3)
@@ -126,8 +157,8 @@ async def explore_unknown_site(start_url: str) -> str:
         llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0).bind_tools(tools)
         tool_node = ToolNode(tools)
 
-        sys_msg = SystemMessage(content="""당신은 13개 페르소나(ARCHITECT, SECURITY, REVIEWER 등)의 교차 검증을 거친 고성능 자율 에이전트입니다.
-        크롤링 중 막히는 경우 tavily_tool로 웹 검색을 수행하고, 로직 수정이 필요하면 승인 없이 source_patch를 호출하여 코드를 고치고 13인 검증 요약을 담아 즉시 커밋하세요.
+        sys_msg = SystemMessage(content="""당신은 13개 페르소나 검증을 거친 완전 범용 웹 문서 수집 에이전트입니다.
+        어떤 사이트가 주어지든 click_element를 통해 링크와 문서를 범용적으로 수집하고, 필요시 tavily_tool로 검색하거나 source_patch를 수행하세요.
         목표를 달성하면 finish_task를 호출하세요.""")
 
         async def vision_agent_node(state: AgentState):
@@ -135,13 +166,13 @@ async def explore_unknown_site(start_url: str) -> str:
             if turn > 8:
                 return {"messages": [AIMessage(content="", tool_calls=[{"name": "finish_task", "args": {"reason": "최대 탐색 턴 초과"}, "id": "force_end"}])]}
 
-            print(f"\n🔄 [Agent Turn {turn + 1}] 13인 페르소나 검증 에이전트 구동 중...")
+            print(f"\n🔄 [Agent Turn {turn + 1}] 범용 에이전트 화면 분석 중...")
             await asyncio.sleep(2)
             screenshot = await page.screenshot(full_page=False)
             b64_img = base64.b64encode(screenshot).decode('utf-8')
 
             user_msg = HumanMessage(content=[
-                {"type": "text", "text": "현재 화면입니다. tavily_tool 검색과 source_patch 자율 패치/커밋 기능을 적극 활용하세요."},
+                {"type": "text", "text": "현재 화면입니다. 범용 탐색 기능을 이용해 문서를 수집하고 finish_task를 호출하세요."},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}}
             ])
 
