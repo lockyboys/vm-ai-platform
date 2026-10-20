@@ -50,7 +50,7 @@ from langchain.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from config import LOG_PATH, MONGO_URI, MONGO_DB, MONGO_TIMEOUT_MS
 from common.common_function import ensure_dirs, logger
-from common.database import CommonDatabase
+from common.database import CommonDatabase, reserve_document_master_id
 
 try:
     from pymongo import MongoClient
@@ -225,9 +225,21 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
     collection_name = os.getenv("MONGODB_COLLECTION", "insurance_policy_terms_payload")
     database_name = os.getenv("MONGODB_DATABASE", "health_companion_ai")
     client = MongoClient(uri, serverSelectionTimeoutMS=MONGO_TIMEOUT_MS)
+    repository = CommonDatabase(database_role="STORY", connect_mongodb=False)
     source_chunk_counts: dict[str, int] = {}
     try:
         collection = client[database_name][collection_name]
+        # The active MCM class is Level 3; each payload needs a distinct Level 4 ID.
+        mcm_class = repository.fetch_one(
+            """SELECT object_id, object_code, object_name, business_code, domain_code,
+                      object_level, identifier_target_code, sequence_scope_code,
+                      sequence_length, target_identifier_field
+               FROM sp_object WHERE object_code=%s AND active_yn='Y'
+                 AND status_code='ACTIVE' AND deleted_dt IS NULL""",
+            ("MCM",),
+        )
+        if mcm_class is None:
+            raise RuntimeError("Active MCM class Object is required for insurance PDF storage.")
         for source_name, _extracted_text, chunks in source_documents:
             # Bounded batch calls process every chunk while avoiding one oversized request per large PDF.
             embeddings = _create_embeddings_in_batches(chunks)
@@ -237,11 +249,23 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
                 source_digest = hashlib.sha256(source_name.encode("utf-8")).hexdigest()[:12]
                 document_id = f"{Path(source_name).stem}:{source_digest}:{index:05d}"
                 expected_document_ids.append(document_id)
+                existing = collection.find_one({"document_id": document_id})
+                if existing is not None:
+                    # Never repeat the old Level 3 constant or trust a shared legacy value.
+                    document_master_id = existing.get("mongodb_document_master_id")
+                    if (not document_master_id or document_master_id == mcm_class["object_id"]
+                            or collection.count_documents({"mongodb_document_master_id": document_master_id}) != 1):
+                        raise RuntimeError("Legacy PDF document master ID is missing or duplicated; migrate before re-ingestion.")
+                else:
+                    document_master_id = reserve_document_master_id(
+                        repository, mcm_class, "SPS_MONGODB_DOCUMENT_PDF",
+                        os.getenv("CLIENT_IP", "127.0.0.1"), "SPS_MONGODB_DOCUMENT_PDF",
+                    )
                 document = {
                     "object_id": os.getenv("MONGODB_DOCUMENT_MASTER_ID", "SP_RP_MDM_20261004_00001"),
                     "mongodb_database_id": os.getenv("MONGODB_DATABASE_ID", "SP_RP_MDB_2026_00001"),
                     "mongodb_collection_id": os.getenv("MONGODB_COLLECTION_ID", "SP_RP_MCO_202608_00001"),
-                    "mongodb_document_master_id": os.getenv("MONGODB_DOCUMENT_MASTER_ID", "SP_RP_MCM_20260801_00001"),
+                    "mongodb_document_master_id": document_master_id,
                     "document_id": document_id,
                     "source_file": source_name,
                     "chunk_index": index,
@@ -277,6 +301,7 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
             )
     finally:
         client.close()
+        repository.close()
 
     return {
         "pdf_file_count": len(source_documents),

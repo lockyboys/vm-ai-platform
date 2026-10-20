@@ -199,7 +199,10 @@ async def explore_unknown_site(start_url: str) -> str:
         builder.add_edge("tools", "agent")
         
         graph = builder.compile()
-        final_state = await graph.ainvoke({"messages": [], "turn_count": 0})
+        final_state = await graph.ainvoke(
+            {"messages": [], "turn_count": 0},
+            config={"recursion_limit": 50}
+        )
         await browser.close()
         
         final_ai_msg = final_state["messages"][-1]
