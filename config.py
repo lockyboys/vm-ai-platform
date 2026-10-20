@@ -24,6 +24,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 📦 앱 기본 정보
 # 초등학생 설명: 이 프로그램의 이름표 같은 것이에요!
@@ -553,3 +554,20 @@ SPS_DEFAULT_CLIENT_IP = "127.0.0.1"
 # Identifier sequence 갱신의 감사 필드 기본값입니다. 운영 호출별 식별 정보는 추후 인자로 전달합니다.
 SPS_IDENTIFIER_AUDIT_USER = "IDENTIFIER_ENGINE"
 SPS_IDENTIFIER_PROGRAM_ID = "IdentifierEngine"
+
+# Direct Gemini commands use the deployed Gateway API; the signing key stays in service settings.
+SPS_AGENT_GATEWAY_URL = os.getenv("SPS_AGENT_GATEWAY_URL", "https://sps-mcp-gateway-5v4kufkk.an.gateway.dev")
+SPS_AGENT_GATEWAY_SUBJECT_ID = os.getenv("SPS_AGENT_GATEWAY_SUBJECT_ID", "jeaje")
+SPS_AGENT_GATEWAY_TIMEOUT_SECONDS = 120
+
+# Review work runs independently; MCP request liveness is a separate 150-second rule.
+MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS = 300
+# Preserve the full report on disk and return a bounded preview through MCP.
+MULTI_PERSONA_REVIEW_OUTPUT_CHARS = 12000
+
+# Shared transient workers use the account and protected files supplied by the operator.
+SPS_MCP_WORKER_USER = "jeaje"
+SPS_MCP_WORKER_SECRETS_FILE = "/etc/sps-harness/secrets.env"
+# Preserve the existing model default while honoring the configured Gemini model.
+SPS_MAIN_ORCHESTRATOR_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS = 120

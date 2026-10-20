@@ -27,17 +27,28 @@ SENSITIVE_VALUE_PATTERN = re.compile(
 
 def _allowed_service_names() -> set[str]:
     configured_services = os.getenv("SPS_HARNESS_READONLY_SERVICES", "")
-    services = {service.strip() for service in configured_services.split(",") if service.strip()}
+    services = {
+        service.strip()
+        for service in configured_services.split(",")
+        if service.strip()
+    }
     if not services:
-        raise RuntimeError("SPS_HARNESS_READONLY_SERVICES is required for operational diagnostics.")
+        raise RuntimeError(
+            "SPS_HARNESS_READONLY_SERVICES is required for operational diagnostics."
+        )
     if any(SERVICE_NAME_PATTERN.fullmatch(service) is None for service in services):
-        raise RuntimeError("SPS_HARNESS_READONLY_SERVICES contains an invalid service name.")
+        raise RuntimeError(
+            "SPS_HARNESS_READONLY_SERVICES contains an invalid service name."
+        )
     return services
 
 
 def _redact_sensitive_values(value: str) -> str:
     """Remove common credential forms before journal output leaves the host."""
-    return SENSITIVE_VALUE_PATTERN.sub(lambda match: f"{match.group(1)}=***REDACTED***", value)
+    return SENSITIVE_VALUE_PATTERN.sub(
+        lambda match: f"{match.group(1)}=***REDACTED***",
+        value,
+    )
 
 
 def _run_read_only(command: list[str]) -> dict[str, Any]:
@@ -55,11 +66,16 @@ def _run_read_only(command: list[str]) -> dict[str, Any]:
     }
 
 
-def operational_service_diagnostics(service_name: str, journal_lines: int = 100) -> dict[str, Any]:
+def operational_service_diagnostics(
+    service_name: str,
+    journal_lines: int = 100,
+) -> dict[str, Any]:
     """Read status and recent journal entries for one environment-allowlisted service."""
     normalized_service_name = service_name.strip()
     if normalized_service_name not in _allowed_service_names():
-        raise ValueError("The requested service is not enabled for Harness diagnostics.")
+        raise ValueError(
+            "The requested service is not enabled for Harness diagnostics."
+        )
 
     normalized_journal_lines = max(1, min(journal_lines, 500))
     return {

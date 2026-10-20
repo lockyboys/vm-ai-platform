@@ -29,7 +29,7 @@ EXCLUDED_DIRECTORY_NAMES = {
     ".mypy_cache",
     ".home",
 }
-DENIED_FILE_NAMES = {".env", ".env.local", ".env.production"}
+DENIED_FILE_NAMES = {".env", ".env.local", ".env.production", "secrets.env"}
 DENIED_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
 FORBIDDEN_PATCH_MARKERS = (
     "GIT binary patch",

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 import json
+import re
 
 from typing import Any
 
@@ -17,6 +18,47 @@ from common.common_function import normalize_required_text
 from common.database import CommonDatabase
 from engine.identifier import IdentifierCoordinator
 from harness.mcp.tools.verified_sql_tools import _load_registered_object_metadata
+
+
+def _resolve_storage_maximum_length(
+    coordinator: IdentifierCoordinator, object_metadata: dict[str, Any],
+) -> int:
+    """Resolve an optional storage contract without changing logical identity.
+
+    Logical Mongo fields remain unchanged for Blueprint/Rule resolution. Only
+    column-length validation uses the physical Repository storage binding.
+    Missing bindings preserve legacy behavior; malformed bindings fail closed.
+    CommonDatabase loads connection settings, never a hardcoded physical schema.
+    """
+    common = CommonDatabase(database_role="COMMON")
+    try:
+        row = common.fetch_one(
+            """SELECT common_code_json FROM cm_common_code
+               WHERE group_code = 'SPS_IDENTIFIER_TARGET' AND code = %s
+                 AND status_code = 'ACTIVE' AND deleted_dt IS NULL""",
+            (normalize_required_text(object_metadata.get("identifier_target_code"),
+                                     "identifier_target_code"),),
+        )
+    finally:
+        common.close()
+    document = json.loads(row["common_code_json"]) if row and row.get("common_code_json") else {}
+    if not isinstance(document, dict):
+        raise ValueError("Identifier Target JSON must be an object.")
+    if "identifier_storage" not in document:
+        return coordinator.resolve_identifier_maximum_length(object_metadata=object_metadata)
+    storage = document["identifier_storage"]
+    if not isinstance(storage, dict):
+        raise ValueError("identifier_storage must be an object.")
+    names = {}
+    for key in ("schema_name", "table_name", "column_name"):
+        value = normalize_required_text(storage.get(key), f"identifier_storage.{key}")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+            raise ValueError(f"Invalid identifier_storage.{key}.")
+        names[key] = value
+    physical = dict(object_metadata)
+    physical["object_name"] = f'{names["schema_name"]}.{names["table_name"]}'
+    physical["target_identifier_field"] = names["column_name"]
+    return coordinator.resolve_identifier_maximum_length(object_metadata=physical)
 
 
 def identifier_generate(
@@ -80,10 +122,8 @@ def identifier_generate(
                 normalized_object_code,
             )
         identifier_coordinator = IdentifierCoordinator(identifier_database)
-        identifier_maximum_length = (
-            identifier_coordinator.resolve_identifier_maximum_length(
-                object_metadata=object_metadata,
-            )
+        identifier_maximum_length = _resolve_storage_maximum_length(
+            identifier_coordinator, object_metadata,
         )
         identifier_request, identifier_preparation = (
             identifier_coordinator.prepare_registered_object(

@@ -10,14 +10,27 @@
 # - 사용자가 Harness 명령어를 쓰면, 알맞은 도구 파일로 연결합니다.
 # - 로그인 확인과 작업 이력 읽기·쓰기 창구도 여기서 준비합니다.
 # 주의: 실제 업무 처리는 각 tools 파일에서 합니다. 이 파일에 업무 규칙을 중복 작성하지 않습니다.
+#
+# 원인	                                            해결
+# 파일 경로 직접 실행으로 /data/vm_project가            프로젝트 루트에서 모듈로 실행
+# import 경로에서 빠짐	
+# 올바른 실행	                                      cd /data/vm_project && PYTHONPATH=/data/vm_project 
+#                                                   /data/vm_project/venv/bin/python -m 
+#                                                   harness.mcp.sps_harness_server
+#
+# 또는 현재 systemd의 ExecStart=/data/vm_project/venv/bin/python -m harness.mcp.sps_harness_server 
+# 방식은 올바릅니다.
 from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+from fastapi import Request, Response
 from mcp.server.auth.settings import (
     AuthSettings,
     ClientRegistrationOptions,
@@ -73,6 +86,7 @@ from harness.mcp.tools.verified_sql_tools import (
     verified_sql_register,
     verified_sql_execute,
 )
+from harness.mcp.tools.execution_link_document_tools import mongodb_repair_execution_link_ids
 from harness.mcp.tools.mongodb_delete_tool import mongodb_delete_document
 from harness.mcp.tools.model_history_audit_ddl_tool import mariadb_ddl_execute
 from harness.mcp.tools.identifier_tools import (
@@ -101,6 +115,9 @@ from harness.mcp.tools.operational_tools import (
 from harness.mcp.tools.agent_memory_tools import (
     agent_long_term_memory_save,
 )
+# Source-review implementation belongs to the user-requested haness package.
+from haness.mcp.tools.multi_persona_tools import review_python_source
+from haness.mcp.tools.orchestrator_tools import run_sps_orchestrator
 from harness.mcp.tools.pytest_tools import (
     run_pytest_verification,
 )
@@ -122,24 +139,64 @@ OAUTH_PROVIDER = HarnessOAuthProvider(OAUTH_SETTINGS)
 LOGGER = logging.getLogger(__name__)
 
 
+# Google OAuth responses must return to the callback route below; /mcp is the MCP endpoint.
+GOOGLE_CALLBACK_PATH = "/oauth/google/callback"
+
+
+def _google_callback_uri_matches_route(google_redirect_uri: str) -> bool:
+    """Check that the configured Google redirect URI targets this callback route."""
+    parsed = urlparse(google_redirect_uri)
+    # Exact path matching avoids silently accepting the MCP transport path or a different callback.
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.netloc)
+        and parsed.path == GOOGLE_CALLBACK_PATH
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
 def _transport_security_settings(
     settings: HarnessOAuthSettings,
 ) -> TransportSecuritySettings:
     """Allow only the one configured public OAuth authority at the HTTP edge."""
     issuer = urlparse(settings.issuer_url)
     public_authority = issuer.netloc
+    google_callback = urlparse(settings.google_redirect_uri)
     configured_authorities = {
         urlparse(settings.resource_url).netloc,
-        urlparse(settings.google_redirect_uri).netloc,
+        google_callback.netloc,
     }
     if not public_authority or configured_authorities != {public_authority}:
         raise RuntimeError(
             "SPS MCP OAuth issuer, resource, and Google callback URLs must "
             "use the same public HTTPS authority."
         )
+    # Keep MCP available during configuration repair, but make an incorrect callback visible in logs.
+    if not _google_callback_uri_matches_route(settings.google_redirect_uri):
+        expected_callback_uri = f"{settings.issuer_url.rstrip('/')}{GOOGLE_CALLBACK_PATH}"
+        LOGGER.error(
+            "Google OAuth redirect URI does not match the callback route. "
+            "Register and configure this exact URI: %s",
+            expected_callback_uri,
+        )
+    # return TransportSecuritySettings(
+    #     enable_dns_rebinding_protection=True,
+    #     allowed_hosts=[public_authority],
+    #     allowed_origins=[settings.issuer_url],
+    # )
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=[public_authority],
+        # Gateway 호스트와 실제 백엔드 Host만 허용해 421을 막습니다.
+        allowed_hosts=[
+            public_authority,
+            "subprime-glowworm-mundane.ngrok-free.dev",
+            # 로컬 에이전트 요청의 Host에 포트가 붙으므로 명시적으로 허용합니다.
+            # 와일드카드는 루프백 주소에만 적용해 외부 Host 제한은 유지합니다.
+            "127.0.0.1:*",
+            "localhost:*",
+            "[::1]:*",
+        ],
         allowed_origins=[settings.issuer_url],
     )
 
@@ -192,7 +249,6 @@ def _openid_configuration() -> dict[str, object]:
         "scopes_supported": list(OAUTH_SETTINGS.scopes),
     }
 
-
 @mcp.custom_route("/.well-known/openid-configuration", methods=["GET"])
 async def openid_configuration(_: Request) -> Response:
     """Expose OAuth metadata through the OpenID Discovery compatibility path."""
@@ -200,7 +256,7 @@ async def openid_configuration(_: Request) -> Response:
     return JSONResponse(_openid_configuration())
 
 
-@mcp.custom_route("/oauth/google/callback", methods=["GET"])
+@mcp.custom_route(GOOGLE_CALLBACK_PATH, methods=["GET"])
 async def google_oauth_callback(request: Request) -> Response:
     """Complete Google OIDC and return the MCP authorization code."""
 
@@ -249,52 +305,50 @@ def get_harness_instructions() -> str:
     return INSTRUCTION_FILE.read_text(encoding="utf-8")
 
 
+def _checkpoint_directory() -> Path:
+    """Return the auditable checkpoint directory."""
+
+    return MEMORY_ROOT / "checkpoints"
+
+
+def _dated_checkpoint_file(now: datetime | None = None) -> Path:
+    """Use Korea Standard Time so one workday maps to one checkpoint file."""
+
+    kst_now = now or datetime.now(ZoneInfo("Asia/Seoul"))
+    return _checkpoint_directory() / f"current_{kst_now:%Y%m%d}.md"
+
+
 @mcp.tool()
 def get_current_checkpoint() -> str:
-    """Return the current SPS implementation checkpoint."""
+    """Return today's checkpoint, or the latest dated checkpoint when needed."""
 
-    checkpoint_file = (
-        MEMORY_ROOT
-        / "checkpoints"
-        / "current.md"
-    )
-
+    checkpoint_dir = _checkpoint_directory()
+    dated_files = sorted(checkpoint_dir.glob("current_*.md")) if checkpoint_dir.exists() else []
+    checkpoint_file = _dated_checkpoint_file()
+    if not checkpoint_file.exists() and dated_files:
+        checkpoint_file = dated_files[-1]
+    # Read legacy data only until the one-time rename has been completed.
+    if not checkpoint_file.exists():
+        checkpoint_file = checkpoint_dir / "current.md"
     if not checkpoint_file.exists():
         return "No current checkpoint is registered."
-
     return checkpoint_file.read_text(encoding="utf-8")
+
 
 @mcp.tool()
 def update_current_checkpoint(
     checkpoint_text: str,
 ) -> str:
-    """
-    Update the current SPS implementation checkpoint.
-    """
+    """Write today's dated checkpoint and prepend an auditable KST write time."""
 
-    checkpoint_file = (
-        MEMORY_ROOT
-        / "checkpoints"
-        / "current.md"
-    )
+    checkpoint_file = _dated_checkpoint_file()
+    checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+    written_at = datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="seconds")
+    # Preserve supplied history and record the time of every accepted write.
+    timestamped_text = f"> Checkpoint updated at: {written_at} KST\n\n{checkpoint_text.lstrip()}"
+    checkpoint_file.write_text(timestamped_text, encoding="utf-8")
+    return checkpoint_file.read_text(encoding="utf-8")
 
-    checkpoint_file.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    checkpoint_file.write_text(
-        checkpoint_text,
-        encoding="utf-8",
-    )
-
-    # return (
-    #     "Current checkpoint updated successfully."
-    # )
-
-    return checkpoint_file.read_text(
-        encoding="utf-8"
-    )
 
 @mcp.tool()
 def list_harness_memory() -> str:
@@ -340,6 +394,29 @@ def read_harness_memory(relative_path: str) -> str:
 
     return requested_path.read_text(encoding="utf-8")
 
+# ==============================================================================
+# /agent/chat 투명 리버스 프록시 라우터
+# 목적: 게이트웨이에서 8000번으로 들어온 에이전트 대화 요청을 8012번으로 자동 전달
+# 주의: Authorization 헤더(토큰)를 그대로 보존하여 전달합니다.
+# ==============================================================================
+# @app.api_route("/agent/chat", methods=["POST", "OPTIONS"])
+# async def proxy_agent_chat(request: Request):
+#     async with httpx.AsyncClient() as client:
+#         body = await request.body()
+#         headers = dict(request.headers)
+#         headers.pop("host", None)
+#         headers.pop("content-length", None)
+        
+#         # 로컬 8012번 LangGraph 에이전트로 토큰과 바디를 그대로 전달
+#         resp = await client.request(
+#             method=request.method,
+#             url="http://127.0.0.1:8012/agent/chat",
+#             headers=headers,
+#             content=body,
+#             timeout=600.0,
+#         )
+#         return Response(content=resp.content, status_code=resp.status_code, headers=dict(resp.headers))
+
 mcp.tool()(source_search)
 mcp.tool()(source_read)
 mcp.tool()(source_write)
@@ -347,6 +424,9 @@ mcp.tool()(source_patch)
 mcp.tool()(source_delete)
 mcp.tool()(source_rename)
 mcp.tool()(run_pytest_verification)
+# Reuse Multi-Persona CLI without embedding it into the general Gemini chat server.
+mcp.tool()(review_python_source)
+mcp.tool()(run_sps_orchestrator)
 mcp.tool(name="mcp_codex_apps_run_python_source")(mcp_codex_apps_run_python_source)
 mcp.tool()(agent_long_term_memory_save)
 
@@ -370,6 +450,8 @@ mcp.tool()(mongodb_documents)
 mcp.tool()(mongodb_rename_collection)
 mcp.tool()(mongodb_save_document)
 mcp.tool()(mongodb_update_document)
+# Separate verified-link repair; existing generic update protections remain unchanged.
+mcp.tool()(mongodb_repair_execution_link_ids)
 mcp.tool()(mongodb_delete_document)
 mcp.tool()(database_backup_create)
 mcp.tool()(database_backup_verify)
@@ -388,6 +470,52 @@ mcp.tool()(git_stage_delete)
 mcp.tool()(git_commit)
 
 mcp.tool()(operational_service_diagnostics)
+# Agent commands are exposed by the existing /agent/chat HTTP API only.
+
+
+# ==============================================================================
+# /agent/chat -> 8012번 LangGraph 에이전트 투명 ASGI 프록시
+# 목적: 게이트웨이에서 8000번으로 들어온 요청을 8012번 에이전트로 패스스루
+# ==============================================================================
+import httpx
+
+class _CombinedMcpHttpApp:
+    """Serve Streamable HTTP and the legacy SSE session transport together."""
+
+    def __init__(self, server: FastMCP) -> None:
+        self._streamable_app = server.streamable_http_app()
+        self._sse_app = server.sse_app()
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            
+            # [신규 추가] /agent/chat -> 8012번 LangGraph 에이전트로 전달
+            if path == "/agent/chat" or path.startswith("/agent/chat"):
+                import httpx
+                body = bytearray()
+                while True:
+                    msg = await receive()
+                    body.extend(msg.get("body", b""))
+                    if not msg.get("more_body", False):
+                        break
+                req_headers = {k.decode("latin1"): v.decode("latin1") for k, v in scope.get("headers", []) if k.lower() not in (b"host", b"content-length")}
+                async with httpx.AsyncClient() as client:
+                    resp = await client.request(method=scope["method"], url=f"http://127.0.0.1:8012{path}", headers=req_headers, content=bytes(body), timeout=600.0)
+                    res_headers = [(k.encode("latin1"), v.encode("latin1")) for k, v in resp.headers.items() if k.lower() != "content-length"]
+                    res_headers.append((b"content-length", str(len(resp.content)).encode("latin1")))
+                    await send({"type": "http.response.start", "status": resp.status_code, "headers": res_headers})
+                    await send({"type": "http.response.body", "body": resp.content})
+                return
+
+            if path == "/sse" or path == "/messages" or path.startswith("/messages/"):
+                await self._sse_app(scope, receive, send)
+                return
+        await self._streamable_app(scope, receive, send)
+
+app = _CombinedMcpHttpApp(mcp)
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")

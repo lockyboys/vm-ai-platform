@@ -36,7 +36,7 @@ EXCLUDED_DIRECTORY_NAMES = {
     ".mypy_cache",
     ".home",
 }
-DENIED_FILE_NAMES = {".env"}
+DENIED_FILE_NAMES = {".env", "secrets.env"}
 DENIED_FILE_PREFIXES = (".env.",)
 DENIED_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
 
