@@ -31,8 +31,10 @@ def test_source_search_excludes_runtime_directories(
     "path",
     [
         "runtime/oauth_clients.json",
+        "secrets.env",
         ".runtime/cache.json",
         ".npm-cache/cache.json",
+        "nested/secrets.env",
     ],
 )
 def test_source_read_denies_runtime_directories(
@@ -41,7 +43,7 @@ def test_source_read_denies_runtime_directories(
     path: str,
 ) -> None:
     target = tmp_path / path
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(source_tools, "PROJECT_ROOT", tmp_path)
 
