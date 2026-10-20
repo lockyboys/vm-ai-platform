@@ -1,3 +1,4 @@
+# 내 API 키로 사용할 수 있는 Gemini 모델 목록 보기
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
