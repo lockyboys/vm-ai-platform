@@ -13,6 +13,7 @@
 # 20260726 | OpenAI | MongoDB 연결과 CRUD를 통합해 SPDF Database Framework로 승격했음
 # 20260830 | CODEX | MariaMongoWriteService commit 실패 시 MongoDB 보상 rollback을 보장했음
 # 20260830 | OpenAI | STORY 역할이 SPS_REPOSITORY_* 공통 연결정보를 후순위로 재사용하도록 보완했음
+# 20261009 | CODEX | MCM Level 3 클래스에서 문서별 Level 4 식별자를 예약하는 공통 함수를 추가했음
 # =============================================================================
 
 from __future__ import annotations
@@ -466,3 +467,52 @@ class MariaMongoWriteService:
         for collection_name, delete_filter in reversed(self._inserted_mongodb_documents):
             self.mongodb_database.delete_one(collection_name, delete_filter)
         self._inserted_mongodb_documents.clear()
+
+def reserve_document_master_id(
+    repository: Any, mcm_class: Mapping[str, Any], actor: str,
+    client_ip: str, program_id: str,
+) -> str:
+    """Commit a unique Level 4 MCM document ID before the business write.
+
+    The active Rule and Blueprint decide the date/time and sequence. The
+    Level 3 MCM class Object ID is never reused as a document instance ID.
+    A consumed sequence is not reused when a later Mongo/Maria write fails.
+    """
+    # Import locally: the Identifier Engine itself uses CommonDatabase.
+    from engine.identifier.coordinator import IdentifierCoordinator
+
+    if mcm_class.get("object_code") != "MCM" or int(mcm_class.get("object_level", -1)) != 3:
+        raise ValueError("An active Level 3 MCM class Object is required.")
+    class_id = normalize_required_text(mcm_class.get("object_id"), "MCM.object_id")
+    if mcm_class.get("target_identifier_field") != "mongodb_document_master_id":
+        raise ValueError("MCM target_identifier_field must be mongodb_document_master_id.")
+
+    # The Rule still receives MCM class metadata; only its physical target is the Link column.
+    metadata = dict(mcm_class)
+    metadata["object_name"] = f"{repository.database_name}.sp_object_execution_link"
+    coordinator = IdentifierCoordinator(repository)
+    maximum_length = coordinator.resolve_identifier_maximum_length(object_metadata=metadata)
+    request, prepared = coordinator.prepare_registered_object(
+        object_metadata=metadata, created_by=actor, updated_by=actor,
+        client_ip=client_ip, program_id=program_id,
+    )
+    if prepared["object_level"] != 4:
+        raise ValueError("mongodb_document_master_id must resolve to Level 4 from the active Rule.")
+
+    coordinator.acquire(prepared)
+    try:
+        repository.begin()
+        try:
+            resolution = coordinator.resolve(
+                request=request, prepared=prepared, maximum_length=maximum_length,
+            )
+            identifier = resolution.identifier
+            if resolution.object_level != 4 or identifier == class_id:
+                raise ValueError("Level 4 document ID must differ from the Level 3 MCM class ID.")
+            repository.commit()
+            return identifier
+        except Exception:
+            repository.rollback()
+            raise
+    finally:
+        coordinator.release(prepared)

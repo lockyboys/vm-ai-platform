@@ -127,6 +127,9 @@ def memory(monkeypatch):
     mongo = MongoDouble()
     monkeypatch.setattr(agent_memory, "CommonDatabase", lambda **kwargs: story)
     monkeypatch.setattr(agent_memory, "IdentifierCoordinator", CoordinatorDouble)
+    # Runtime gets a distinct Level 4 ID for the document, not the MCM class ID.
+    monkeypatch.setattr(agent_memory, "reserve_document_master_id",
+                        lambda *args: "SP_RP_MCM_20261009_180200_00001")
     settings = {"database_role": "STORY", "collection_name": "agent_long_term_memory",
                 "domain_code": "general"}
     return agent_memory.PersistentMemory(settings=settings, database=mongo), story, mongo
@@ -141,6 +144,10 @@ def test_memory_save_links_history_and_is_idempotent(memory):
     assert len(story.statements) == 3
     assert "INSERT INTO sp_execution_history" in story.statements[0][0]
     assert "INSERT INTO sp_object_execution_link" in story.statements[1][0]
+    saved = next(iter(mongo.rows.values()))
+    assert saved["mongodb_document_master_id"] == "SP_RP_MCM_20261009_180200_00001"
+    assert story.statements[1][1][6] == saved["mongodb_document_master_id"]
+    assert saved["mongodb_document_master_id"] != story.objects["MCM"]
     assert "UPDATE sp_execution_history" in story.statements[2][0]
     assert story.committed == 2
     assert service.save("actor", "thread", "request", "question",

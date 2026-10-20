@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from common.common_function import normalize_required_text
-from common.database import CommonDatabase, MariaMongoWriteService
+from common.database import CommonDatabase, MariaMongoWriteService, reserve_document_master_id
 from engine.identifier import IdentifierCoordinator
 from engine.common.repository_schema_guard import assert_schema_documented
 
@@ -181,6 +181,15 @@ class PersistentMemory:
             # Reserve and commit the SPS identifier before opening the
             # business transaction; release the named lock after that commit.
             history_id = _next_execution_id(repository, subject_id, document["client_ip"])
+            # Reserve a unique Level 4 row ID before the business write transaction.
+            document_master_id = reserve_document_master_id(
+                repository, master_object, subject_id, document["client_ip"], MEMORY_PROGRAM_ID,
+            )
+            document.update({
+                "mongodb_database_id": database_object["object_id"],
+                "mongodb_collection_id": memory_object["object_id"],
+                "mongodb_document_master_id": document_master_id,
+            })
             with MariaMongoWriteService(repository, self.database) as writer:
                 writer.execute_verified_mariadb(
                     """INSERT INTO sp_execution_history
@@ -207,7 +216,7 @@ class PersistentMemory:
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (history_id, memory_object["object_id"], master_object["object_id"],
                      "MONGODB", database_object["object_id"], memory_object["object_id"],
-                     master_object["object_id"], subject_id, document["client_ip"],
+                     document_master_id, subject_id, document["client_ip"],
                      MEMORY_PROGRAM_ID), expected_affected_rows=1,
                 )
                 writer.execute_verified_mariadb(
