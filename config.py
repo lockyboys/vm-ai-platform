@@ -571,3 +571,18 @@ SPS_MCP_WORKER_SECRETS_FILE = "/etc/sps-harness/secrets.env"
 # Preserve the existing model default while honoring the configured Gemini model.
 SPS_MAIN_ORCHESTRATOR_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS = 120
+
+
+# 자율 소스 수정: 기존 LangGraph 도구가 아래 두 파일만 수정할 수 있습니다.
+# 설정/인증/검증기/테스트는 수정 대상에 넣지 않으며 자동 커밋하지 않습니다.
+SPS_SOURCE_REPAIR_ALLOWED_PATHS = (
+    "FastAPI/LangGraph/sps_main_orchestrator.py",
+    "FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py",
+)
+SPS_SOURCE_REPAIR_MAX_BYTES = 200000
+# 회귀 테스트 한 회의 제한. 수정 전/후와 dry-run 검증에 각각 적용합니다.
+SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS = 5
+SPS_SOURCE_REPAIR_AUDIT_DIR = "harness/memory/source_repairs"
+# 보험사뿐 아니라 공사/정부/복지관 등 공개 문서 수집에 같은 저장 설정을 사용합니다.
+SPS_DOCUMENT_DOWNLOAD_DIR = BASE_DIR / "downloaded_docs"
+
