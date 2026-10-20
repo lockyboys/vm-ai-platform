@@ -4,7 +4,8 @@
 #
 # Plaintext
 # /data/vm_project/FastAPI/LangGraph/
-#  ├── config.py                      # [신규] 루트 공통 설정 (API Key 등)
+#  ├── config.py                      # [신규] 루트 공통 설정
+#  ├── .env                           # [신규] API Key 프로그램 바번 등
 #  ├── common/                        # [신규] 공통 모듈 폴더
 #  │    ├── database.py               # (향후 MariaDB/VectorDB 공통 연결용)
 #  │    └── common_function.py        # (공통 유틸리티)
@@ -19,13 +20,9 @@
 #  │
 #  └── insurance_docs/                # PDF 저장소
 # 
-# curl -X POST http://127.0.0.1:8000/api/crawler/run \
+# curl -X POST http://127.0.0.1:8080/api/gemini/chat \
 #   -H "Content-Type: application/json" \
-#   -d '{"target_url": "https://www.axa.co.kr/AsianPlatformInternet/html/Axa.html"}'
-# Windows CMD / PowerShell 환경일 경우
-# curl -X POST http://127.0.0.1:8000/api/crawler/run ^
-#   -H "Content-Type: application/json" ^
-#   -d "{\"target_url\": \"https://www.axa.co.kr/AsianPlatformInternet/html/Axa.html\"}"
+#   -d '{"query": "AXA 약관 PDF 모두 끌어 줘!!"}'
 # FastAPI/LangGraph/sps_main_orchestrator.py
 import sys
 import os
@@ -40,9 +37,7 @@ if PROJECT_ROOT not in sys.path:
 
 import config  # 루트에 있는 config.py 적용 (4번 지침 준수)
 
-# 기존 에이전트 폴더 모듈 임포트 유지 (haness 폴더 래핑 취소)
-from Agent_Import_RAGs.LangGraph_Ingestion_Pipeline import build_vector_db, query_insurance_rag
-from Agent_Import_PFDs.LangGraph_Network_Sniffer import explore_unknown_site
+# RAG functions were unused here. Load the crawler only when the graph requests it.
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
@@ -60,9 +55,12 @@ class ChatRequest(BaseModel):
 @tool
 async def run_crawler_tool(company_name: str, target_url: str = "") -> str:
     """보험사의 약관 PDF를 크롤링하고 다운로드할 때 호출하는 자율 탐색 도구입니다."""
+    # Package-qualified lazy import also supports the haness MCP worker entry point.
+    from FastAPI.LangGraph.Agent_Import_PFDs.LangGraph_Network_Sniffer import explore_unknown_site
     if not target_url:
-        if "AXA" in company_name.upper() or "악사" in company_name:
-            target_url = "https://www.axa.co.kr/AsianPlatformInternet/html/Axa.html"
+        if "inspect" in company_name.upper() or "개인" in company_name:
+            # target_url = "https://www.axa.co.kr/AsianPlatformInternet/html/Axa.html"
+            target_url = "http://127.0.0.1:4041/inspect/http"
     print(f"🛠️ [Tool 실행] {company_name} 크롤러 가동 (URL: {target_url})")
     selector = await explore_unknown_site(target_url)
     return f"[{company_name}] {selector}"
@@ -73,7 +71,7 @@ def create_agent_graph():
     tool_node = ToolNode(tools)
     
     # config.py의 설정을 사용(Langchain은 내부적으로 os.environ도 확인하지만 명시적 관리를 위해 공통 룰 적용)
-    model = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0)
+    model = ChatGoogleGenerativeAI(model=config.SPS_MAIN_ORCHESTRATOR_MODEL, temperature=0)
     model_with_tools = model.bind_tools(tools)
 
     async def agent_node(state: MessagesState): 
