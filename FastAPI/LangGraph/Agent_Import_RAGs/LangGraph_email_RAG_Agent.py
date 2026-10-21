@@ -28,13 +28,21 @@
 
 from __future__ import annotations
 
-import logging
-import requests
-import os
-import sys
+import asyncio
 import hashlib
+import imaplib
+import json
+import logging
+import math
+import os
 import smtplib
+import sys
+import requests
+from email import policy
+from email.header import decode_header, make_header
 from email.message import EmailMessage
+from email.parser import BytesParser
+from html.parser import HTMLParser
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -69,6 +77,226 @@ if not any(
     _email_handler = logging.FileHandler(EMAIL_LOG_PATH, encoding="utf-8")
     _email_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(_email_handler)
+
+
+# --- 여러 메일함 수집 어댑터 ---
+# 비밀번호·OAuth 토큰은 EMAIL_ACCOUNTS_JSON에 직접 넣지 않고 *_env가 가리키는 환경변수에서만 읽습니다.
+_IMAP_PROVIDER_HOSTS = {
+    "gmail": "imap.gmail.com",
+    "outlook": "outlook.office365.com",
+}
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """HTML 메일에서 스크립트를 실행하지 않고 표시 텍스트만 추출합니다."""
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+        self.hidden_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in {"script", "style"}:
+            self.hidden_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() in {"script", "style"} and self.hidden_depth:
+            self.hidden_depth -= 1
+
+    def handle_data(self, data):
+        if not self.hidden_depth and data.strip():
+            self.parts.append(data.strip())
+
+    def text(self) -> str:
+        return " ".join(self.parts)
+
+
+def _decode_email_header(value: str | None) -> str:
+    """RFC 2047 제목·주소 헤더를 손실 없이 문자열로 변환합니다."""
+    if not value:
+        return ""
+    return str(make_header(decode_header(value))).strip()
+
+
+def _extract_email_body(message) -> str:
+    """멀티파트 메일에서 첨부파일을 제외하고 plain text를 우선 추출합니다."""
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    parts = message.walk() if message.is_multipart() else [message]
+    for part in parts:
+        if part.get_content_disposition() == "attachment":
+            continue
+        content_type = part.get_content_type()
+        if content_type not in {"text/plain", "text/html"}:
+            continue
+        try:
+            content = part.get_content()
+        except Exception:
+            payload = part.get_payload(decode=True) or b""
+            content = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        if content_type == "text/plain":
+            plain_parts.append(str(content).strip())
+        else:
+            html_parts.append(str(content))
+    if any(plain_parts):
+        return "\n".join(part for part in plain_parts if part).strip()
+    parser = _HTMLTextExtractor()
+    parser.feed("\n".join(html_parts))
+    return parser.text().strip()
+
+
+def load_mailbox_accounts(raw_config: str | None = None) -> list[dict]:
+    """환경설정에서 Gmail·Outlook·일반 IMAP 계정을 검증하고 런타임 설정으로 변환합니다."""
+    raw = raw_config if raw_config is not None else os.getenv("EMAIL_ACCOUNTS_JSON", "")
+    if not raw.strip():
+        return []
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("EMAIL_ACCOUNTS_JSON은 JSON 배열이어야 합니다.") from exc
+    if not isinstance(items, list):
+        raise ValueError("EMAIL_ACCOUNTS_JSON은 계정 객체 배열이어야 합니다.")
+
+    accounts: list[dict] = []
+    seen_names: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("각 메일 계정 설정은 객체여야 합니다.")
+        name = normalize_required_text(str(item.get("name", "")), "mailbox.name")
+        if name in seen_names:
+            raise ValueError(f"메일 계정 이름이 중복되었습니다: {name}")
+        seen_names.add(name)
+        provider = str(item.get("provider", "imap")).strip().lower()
+        host = str(item.get("host") or _IMAP_PROVIDER_HOSTS.get(provider, "")).strip()
+        username = normalize_required_text(str(item.get("username", "")), "mailbox.username")
+        secret_env = normalize_required_text(
+            str(item.get("secret_env") or item.get("password_env") or item.get("token_env") or ""),
+            "mailbox.secret_env",
+        )
+        secret = os.getenv(secret_env)
+        if not host:
+            raise ValueError(f"일반 IMAP 계정에는 host가 필요합니다: {name}")
+        if not secret:
+            raise ValueError(f"메일 인증 환경변수가 비어 있습니다: {secret_env}")
+        auth = str(item.get("auth", "password")).strip().lower()
+        if auth not in {"password", "xoauth2"}:
+            raise ValueError(f"지원하지 않는 IMAP 인증 방식입니다: {auth}")
+        accounts.append({
+            "name": name,
+            "provider": provider,
+            "host": host,
+            "port": int(item.get("port", 993)),
+            "username": username,
+            "secret": secret,
+            "auth": auth,
+            "mailbox": str(item.get("mailbox", "INBOX")),
+            "search": str(item.get("search", "UNSEEN")),
+            "ssl": bool(item.get("ssl", True)),
+        })
+    return accounts
+
+
+class ImapMailboxAdapter:
+    """하나의 IMAP 계정에서 메일을 읽어 공급자 독립 형식으로 변환합니다."""
+    def __init__(self, account: dict):
+        self.account = account
+
+    def _connect(self):
+        factory = imaplib.IMAP4_SSL if self.account["ssl"] else imaplib.IMAP4
+        return factory(
+            self.account["host"],
+            self.account["port"],
+            timeout=int(os.getenv("EMAIL_IMAP_TIMEOUT", "30")),
+        )
+
+    def fetch_messages(self, limit: int) -> list[dict]:
+        """UID 기반으로 최신 메일을 읽으며 읽음 상태는 변경하지 않습니다."""
+        client = self._connect()
+        try:
+            if self.account["auth"] == "xoauth2":
+                auth = f"user={self.account['username']}\x01auth=Bearer {self.account['secret']}\x01\x01"
+                client.authenticate("XOAUTH2", lambda _: auth.encode("utf-8"))
+            else:
+                client.login(self.account["username"], self.account["secret"])
+            status, _ = client.select(self.account["mailbox"], readonly=True)
+            if status != "OK":
+                raise RuntimeError(f"IMAP mailbox select 실패: {self.account['name']}")
+            status, data = client.uid("search", None, self.account["search"])
+            if status != "OK":
+                raise RuntimeError(f"IMAP search 실패: {self.account['name']}")
+            uids = (data[0] or b"").split()[-limit:]
+            messages: list[dict] = []
+            for uid in reversed(uids):
+                status, payload = client.uid("fetch", uid, "(RFC822)")
+                if status != "OK":
+                    raise RuntimeError(f"IMAP fetch 실패: {self.account['name']}:{uid.decode()}")
+                raw = next(
+                    (part[1] for part in payload if isinstance(part, tuple) and isinstance(part[1], bytes)),
+                    None,
+                )
+                if raw is None:
+                    continue
+                message = BytesParser(policy=policy.default).parsebytes(raw)
+                messages.append({
+                    "mailbox": self.account["name"],
+                    "provider": self.account["provider"],
+                    "email_id": f"{self.account['name']}:{uid.decode()}",
+                    "message_id": str(message.get("Message-ID", "")).strip(),
+                    "sender_email": _decode_email_header(message.get("From")),
+                    "subject": _decode_email_header(message.get("Subject")),
+                    "received_at": str(message.get("Date", "")).strip(),
+                    "email_content": _extract_email_body(message),
+                })
+            return messages
+        finally:
+            try:
+                client.logout()
+            except Exception:
+                pass
+
+
+def collect_mailbox_messages(
+    accounts: list[dict] | None = None,
+    limit_per_account: int = 10,
+    adapter_factory=ImapMailboxAdapter,
+) -> dict:
+    """여러 메일함을 독립적으로 수집하고 계정 간 중복 메시지를 제거합니다."""
+    if not 1 <= limit_per_account <= 100:
+        raise ValueError("limit_per_account는 1~100이어야 합니다.")
+    account_list = accounts if accounts is not None else load_mailbox_accounts()
+    messages: list[dict] = []
+    errors: list[dict] = []
+    seen: set[str] = set()
+    for account in account_list:
+        try:
+            fetched = adapter_factory(account).fetch_messages(limit_per_account)
+            for message in fetched:
+                body = (message.get("email_content") or "").strip()
+                if not body:
+                    continue
+                identity = (message.get("message_id") or "").strip()
+                if not identity:
+                    digest_input = "|".join([
+                        message.get("sender_email", ""),
+                        message.get("subject", ""),
+                        message.get("received_at", ""),
+                        body,
+                    ])
+                    identity = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                messages.append(message)
+        except Exception as exc:
+            logger.exception("메일함 수집 실패: mailbox=%s", account.get("name", "unknown"))
+            errors.append({"mailbox": account.get("name", "unknown"), "error": str(exc)})
+    return {
+        "configured_mailboxes": len(account_list),
+        "successful_mailboxes": len(account_list) - len(errors),
+        "message_count": len(messages),
+        "messages": messages,
+        "errors": errors,
+    }
+
 
 # 이메일 분류 결과의 구조를 정의합니다.
 class EmailClassification(TypedDict):
@@ -200,6 +428,106 @@ def _create_embeddings_in_batches(texts: list[str]) -> list[list[float]]:
             )
         embeddings.extend(batch_embeddings)
     return embeddings
+
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    """동일 차원 벡터의 코사인 유사도를 계산합니다."""
+    if not left or len(left) != len(right):
+        return -1.0
+    numerator = sum(a * b for a, b in zip(left, right))
+    denominator = math.sqrt(sum(a * a for a in left)) * math.sqrt(sum(b * b for b in right))
+    return numerator / denominator if denominator else -1.0
+
+
+def _rag_source_text(document: dict, score: float) -> str:
+    """검색 결과를 초안 프롬프트가 사용할 출처·점수·문맥 문자열로 변환합니다."""
+    source_file = str(document.get("source_file", "unknown"))
+    chunk_index = document.get("chunk_index", "?")
+    text = str((document.get("payload") or {}).get("normalized_text", "")).strip()
+    max_chars = int(os.getenv("RAG_CONTEXT_MAX_CHARS", "2000"))
+    return (
+        f"[출처: internal://{source_file}#chunk-{chunk_index}; score={score:.4f}] "
+        f"{text[:max_chars]}"
+    )
+
+
+def retrieve_internal_policy_documents(query: str, top_k: int | None = None) -> list[str]:
+    """MongoDB에 적재된 실제 PDF 청크를 벡터 유사도로 검색합니다."""
+    query = normalize_required_text(query, "rag.query")
+    if MongoClient is None:
+        raise RuntimeError("내부 RAG 검색에는 pymongo가 필요합니다.")
+    limit = top_k if top_k is not None else int(os.getenv("RAG_TOP_K", "5"))
+    if not 1 <= limit <= 20:
+        raise ValueError("RAG_TOP_K는 1~20이어야 합니다.")
+    minimum_score = float(os.getenv("RAG_MIN_SCORE", "0.20"))
+    candidate_limit = int(os.getenv("RAG_CANDIDATE_LIMIT", "5000"))
+    if candidate_limit < limit:
+        raise ValueError("RAG_CANDIDATE_LIMIT는 RAG_TOP_K 이상이어야 합니다.")
+
+    query_vector = _create_embeddings([query])[0]
+    uri = os.getenv("MONGODB_URI") or os.getenv("HEALTH_COMPANION_MONGODB_URI") or MONGO_URI
+    database_name = os.getenv("MONGODB_DATABASE") or MONGO_DB or "health_companion_ai"
+    collection_name = os.getenv("MONGODB_COLLECTION", "insurance_policy_terms_payload")
+    client = MongoClient(uri, serverSelectionTimeoutMS=MONGO_TIMEOUT_MS)
+    try:
+        collection = client[database_name][collection_name]
+        vector_index = os.getenv("MONGODB_VECTOR_INDEX", "").strip()
+        if vector_index:
+            try:
+                documents = list(collection.aggregate([
+                    {"$vectorSearch": {
+                        "index": vector_index,
+                        "path": "payload.embedding",
+                        "queryVector": query_vector,
+                        "numCandidates": min(max(limit * 20, 100), candidate_limit),
+                        "limit": limit,
+                        "filter": {"source_file": {"$exists": True}},
+                    }},
+                    {"$project": {
+                        "_id": 0,
+                        "source_file": 1,
+                        "chunk_index": 1,
+                        "payload.normalized_text": 1,
+                        "score": {"$meta": "vectorSearchScore"},
+                    }},
+                ]))
+                return [
+                    _rag_source_text(doc, float(doc.get("score", 0.0)))
+                    for doc in documents
+                    if float(doc.get("score", 0.0)) >= minimum_score
+                    and (doc.get("payload") or {}).get("normalized_text")
+                ]
+            except Exception:
+                # Atlas/Community 설정 차이로 벡터 인덱스를 사용할 수 없으면 제한된 로컬 순위로 복구합니다.
+                logger.exception("MongoDB Vector Search 실패; 로컬 코사인 검색으로 전환")
+
+        cursor = collection.find(
+            {
+                "source_file": {"$exists": True},
+                "payload.embedding": {"$exists": True},
+                "payload.normalized_text": {"$exists": True},
+            },
+            {
+                "_id": 0,
+                "source_file": 1,
+                "chunk_index": 1,
+                "payload.embedding": 1,
+                "payload.normalized_text": 1,
+            },
+        ).limit(candidate_limit)
+        scored: list[tuple[float, dict]] = []
+        for document in cursor:
+            embedding = (document.get("payload") or {}).get("embedding")
+            if not isinstance(embedding, list):
+                continue
+            score = _cosine_similarity(query_vector, embedding)
+            if score >= minimum_score:
+                scored.append((score, document))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [_rag_source_text(document, score) for score, document in scored[:limit]]
+    finally:
+        client.close()
 
 
 def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
@@ -412,12 +740,13 @@ def search_router(state: EmailAgentState) -> dict:
     return {"search_mode": mode}
 
 def rag_search_node(state: EmailAgentState) -> dict:
-    """내부 보험 약관 RAG 검색 결과를 반환합니다."""
-    return {"search_results": [
-        "실손의료보험 약관의 보장 대상 및 지급 제한",
-        "보험금 청구에 필요한 진료비 영수증과 진료기록",
-        "면책사항·보장 제외 항목은 약관 원문을 확인해야 함",
-    ], "tavily_status": "disabled"}
+    """이메일 본문으로 MongoDB 보험 문서 청크를 실제 벡터 검색합니다."""
+    try:
+        results = retrieve_internal_policy_documents(state.get("email_content", ""))
+        return {"search_results": results, "rag_status": "success" if results else "empty"}
+    except Exception as exc:
+        logger.exception("내부 RAG 검색 실패")
+        return {"search_results": [], "rag_status": "failed", "rag_error": str(exc)}
 
 def tavily_search_node(state: EmailAgentState) -> dict:
     """Tavily 웹 검색만 수행합니다."""
@@ -584,14 +913,23 @@ def _retrieve_for_query(state: EmailQueryState) -> dict:
             "search_results": sources,
             "retrieval_status": "web_sources" if sources else "no_verified_sources",
         }
+    if mode == "rag_search":
+        update = rag_search_node(state)
+        sources = update.get("search_results", [])
+        status = update.get("rag_status", "failed")
+        return {
+            "search_mode": mode,
+            "search_results": sources,
+            "retrieval_status": (
+                "internal_rag_sources" if sources
+                else "internal_rag_empty" if status == "empty"
+                else "internal_rag_failed"
+            ),
+        }
     return {
         "search_mode": mode,
         "search_results": [],
-        "retrieval_status": (
-            "internal_rag_not_implemented"
-            if mode == "rag_search"
-            else "no_verified_sources"
-        ),
+        "retrieval_status": "no_verified_sources",
     }
 
 
@@ -649,6 +987,45 @@ async def process_email_query(
         "retrieval_status": result.get("retrieval_status"),
         "email_id": result.get("email_id", ""),
         "email_sent": False,
+    }
+
+
+
+async def process_configured_mailboxes(limit_per_account: int = 10) -> dict:
+    """설정된 여러 메일함을 수집하고 각 메시지를 동일한 RAG 흐름으로 처리합니다."""
+    collected = await asyncio.to_thread(
+        collect_mailbox_messages,
+        None,
+        limit_per_account,
+    )
+    process_limit = int(os.getenv("EMAIL_PROCESS_LIMIT", "50"))
+    if process_limit < 1:
+        raise ValueError("EMAIL_PROCESS_LIMIT는 1 이상이어야 합니다.")
+    results: list[dict] = []
+    for message in collected["messages"][:process_limit]:
+        content = (
+            f"제목: {message.get('subject', '')}\n"
+            f"본문: {message.get('email_content', '')}"
+        )
+        analysis = await process_email_query(
+            content,
+            sender_email=message.get("sender_email", ""),
+            email_id=message.get("email_id", ""),
+        )
+        results.append({
+            "mailbox": message.get("mailbox", ""),
+            "provider": message.get("provider", ""),
+            "email_id": message.get("email_id", ""),
+            "subject": message.get("subject", ""),
+            **analysis,
+        })
+    return {
+        "configured_mailboxes": collected["configured_mailboxes"],
+        "successful_mailboxes": collected["successful_mailboxes"],
+        "collected_messages": collected["message_count"],
+        "processed_messages": len(results),
+        "errors": collected["errors"],
+        "results": results,
     }
 
 
