@@ -2,7 +2,9 @@
 
 # - 보험 고객 문의 이메일 읽기
 # - 긴급도와 주제별 분류
-# - 보험 약관·상품설명서에서 관련 내용 검색
+# - Ollama bge-m3에 여러 청크를 한 번에 보내 임베딩 호출을 줄입니다
+# - 보험 약관·상품설명서에서 관련 내용 검색 
+# - 모든 보험 PDF를 읽고, 모든 청크를 임베드하며, 각 소스 파일에 저장된 행을 검증하세요.
 # - 적절한 답변 초안 작성
 # - 복잡한 문제는 담당자에게 인계
 # - 필요한 경우 후속 일정 등록
@@ -201,7 +203,8 @@ def _create_embeddings_in_batches(texts: list[str]) -> list[list[float]]:
 
 
 def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
-    """Read every insurance PDF, embed every chunk, and verify each source file's saved rows."""
+    """ 모든 보험 PDF를 읽고, 모든 청크를 임베드하며, 각 소스 파일에 저장된 행을 검증하세요.
+        Read every insurance PDF, embed every chunk, and verify each source file's saved rows."""
     if MongoClient is None or PdfReader is None:
         raise RuntimeError("PDF ingestion requires pymongo and pypdf; no input is silently skipped.")
 
@@ -210,7 +213,7 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
     if not pdf_paths:
         raise FileNotFoundError(f"보험 약관 PDF가 없습니다: {pdf_folder}")
 
-    # Extract all PDFs before database writes so an unreadable source cannot produce a partial first pass.
+    # 데이터베이스에 쓰기 전에 모든 PDF를 추출하여, 읽을 수 없는 소스가 부분적인 첫 번째 검사를 생성하지 못하게 합니다.
     source_documents: list[tuple[str, str, list[str]]] = []
     for pdf_path in pdf_paths:
         source_name = pdf_path.relative_to(pdf_folder).as_posix()
@@ -229,7 +232,7 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
     source_chunk_counts: dict[str, int] = {}
     try:
         collection = client[database_name][collection_name]
-        # The active MCM class is Level 3; each payload needs a distinct Level 4 ID.
+        # 활성화된 MCM 클래스는 레벨 3이며, 각 페이로드는 고유한 레벨 4 ID가 필요합니다.
         mcm_class = repository.fetch_one(
             """SELECT object_id, object_code, object_name, business_code, domain_code,
                       object_level, identifier_target_code, sequence_scope_code,
@@ -241,17 +244,17 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
         if mcm_class is None:
             raise RuntimeError("Active MCM class Object is required for insurance PDF storage.")
         for source_name, _extracted_text, chunks in source_documents:
-            # Bounded batch calls process every chunk while avoiding one oversized request per large PDF.
+            # 제한된 배치 호출은 큰 PDF 하나당 과도한 요청을 피하면서 모든 청크를 처리합니다.
             embeddings = _create_embeddings_in_batches(chunks)
             expected_document_ids: list[str] = []
             for index, (chunk, embedding) in enumerate(zip(chunks, embeddings), start=1):
-                # Relative source path and chunk number keep IDs stable and avoid same-basename collisions.
+                # 상대 소스 경로와 청크 번호는 ID를 안정적으로 유지하고 동일한 이름 충돌을 방지합니다.
                 source_digest = hashlib.sha256(source_name.encode("utf-8")).hexdigest()[:12]
                 document_id = f"{Path(source_name).stem}:{source_digest}:{index:05d}"
                 expected_document_ids.append(document_id)
                 existing = collection.find_one({"document_id": document_id})
                 if existing is not None:
-                    # Never repeat the old Level 3 constant or trust a shared legacy value.
+                    # 기존의 레벨 3 상수를 반복하거나 공유된 레거시 값을 신뢰하지 마세요.
                     document_master_id = existing.get("mongodb_document_master_id")
                     if (not document_master_id or document_master_id == mcm_class["object_id"]
                             or collection.count_documents({"mongodb_document_master_id": document_master_id}) != 1):
@@ -284,7 +287,7 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
                 }
                 collection.update_one({"document_id": document_id}, {"$set": document}, upsert=True)
 
-            # Verify this PDF's exact IDs and embeddings, independent of unrelated collection rows.
+            # 관련 없는 컬렉션 행과 무관하게 이 PDF의 정확한 ID와 임베딩을 검증하세요.
             verified_count = collection.count_documents({
                 "document_id": {"$in": expected_document_ids},
                 "source_file": source_name,
