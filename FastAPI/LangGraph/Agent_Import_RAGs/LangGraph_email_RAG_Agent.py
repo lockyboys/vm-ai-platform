@@ -51,7 +51,7 @@ from langchain_tavily import TavilySearch
 from langchain.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from config import LOG_PATH, MONGO_URI, MONGO_DB, MONGO_TIMEOUT_MS
-from common.common_function import ensure_dirs, logger
+from common.common_function import ensure_dirs, logger, normalize_required_text
 from common.database import CommonDatabase, reserve_document_master_id
 
 try:
@@ -549,6 +549,109 @@ def send_reply(state: EmailAgentState) -> dict:
         raise
     return {}
 
+
+# --- 오케스트레이터용 안전한 이메일 조회 흐름 ---
+# 운영 진입점은 이 파일 하나입니다. Agent4/Agent5는 호출자가 없는 과거 보존본입니다.
+class EmailQueryState(EmailAgentState):
+    """발송 없는 이메일 분석 그래프에서만 사용하는 추가 상태입니다."""
+    search_mode: str
+    retrieval_status: str
+    needs_review: bool
+
+
+def _classify_for_query(state: EmailQueryState) -> dict:
+    """기존 분류 결과만 재사용하고 발송·티켓 분기 명령은 실행하지 않습니다."""
+    update = dict(classify_intent(state).update or {})
+    classification = update.get("classification") or {}
+    update["needs_review"] = (
+        classification.get("urgency") in {"high", "critical"}
+        or classification.get("intent") in {"billing", "complex", "bug"}
+    )
+    return update
+
+
+def _retrieve_for_query(state: EmailQueryState) -> dict:
+    """웹 출처만 검증 근거로 반환하며 미구현 내부 RAG를 성공으로 가장하지 않습니다."""
+    mode = search_router(state)["search_mode"]
+    if mode == "tavily":
+        update = tavily_search_node(state)
+        sources = [
+            item for item in update.get("search_results", [])
+            if isinstance(item, str) and item.startswith("[출처: ")
+        ]
+        return {
+            "search_mode": mode,
+            "search_results": sources,
+            "retrieval_status": "web_sources" if sources else "no_verified_sources",
+        }
+    return {
+        "search_mode": mode,
+        "search_results": [],
+        "retrieval_status": (
+            "internal_rag_not_implemented"
+            if mode == "rag_search"
+            else "no_verified_sources"
+        ),
+    }
+
+
+def _draft_for_query(state: EmailQueryState) -> dict:
+    """검증 근거가 있을 때만 초안을 만들고 SMTP·MongoDB 쓰기는 호출하지 않습니다."""
+    if not state.get("search_results"):
+        return {
+            "draft_response": "확인된 문서 근거가 없어 답변 초안을 생성하지 않았습니다.",
+            "needs_review": True,
+        }
+    return dict(draft_response(state).update or {})
+
+
+def create_email_query_graph():
+    """분류 → 근거 검색 → 초안의 단방향 조회 그래프를 구성합니다."""
+    builder = StateGraph(EmailQueryState)
+    builder.add_node("classify", _classify_for_query)
+    builder.add_node("retrieve", _retrieve_for_query)
+    builder.add_node("draft", _draft_for_query)
+    builder.add_edge(START, "classify")
+    builder.add_edge("classify", "retrieve")
+    builder.add_edge("retrieve", "draft")
+    builder.add_edge("draft", END)
+    return builder.compile()
+
+
+email_query_app = create_email_query_graph()
+
+
+async def process_email_query(
+    email_content: str,
+    sender_email: str = "",
+    email_id: str = "",
+) -> dict:
+    """여러 메일 공급자가 전달한 공통 입력을 분석하고 발송 없는 표준 결과를 반환합니다."""
+    content = normalize_required_text(email_content, "email_content")
+    result = await email_query_app.ainvoke({
+        "email_content": content,
+        "sender_email": (sender_email or "").strip(),
+        "email_id": (email_id or "").strip(),
+        "classification": None,
+        "search_results": [],
+        "customer_history": None,
+        "draft_response": None,
+        "messages": [],
+    })
+    sources = result.get("search_results") or []
+    review_required = bool(result.get("needs_review")) or not sources
+    return {
+        "status": "review_required" if review_required else "draft_ready",
+        "classification": result.get("classification"),
+        "draft_response": result.get("draft_response"),
+        "sources": sources,
+        "source_count": len(sources),
+        "retrieval_status": result.get("retrieval_status"),
+        "email_id": result.get("email_id", ""),
+        "email_sent": False,
+    }
+
+
 # 그래프 컴파일 코드
 
 # 그래프를 생성합니다.
@@ -584,7 +687,10 @@ workflow.add_edge("send_reply", END)
 
 # Compile with checkpointer for persistence, in case run graph with Local_Server --> Please compile without checkpointer
 memory = MemorySaver()
-app = workflow.compile(checkpointer=memory)
+# 적재·DB 저장·SMTP 발송이 포함된 기존 그래프는 명시적으로 선택할 때만 사용합니다.
+full_workflow_app = workflow.compile(checkpointer=memory)
+# 기본 진입점은 오케스트레이터와 동일한 발송 없는 조회 그래프입니다.
+app = email_query_app
 
 
 if __name__ == "__main__":

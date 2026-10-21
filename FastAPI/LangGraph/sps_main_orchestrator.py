@@ -78,79 +78,20 @@ async def search_public_documents(query: str) -> list:
 
 
 
-def create_email_rag_graph():
-    """기존 이메일 노드를 재사용하되 적재·DB 쓰기·SMTP 발송 없는 조회 그래프를 구성합니다."""
-    from FastAPI.LangGraph.Agent_Import_RAGs import LangGraph_email_RAG_Agent as email_agent
-
-    # 검색 경로는 원본 EmailAgentState에 없으므로 이 연결 전용 상태에서 보존합니다.
-    class EmailQueryState(email_agent.EmailAgentState):
-        search_mode: str
-        retrieval_status: str
-        needs_review: bool
-
-    def classify(state):
-        # Command.goto를 그대로 전달하면 발송/티켓 노드로 이동하므로 update만 사용합니다.
-        update = dict(email_agent.classify_intent(state).update)
-        classification = update.get("classification") or {}
-        update["needs_review"] = (
-            classification.get("urgency") in {"high", "critical"}
-            or classification.get("intent") in {"billing", "complex", "bug"}
-        )
-        return update
-
-    def retrieve(state):
-        mode = email_agent.search_router(state)["search_mode"]
-        if mode == "tavily":
-            update = email_agent.tavily_search_node(state)
-            # 원본 함수의 고정 예시/오류 문구는 검색 근거로 사용하지 않습니다.
-            sources = [item for item in update.get("search_results", [])
-                       if isinstance(item, str) and item.startswith("[출처: ")]
-            return {"search_mode": mode, "search_results": sources,
-                    "retrieval_status": "web_sources" if sources else "no_verified_sources"}
-        # 원본 rag_search_node는 고정 예시만 반환합니다. 실제 RAG 완료로 표시하지 않습니다.
-        return {"search_mode": mode, "search_results": [],
-                "retrieval_status": "internal_rag_not_implemented" if mode == "rag_search"
-                else "no_verified_sources"}
-
-    def draft(state):
-        if not state.get("search_results"):
-            return {"draft_response": "확인된 문서 근거가 없어 답변 초안을 생성하지 않았습니다.",
-                    "needs_review": True}
-        # 답변 텍스트만 추출하며 send_reply/human_review Command는 실행하지 않습니다.
-        return dict(email_agent.draft_response(state).update)
-
-    builder = StateGraph(EmailQueryState)
-    builder.add_node("classify", classify)
-    builder.add_node("retrieve", retrieve)
-    builder.add_node("draft", draft)
-    builder.add_edge(START, "classify")
-    builder.add_edge("classify", "retrieve")
-    builder.add_edge("retrieve", "draft")
-    builder.add_edge("draft", END)
-    return builder.compile()
-
-
 @tool
-async def run_email_rag_tool(email_content: str) -> dict:
-    """제공된 이메일 문의를 분류하고 문서 근거로 답변 초안을 작성합니다. 메일을 발송하지 않습니다."""
-    import asyncio
-    from common.common_function import normalize_required_text
-    email_content = normalize_required_text(email_content, "email_content")
-    # 지연 import/그래프 구성과 동기 노드는 이벤트 루프 밖에서 실행합니다.
-    graph = await asyncio.to_thread(create_email_rag_graph)
-    result = await graph.ainvoke({
-        "email_content": email_content, "sender_email": "", "email_id": "",
-        "classification": None, "search_results": [], "customer_history": None,
-        "draft_response": None, "messages": [],
-    })
-    return {
-        "status": "review_required" if result.get("needs_review") else "draft_ready",
-        "classification": result.get("classification"),
-        "draft_response": result.get("draft_response"),
-        "sources": result.get("search_results", []),
-        "retrieval_status": result.get("retrieval_status"),
-        "email_sent": False,
-    }
+async def run_email_rag_tool(
+    email_content: str,
+    sender_email: str = "",
+    email_id: str = "",
+) -> dict:
+    """공통 이메일 입력을 분류하고 근거 기반 초안을 반환합니다. 실제 메일은 발송하지 않습니다."""
+    # 이메일 흐름의 소유권은 이메일 에이전트에 두고 메인은 단일 공개 함수만 호출합니다.
+    from FastAPI.LangGraph.Agent_Import_RAGs.LangGraph_email_RAG_Agent import process_email_query
+    return await process_email_query(
+        email_content=email_content,
+        sender_email=sender_email,
+        email_id=email_id,
+    )
 
 
 # --- LangGraph 빌더 ---
