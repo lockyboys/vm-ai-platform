@@ -4,21 +4,22 @@
 #
 # Plaintext
 # /data/vm_project/FastAPI/LangGraph/
-#  ├── config.py                      # [신규] 루트 공통 설정
-#  ├── .env                           # [신규] API Key 프로그램 바번 등
-#  ├── common/                        # [신규] 공통 모듈 폴더
-#  │    ├── database.py               # (향후 MariaDB/VectorDB 공통 연결용)
-#  │    └── common_function.py        # (공통 유틸리티)
+#  ├── config.py                             # [신규] 루트 공통 설정
+#  ├── .env                                     # [신규] API Key 프로그램 바번 등
+#  ├── common/                                  # [신규] 공통 모듈 폴더
+#  │    ├── database.py                         # (향후 MariaDB/VectorDB 공통 연결용)
+#  │    └── common_function.py                  # (공통 유틸리티)
 #  │
-#  ├── haness/                        # [이동] SPS haness MCP 메인 소스 폴더
-#  │    ├── sps_main_orchestrator.py  # 메인 서버 (haness 내부로 이동)
-#  │    ├── Agent_Import_RAGs/        # RAG 에이전트
-#  │    │    └── LangGraph_Ingestion_Pipeline.py
-#  │    └── Agent_Import_PFDs/        # 자율 탐색 및 Vision 에이전트
-#  │         ├── LangGraph_API_Extractor.py
-#  │         └── LangGraph_Network_Sniffer.py
+#  ├── /data/vm_project/FastAPI/LangGraph/      # [이동] SPS haness MCP 메인 소스 폴더
+#  │    ├── sps_main_orchestrator.py            # 메인 서버 (haness 내부로 이동)
+#  │    ├── Agent_Import_RAGs/                  # RAG 에이전트
+#  │         ├── LangGraph_email_RAG_Agent.py   # RAG 에이전트
+#  │    │    └── LangGraph_Ingestion_Pipeline.py# 원본 RAG 파이프라인 에이전트 구조 및 orchestrator 연동 호환성 통합
+#  │    └── Agent_Import_PFDs/                  # 자율 탐색 및 Vision 에이전트
+#  │         ├── LangGraph_API_Extractor.py     # 시각 분석 에이전트 (LangGraph_API_Extractor.py)
+#  │         └── LangGraph_Network_Sniffer.py   # 크롤링 및 스니핑 에이전트 
 #  │
-#  └── insurance_docs/                # PDF 저장소
+#  └── insurance_docs/                          # PDF 저장소
 # 
 # curl -X POST http://127.0.0.1:8080/api/gemini/chat \
 #   -H "Content-Type: application/json" \
