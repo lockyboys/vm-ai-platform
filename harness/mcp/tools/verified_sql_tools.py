@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from common.common_function import (
+    load_rule_common_code_contract,
     normalize_required_text,
     validate_common_code_value,
 )
@@ -273,20 +274,70 @@ def _normalize_verification_request(
     )
 
 
+# Repository Object 등록 Rule. table_identifier_metadata(테이블별 Identifier 필드)를 이 Rule의
+# ACTION_TYPE 공통코드 계약에서 읽는다(2026-10-25, Rule 기반 Object 선택).
+_REGISTER_OBJECT_RULE_CODE = "RL_REGISTER_REPOSITORY_OBJECT"
+_VERIFIED_SQL_IDENTIFIER_FIELD = "query_id"
+
+
+def _verified_sql_identifier_object_names(contract: Any, schema_name: str) -> list[str]:
+    """Rule 계약의 table_identifier_metadata에서 query_id를 Identifier로 쓰는 테이블 Object 이름을 만든다.
+
+    입력: contract(load_rule_common_code_contract 결과), schema_name(예: te_common)
+    출력: ["te_common.cm_verified_sql_query"] 같은 sp_object.object_name 목록
+    주의: 매핑이 없거나 형식이 틀리면 아무 Object나 고르지 않도록 ValueError로 멈춘다.
+    """
+    metadata = contract.get("table_identifier_metadata") if isinstance(contract, dict) else None
+    if not isinstance(metadata, dict):
+        raise ValueError("Rule contract requires table_identifier_metadata for Verified SQL identifiers.")
+    names = [
+        f"{schema_name}.{table_name}"
+        for table_name, item in metadata.items()
+        if isinstance(item, dict) and item.get("target_identifier_field") == _VERIFIED_SQL_IDENTIFIER_FIELD
+    ]
+    if not names:
+        raise ValueError("Rule contract has no table mapped to target_identifier_field=query_id.")
+    return names
+
+
+def _load_verified_sql_identifier_object_names() -> list[str]:
+    """COMMON Repository의 Object 등록 Rule 계약을 읽어 Verified SQL 대상 Object 이름을 돌려준다."""
+    common_database = CommonDatabase(database_role="COMMON")
+    try:
+        contract = load_rule_common_code_contract(common_database, _REGISTER_OBJECT_RULE_CODE)
+        return _verified_sql_identifier_object_names(contract, common_database.database_name)
+    finally:
+        common_database.close()
+
+
 def _resolve_verified_sql_object_code(
     identifier_database: CommonDatabase,
+    object_names: list[str] | None = None,
 ) -> str:
+    """Verified SQL query_id를 발급할 sp_object Object 코드를 1개로 정한다.
+
+    2026-10-25 수정: 이전에는 target_identifier_field='query_id'인 활성 Object 전체에서 골라,
+    reconcile이 query_id 컬럼을 가진 다른 테이블(7개)을 등록하자 모든 신규 등록이 거부됐다.
+    이제 Rule 계약(table_identifier_metadata)에 적힌 테이블의 Object로만 좁혀 고른다.
+    object_names를 주면 그 목록을 쓰고(테스트), 없으면 Rule 계약을 읽는다.
+    좁힌 뒤에도 1개가 아니면 기존처럼 오류로 멈춘다(추측 금지).
+    """
+    names = list(object_names) if object_names is not None else _load_verified_sql_identifier_object_names()
+    if not names:
+        raise ValueError("Verified SQL identifier Object names are required.")
+    placeholders = ", ".join(["%s"] * len(names))
     object_rows = identifier_database.fetch_all(
-        """
+        f"""
         SELECT object_code
         FROM sp_object
         WHERE target_identifier_field = %s
+          AND object_name IN ({placeholders})
           AND active_yn = 'Y'
           AND status_code = 'ACTIVE'
           AND deleted_dt IS NULL
         ORDER BY object_code
         """,
-        ("query_id",),
+        (_VERIFIED_SQL_IDENTIFIER_FIELD, *names),
     )
     if len(object_rows) != 1:
         raise ValueError(
