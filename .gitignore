@@ -111,7 +111,7 @@ before_*.sql
 __pycache__/
 *.py[cod]
 .pytest_cache/
-
+*_backup*
 # ============================================
 # Applied one-time MCP installation patches
 # ============================================
@@ -126,3 +126,5 @@ output/sps_story_document_demo.docx
 output/sps_story_document_demo_report.md
 ollama_models/
 ollama_runtime/
+credentials.json
+token.json
