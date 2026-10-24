@@ -619,6 +619,20 @@ SPS_SSH_TARGETS = {
 # 개별 SSH는 150초 이내 응답하며 장기 모델 작업은 원격에서 별도로 실행합니다.
 SPS_SSH_JOB_TIMEOUT_SECONDS = 3000
 SPS_SSH_REQUEST_TIMEOUT_SECONDS = 120
+# 종목 선별 공통 설정: 비밀값은 기존 서비스 환경변수에서만 읽고 출력하지 않습니다.
+STOCK_ANALYSIS = {
+    "lookback": 30, "base_days": 5, "breakout_days": 20,
+    "volume_multiple": 1.5, "max_drawdown": 0.10, "max_pe": 25.0,
+    "stale_days": 7, "evidence_stale_days": 120,
+    "timeout": 15, "max_pages": 5, "request_interval": 0.6,
+    "kis_base_url": "https://openapi.koreainvestment.com:9443",
+    "kis_app_key_env": "KIS_APP_KEY", "kis_app_secret_env": "KIS_APP_SECRET",
+    # 필요한 두 시세 API만 허용합니다. 계좌 조회나 주문 API는 포함하지 않습니다.
+    "kis_routes": {
+        "KR": ("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice", "FHKST03010100"),
+        "US": ("/uapi/overseas-price/v1/quotations/dailyprice", "HHDFS76240000"),
+    },
+}
 # SPS Harness MCP 소스 도구 자동 감사 설정(harness/mcp/source_audit.py가 사용).
 # - verified_query_id: cm_verified_sql_query에 등록된 harness_source_audit INSERT Query ID.
 #   (2026-10-24 재등록, 11개 파라미터: id, user_id, file_name, task_type, learning_type, accuracy,
