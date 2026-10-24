@@ -21,13 +21,21 @@ class _FakeDatabase:
     instances: list["_FakeDatabase"] = []
 
     def __init__(self, database_role: str) -> None:
-        assert database_role == "STORY"
+        # 식별자 발급은 STORY, 물리 저장 길이 계약은 COMMON에서 조회한다.
+        assert database_role in {"STORY", "COMMON"}
+        self.database_role = database_role
         self.began = False
         self.committed = False
         self.rolled_back = False
         self.closed = False
         self.events: list[str] = []
         self.__class__.instances.append(self)
+
+    def fetch_one(self, sql, params):
+        """저장 매핑이 없는 legacy fallback도 COMMON 조회를 거쳐야 한다."""
+        assert self.database_role == "COMMON"
+        assert "cm_common_code" in sql and params == ("EG",)
+        return None
 
     def begin(self) -> None:
         self.began = True
@@ -116,6 +124,7 @@ def test_identifier_generate_dry_run_uses_registered_metadata_without_allocation
     database = _FakeDatabase.instances[0]
     assert database.began is False
     assert database.closed is True
+    assert all(item.closed for item in _FakeDatabase.instances)
 
 
 def test_identifier_generate_apply_allocates_and_commits(

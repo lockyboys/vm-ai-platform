@@ -123,6 +123,10 @@ class CoordinatorDouble:
 
 @pytest.fixture
 def memory(monkeypatch):
+    # 모의 Repository의 메타데이터가 뒤의 실DB 테스트와 다음 요청에 남지 않게 복원한다.
+    monkeypatch.setattr(agent_memory, "_REGISTERED_OBJECTS_CACHE", {})
+    monkeypatch.setattr(agent_memory, "_COLUMN_LENGTH_CACHE", {})
+    monkeypatch.setattr(agent_memory, "_VERIFIED_SCHEMAS", set())
     story = StoryDouble()
     mongo = MongoDouble()
     monkeypatch.setattr(agent_memory, "CommonDatabase", lambda **kwargs: story)

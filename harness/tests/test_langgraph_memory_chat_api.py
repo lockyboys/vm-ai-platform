@@ -58,6 +58,10 @@ class DatabaseDouble:
 @pytest.fixture
 def api(monkeypatch):
     database = DatabaseDouble()
+    # 캐시는 테스트 간 Repository 메타데이터를 공유하지 않게 격리한다.
+    monkeypatch.setattr(memory_module, "_REGISTERED_OBJECTS_CACHE", {})
+    monkeypatch.setattr(memory_module, "_VERIFIED_SCHEMAS", set())
+    monkeypatch.setattr(memory_module, "_COLUMN_LENGTH_CACHE", {})
     # Isolate the API contract from live DB while exercising the real writer.
     class StoryDouble:
         database_name = "te_story_platform"
@@ -66,12 +70,16 @@ def api(monkeypatch):
                 return {"table_comment": "SPS Repository"}
             if "information_schema.columns" in sql:
                 return {"character_maximum_length": 99}
-            return {"object_id": "SP_RP_OBJECT_" + params[0],
+            code = params[0]
+            return {"object_id": "SP_RP_OBJECT_" + code,
                     "object_code": params[0], "object_name": "te_story_platform.sp_execution_history",
                     "business_code": "SP", "domain_code": "RP", "object_level": 3,
                     "identifier_target_code": "EG", "sequence_scope_code": "DAILY",
-                    "sequence_length": 5, "target_identifier_field": "execution_history_id"}
+                    "sequence_length": 5,
+                    "target_identifier_field": ("mongodb_document_master_id" if code == "MCM" else "execution_history_id")}
         def fetch_all(self, sql, params):
+            if "FROM sp_object" in sql:
+                return [self.fetch_one(sql, (code,)) for code in params]
             return [{"column_name": "id", "column_comment": "Identifier"}]
         def begin(self): pass
         def execute(self, sql, params): return 1
@@ -80,15 +88,22 @@ def api(monkeypatch):
         def close(self): pass
     class CoordinatorDouble:
         def __init__(self, repository): pass
+        def resolve_identifier_maximum_length(self, **kwargs):
+            return 99
         def prepare_registered_object(self, **kwargs):
-            return {"object_code": "EXECUTION_HISTORY"}, {"lock": "ready"}
+            code = kwargs["object_metadata"]["object_code"]
+            return {"object_code": code}, {"lock": "ready", "object_level": 4}
         def acquire(self, prepared): pass
         def release(self, prepared): pass
         def resolve(self, **kwargs):
-            return SimpleNamespace(identifier="SP_RP_EXECUTION_HISTORY_20260924_00001")
+            code = kwargs["request"]["object_code"]
+            return SimpleNamespace(identifier=f"SP_RP_{code}_20260924_00001", object_level=4)
     story = StoryDouble()
     monkeypatch.setattr(memory_module, "CommonDatabase", lambda **kwargs: story)
     monkeypatch.setattr(memory_module, "IdentifierCoordinator", CoordinatorDouble)
+    # reserve_document_master_id는 공통 모듈 내부에서 Coordinator를 지역 import한다.
+    coordinator_module = importlib.import_module("engine.identifier.coordinator")
+    monkeypatch.setattr(coordinator_module, "IdentifierCoordinator", CoordinatorDouble)
     memory = memory_module.PersistentMemory(database=database)
     graph = AsyncMock()
     graph.ainvoke.return_value = {"verified_response": "테스트 응답", "token_usage": {}}

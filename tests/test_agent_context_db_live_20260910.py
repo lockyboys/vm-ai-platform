@@ -6,10 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 agent = importlib.import_module("FastAPI.LangGraph.langgraph_long_term_memory_agent")
-pytestmark = pytest.mark.skipif(
-    not any("test_agent_context_db_live_20260910.py" in a for a in sys.argv[1:]),
-    reason="Explicit live DB invocation required",
-)
+# 사용자 지시에 따라 기본 회귀에서도 실제 DB 경계를 검증한다.
 
 def test_context_persistence_replay_conflict_and_isolation(monkeypatch):
     subject = "context-db-verification-" + uuid4().hex

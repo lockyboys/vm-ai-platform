@@ -10,10 +10,7 @@ from uuid import uuid4
 agent = importlib.import_module("FastAPI.LangGraph.langgraph_long_term_memory_agent")
 memory_module = importlib.import_module("FastAPI.LangGraph.agent_memory")
 ROOT = Path(__file__).resolve().parents[1]
-pytestmark = pytest.mark.skipif(
-    not any("test_langgraph_memory_live.py" in arg for arg in sys.argv[1:]),
-    reason="Live checks require an explicit test-file invocation",
-)
+# 사용자 지시에 따라 기본 회귀에서도 실제 DB·Gemini 검증을 실행한다.
 
 
 def test_mongodb_memory_survives_new_process():
@@ -41,8 +38,13 @@ finally:
         assert child.returncode == 0, "Fresh-process MongoDB read failed (output withheld)"
         assert "PERSISTENCE_VERIFIED" in child.stdout
     finally:
-        memory.database.delete_one(memory.collection, selector)
-        memory.close()
+        # 검증 중 닫았던 인스턴스를 재사용하지 않고 새 연결로 정확한 테스트 행만 정리한다.
+        cleanup = memory_module.PersistentMemory()
+        try:
+            cleanup.database.delete_one(cleanup.collection, selector)
+        finally:
+            cleanup.close()
+            memory.close()
 
 
 def test_live_gemini_recalls_memory_in_new_process():

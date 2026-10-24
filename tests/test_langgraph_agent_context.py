@@ -1,6 +1,7 @@
 import importlib
 
 from fastapi.testclient import TestClient
+from harness.tests.test_langgraph_memory_chat_api import api
 
 agent = importlib.import_module("FastAPI.LangGraph.langgraph_long_term_memory_agent")
 
@@ -17,14 +18,15 @@ class FakeGraph:
         }
 
 
-def test_agent_context_injects_calendar_and_gmail(monkeypatch):
+def test_agent_context_injects_calendar_and_gmail(monkeypatch, api):
     fake_graph = FakeGraph()
     monkeypatch.setattr(agent, "get_agent_graph", lambda: fake_graph)
     calendar_results = [{"event_id": "CAL001", "summary": "정형외과 예약"}]
     gmail_results = [{"message_id": f"MSG{i}"} for i in range(1, 7)]
 
-    with TestClient(agent.app) as client:
-        response = client.post(
+    # 공통 fixture가 인증 주체와 저장소만 격리하고 실제 endpoint/writer를 실행한다.
+    client = api[0]
+    response = client.post(
             "/api/agent/context",
             json={
                 "query": "최근 보험 관련 일정과 메일 확인",
