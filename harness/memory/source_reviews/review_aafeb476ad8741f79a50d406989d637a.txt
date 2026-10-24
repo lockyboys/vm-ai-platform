@@ -1,0 +1,7 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/multi_persona/multi_persona_agent_Ollama_Gemma4_e4b.py, 입력 문자 수=76680
+📊 [router_node 토큰 소모량] 입력: 26733 / 출력: 27 / 총합: 26760
+🧭 [Planner] 실행 계획: REVIEWER
+📊 [router_node 토큰 소모량] 입력: 27993 / 출력: 25687 / 총합: 53680
+🧭 [Planner] 실행 계획: REVIEWER
+📊 [agent_REVIEWER 토큰 소모량] 입력: 27247 / 출력: 5741 / 총합: 32988
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.

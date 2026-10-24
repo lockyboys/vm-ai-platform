@@ -1,0 +1,4 @@
+{"mcp_registry": {"tool_count": 51, "agent_chat_wrapper_present": false}}
+{"local": {"unauthenticated": 401, "wrong_field": 422, "whitespace": 422}}
+{"gateway": {"unauthenticated": 401, "wrong_field": 422, "whitespace": 422}}
+{"local": {"unauthenticated": 401, "wrong_field": 422, "whitespace": 422}, "gateway": {"unauthenticated": 401, "wrong_field": 422, "whitespace": 422}, "gemini_http_status": 200, "gemini_result": "**API 연결 시험 결과 요약**\n\n* **상태**: 정상 연결 완료 (성공)\n* **내용**: 외부 도구 호출 없이 지정된 응답 메시지 정상 수신\n* **비고**: AI 비서와의 대화 및 요청 처리 준비가 완료되었습니다."}

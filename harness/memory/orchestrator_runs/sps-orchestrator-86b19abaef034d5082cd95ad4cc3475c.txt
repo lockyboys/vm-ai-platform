@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/data/vm_project/haness/mcp/tools/orchestrator_tools.py", line 110, in <module>
+    asyncio.run(_worker())
+  File "/usr/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 653, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/data/vm_project/haness/mcp/tools/orchestrator_tools.py", line 105, in _worker
+    result = await api_chat_orchestrator(ChatRequest(query=request["query"]))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py", line 238, in api_chat_orchestrator
+    _require_valid_api_key(authorization)
+  File "/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py", line 231, in _require_valid_api_key
+    provided_key = (authorization or "").removeprefix("Bearer ").strip()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Header' object has no attribute 'removeprefix'

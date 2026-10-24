@@ -1,0 +1,8 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py, 입력 문자 수=87370
+📊 [router_node 토큰 소모량] 입력: 30361 / 출력: 2183 / 총합: 32544
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → REVIEWER → ARCHITECT → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 30564 / 출력: 10005 / 총합: 40569
+📊 [agent_REVIEWER 토큰 소모량] 입력: 31264 / 출력: 7775 / 총합: 39039
+📊 [agent_ARCHITECT 토큰 소모량] 입력: 30263 / 출력: 793 / 총합: 31056
+📊 [agent_PARTNER 토큰 소모량] 입력: 30205 / 출력: 12359 / 총합: 42564
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.

@@ -1,0 +1,6 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py, 입력 문자 수=5759
+📊 [router_node 토큰 소모량] 입력: 3651 / 출력: 5540 / 총합: 9191
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 3854 / 출력: 8258 / 총합: 12112
+📊 [agent_PARTNER 토큰 소모량] 입력: 3495 / 출력: 5425 / 총합: 8920
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.

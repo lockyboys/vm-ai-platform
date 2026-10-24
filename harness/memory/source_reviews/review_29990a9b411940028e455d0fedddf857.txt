@@ -1,0 +1,6 @@
+[입력 준비] 소스=/data/vm_project/haness/source_repair.py, 입력 문자 수=13764
+📊 [router_node 토큰 소모량] 입력: 6162 / 출력: 23719 / 총합: 29881
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 6365 / 출력: 2665 / 총합: 9030
+📊 [agent_PARTNER 토큰 소모량] 입력: 6006 / 출력: 9865 / 총합: 15871
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
