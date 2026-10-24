@@ -25,6 +25,9 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 VALID_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ALLOWED_SPS_REPAIR_FIELDS = {"_sps.knowledge_type_id", "_sps.knowledge_type_code", "_sps.schema_version", "_sps.legacy_payload_repaired_by"}
+# 식별자 정정 경로에서만 바꿀 수 있는 _sps 필드(MariaDB 기본키·실행 이력 ID와 짝).
+# 원천 테이블명(_sps.source_table_name)은 정정 대상이 아니다.
+ALLOWED_SPS_IDENTIFIER_FIELDS = {"_sps.source_identifier", "_sps.execution_history_id"}
 
 
 def _validate_collection_name(collection_name: str) -> str:
@@ -414,16 +417,29 @@ def mongodb_update_document(
     set_document = _parse_json_object(set_json, "set_json")
     if not filter_document or not set_document:
         raise ValueError("filter_json and set_json must not be empty.")
-    if set(filter_document) != {"_sps.contract_code", "_sps.source_identifier"}:
+    if set(filter_document) == {"_sps.contract_code", "_sps.source_identifier"}:
+        # 기존 경로: 저장소 분리 계약 문서의 Payload/Audit/승인된 보정 필드만 갱신한다.
+        if any(
+            not (field_name.startswith("payload.") or field_name.startswith("audit.") or field_name in ALLOWED_SPS_REPAIR_FIELDS)
+            for field_name in set_document
+        ):
+            raise ValueError("set_json may update only payload.*, audit.*, or approved SPS repair fields.")
+    elif set(filter_document) == {"_sps.source_table_name", "_sps.source_identifier"}:
+        # 식별자 정정 경로(2026-10-24): contract_code가 없는 원천 테이블 Payload 문서
+        # (예: cm_verified_sql_query_payload)는 원천 테이블명+식별자로 1건을 지정하고,
+        # MariaDB 기본키 정정에 맞춰 식별자 필드만 바꾼다. Payload 내용은 바꾸지 않는다.
+        if any(field_name not in ALLOWED_SPS_IDENTIFIER_FIELDS for field_name in set_document):
+            raise ValueError(
+                "Identifier correction may update only "
+                f"{sorted(ALLOWED_SPS_IDENTIFIER_FIELDS)}."
+            )
+        if any(not isinstance(value, str) or not value.strip() for value in set_document.values()):
+            raise ValueError("Identifier correction values must be non-empty strings.")
+    else:
         raise ValueError(
             "filter_json must identify exactly one SPS source document by "
             "_sps.contract_code and _sps.source_identifier."
         )
-    if any(
-        not (field_name.startswith("payload.") or field_name.startswith("audit.") or field_name in ALLOWED_SPS_REPAIR_FIELDS)
-        for field_name in set_document
-    ):
-        raise ValueError("set_json may update only payload.*, audit.*, or approved SPS repair fields.")
 
     database = CommonDatabase(
         database_role=role,
