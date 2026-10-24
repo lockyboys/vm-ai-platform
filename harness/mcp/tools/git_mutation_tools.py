@@ -274,8 +274,15 @@ def git_commit(
     message: str,
     expected_paths: list[str],
     dry_run: bool = True,
+    keep_other_staged: bool = False,
 ) -> dict:
-    """Commit only when the exact expected set is staged. Never push."""
+    """Commit only when the exact expected set is staged. Never push.
+
+    keep_other_staged=False (default): staged set must equal expected_paths exactly.
+    keep_other_staged=True: commit only expected_paths (each must be staged and have
+    no unstaged working-tree changes); all other staged files stay staged for a later
+    commit. Use this to split several accumulated stage calls into separate commits.
+    """
     normalized_message = message.strip()
     if not normalized_message:
         raise ValueError("Commit message must not be empty.")
@@ -290,27 +297,51 @@ def git_commit(
     actual_staged_paths = _staged_paths()
     if not actual_staged_paths:
         raise ValueError("There are no staged files to commit.")
-    if actual_staged_paths != normalized_expected_paths:
+
+    if keep_other_staged:
+        # 부분 커밋: 지정 파일이 모두 staged인지 먼저 확인한다.
+        not_staged = [path for path in normalized_expected_paths if path not in actual_staged_paths]
+        if not_staged:
+            raise ValueError(f"Paths are not staged: {not_staged}")
+        # git commit --only 는 지정 경로의 "작업 트리" 내용을 커밋한다.
+        # staged 이후 작업 트리가 또 바뀐 파일은 staged 내용과 달라지므로 거부한다.
+        unstaged = _run_git(["diff", "--name-only", "--", *normalized_expected_paths])
+        if unstaged.returncode != 0:
+            raise RuntimeError(unstaged.stderr.strip() or "Unable to read unstaged changes.")
+        dirty = sorted(line for line in unstaged.stdout.splitlines() if line)
+        if dirty:
+            raise ValueError(f"Paths have unstaged changes after staging: {dirty}")
+        remaining = [path for path in actual_staged_paths if path not in normalized_expected_paths]
+    elif actual_staged_paths != normalized_expected_paths:
         raise ValueError(
             "Staged files do not exactly match expected_paths. "
             f"expected={normalized_expected_paths}, actual={actual_staged_paths}"
         )
+    else:
+        remaining = []
 
     if dry_run:
-        return {
+        plan = {
             "dry_run": True,
             "would_commit": True,
             "message": normalized_message,
-            "staged_paths": actual_staged_paths,
+            "staged_paths": normalized_expected_paths if keep_other_staged else actual_staged_paths,
         }
+        if keep_other_staged:
+            plan["would_remain_staged"] = remaining
+        return plan
 
-    result = _run_git(
-        [
-            "commit",
-            "-m",
-            normalized_message,
-        ]
-    )
+    if keep_other_staged:
+        # --only: 지정 경로만 커밋하고 다른 staged 항목은 index에 그대로 남긴다.
+        result = _run_git(["commit", "--only", "-m", normalized_message, "--", *normalized_expected_paths])
+    else:
+        result = _run_git(
+            [
+                "commit",
+                "-m",
+                normalized_message,
+            ]
+        )
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -323,7 +354,7 @@ def git_commit(
         "dry_run": False,
         "committed": True,
         "message": normalized_message,
-        "committed_paths": actual_staged_paths,
+        "committed_paths": normalized_expected_paths if keep_other_staged else actual_staged_paths,
         "git_output": result.stdout.splitlines(),
         "remaining_staged_paths": _staged_paths(),
     }
