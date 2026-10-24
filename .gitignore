@@ -149,3 +149,6 @@ cloudflared-linux-amd64
 cloudflared.deb
 client_downloads/
 C:*
+
+# 사용자가 백업 목적으로 만든 MCP 서버 번호 사본(2026-10-25 사용자 확인)
+harness/mcp/sps_harness_server[0-9].py
