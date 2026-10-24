@@ -362,6 +362,30 @@ class CommonDatabase:
             dict(filter_document or {})
         )
 
+    def rename_collection(
+        self,
+        source_name: str,
+        target_name: str,
+    ) -> str:
+        """컬렉션 이름만 바꾸고 바뀐 이름을 돌려준다(2026-10-24 추가).
+
+        목적: harness mongodb_rename_collection 도구가 이 메서드를 호출하지만 실제 클래스에
+              없어서(테스트 가짜 객체에만 존재) 적용 단계에서 AttributeError가 나던 버그 수정.
+        주의: dropTarget=False로 이미 있는 대상 컬렉션을 절대 덮어쓰지 않는다(데이터 삭제 방지).
+              이름은 영문/숫자/밑줄만 허용하고, 원본과 대상이 같으면 거부한다.
+        """
+        import re as _re  # 모듈 import 구역을 건드리지 않기 위해 지역 import
+
+        pattern = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+        if not isinstance(source_name, str) or not pattern.fullmatch(source_name):
+            raise ValueError("source_name must be a plain collection name.")
+        if not isinstance(target_name, str) or not pattern.fullmatch(target_name):
+            raise ValueError("target_name must be a plain collection name.")
+        if source_name == target_name:
+            raise ValueError("source_name and target_name must differ.")
+        self.get_collection(source_name).rename(target_name, dropTarget=False)
+        return target_name
+
     # -------------------------------------------------------------------------
     # Health Check
     # -------------------------------------------------------------------------
