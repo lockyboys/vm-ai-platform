@@ -1,0 +1,382 @@
+# Cloud Shell에서 실행 (3단계)
+# 1단계: 풀버전 openapi-spec.yaml 생성
+# cat << 'EOF' > openapi-spec.yaml
+swagger: "2.0"
+info:
+  title: "SPS Gemini Agent & MCP Integrated Gateway"
+  description: "FastAPI LangGraph Agent와 SPS Harness MCP 서버를 완벽 통합 제공하는 종합 API Gateway"
+  version: "1.0.0"
+schemes:
+  - "https"
+produces:
+  - "application/json"
+consumes:
+  - "application/json"
+paths:
+  # ==========================================
+  # 1. MCP Core 엔드포인트
+  # ==========================================
+  /mcp:
+    get:
+      summary: "MCP 서버 정보 및 상태 확인"
+      operationId: "getMcp"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/mcp"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 600.0
+        disable_auth: true
+      parameters:
+        - in: "header"
+          name: "Authorization"
+          type: "string"
+          required: false
+          description: "Bearer Token Passthrough"
+      responses:
+        200:
+          description: "성공"
+
+    post:
+      summary: "MCP JSON-RPC 메시지 처리 (tools/list, tools/call 등)"
+      operationId: "postMcp"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/mcp"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 600.0
+        disable_auth: true
+      parameters:
+        - in: "header"
+          name: "Authorization"
+          type: "string"
+          required: false
+          description: "Bearer Token Passthrough"
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+
+  # ==========================================
+  # 2. MCP 스트림 & 메시지 전송 엔드포인트
+  # ==========================================
+  /sse:
+    get:
+      summary: "MCP SSE 연결 엔드포인트"
+      operationId: "getSse"
+      produces:
+        - "text/event-stream"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/sse"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 600.0
+      parameters:
+        - in: "header"
+          name: "Authorization"
+          type: "string"
+          required: false
+      responses:
+        200:
+          description: "성공"
+
+  /messages:
+    post:
+      summary: "MCP 메시지 포스트 엔드포인트"
+      operationId: "postMessages"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/messages"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 600.0
+      parameters:
+        - in: "header"
+          name: "Authorization"
+          type: "string"
+          required: false
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+
+  # ==========================================
+  # 3. OAuth2 토큰 & 인증 발급 엔드포인트
+  # ==========================================
+  /authorize:
+    get:
+      summary: "OAuth2 Authorization 엔드포인트"
+      operationId: "getAuthorize"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/authorize"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  /token:
+    post:
+      summary: "OAuth2 Token 교환 엔드포인트"
+      operationId: "postToken"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/token"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  /register:
+    post:
+      summary: "OAuth2 Dynamic Client Registration 엔드포인트"
+      operationId: "postRegister"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/register"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      parameters:
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+
+  /revoke:
+    post:
+      summary: "OAuth2 Token Revocation 엔드포인트"
+      operationId: "postRevoke"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/revoke"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  /oauth/google/callback:
+    get:
+      summary: "Google OAuth 리디렉션 콜백 엔드포인트"
+      operationId: "getGoogleCallback"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/oauth/google/callback"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  # ==========================================
+  # 4. OAuth & OpenID Discovery 메타데이터 엔드포인트
+  # ==========================================
+  /.well-known/openid-configuration:
+    get:
+      summary: "OpenID Discovery 메타데이터"
+      operationId: "getOpenIdConfig"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/openid-configuration"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  /.well-known/openid-configuration/mcp:
+    get:
+      summary: "MCP 전용 OpenID Discovery"
+      operationId: "getOpenIdConfigMcp"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/openid-configuration/mcp"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: "OAuth Authorization Server Discovery (ChatGPT 필수)"
+      operationId: "getOauthAuthServer"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/oauth-authorization-server"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  /.well-known/oauth-protected-resource:
+    get:
+      summary: "OAuth Protected Resource Metadata"
+      operationId: "getOauthResource"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/oauth-protected-resource"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  /.well-known/oauth-protected-resource/mcp:
+    get:
+      summary: "MCP OAuth Protected Resource Metadata"
+      operationId: "getOauthResourceMcp"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/oauth-protected-resource/mcp"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      responses:
+        200:
+          description: "성공"
+
+  # ==========================================
+  # 5. Gmail 업무 자동화 엔드포인트
+  # ==========================================
+  /gmail/read:
+    get:
+      summary: "최근 Gmail 메일 목록 조회"
+      operationId: "readRecentEmails"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/gmail/read"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      parameters:
+        - in: "header"
+          name: "Authorization"
+          type: "string"
+          required: false
+        - name: "max_results"
+          in: "query"
+          required: false
+          type: "integer"
+          default: 3
+      responses:
+        200:
+          description: "성공"
+
+  /gmail/send:
+    post:
+      summary: "Gmail 메일 발송"
+      operationId: "sendGmail"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/gmail/send"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 60.0
+      parameters:
+        - in: "header"
+          name: "Authorization"
+          type: "string"
+          required: false
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+
+  # ==========================================
+  # 6. SPS LangGraph 에이전트 대화 엔드포인트
+  # ==========================================
+  /agent/chat:
+    post:
+      summary: "SPS LangGraph 에이전트 대화 및 명령 수행"
+      operationId: "chatWithSpsAgent"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/agent/chat"
+        path_translation: CONSTANT_ADDRESS
+        deadline: 600.0
+        disable_auth: true
+      parameters:
+        - in: "header"
+          name: "Authorization"
+          type: "string"
+          required: false
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+#  EOF
+
+# 2단계: 신규 Config 생성 (sps-mcp-cfg-v14)
+# gcloud api-gateway api-configs create sps-mcp-cfg-v21 \
+#     --api=sps-mcp-api \
+#     --openapi-spec=./openapi-spec.yaml \
+#     --display-name="SPS MCP Master Config v21 Full" \
+#     --project=gen-lang-client-0968716109
+
+# # 3단계: 게이트웨이 즉시 배포 (Update)
+# gcloud api-gateway gateways update sps-mcp-gateway \
+#     --location=asia-northeast1 \
+#     --api=sps-mcp-api \
+#     --api-config=sps-mcp-cfg-v21 \
+#     --project=gen-lang-client-0968716109
+
+
+# 적용 결과: state와 apiConfig 확인
+# gcloud api-gateway gateways describe sps-mcp-gateway \
+#   --location=asia-northeast1 \
+#   --project=gen-lang-client-0968716109 \
+#   --format="yaml(state,apiConfig)"
+
+# cat << 'EOF' > run_full_test.sh
+# #!/bin/bash
+
+# GW="https://sps-mcp-gateway-5v4kufkk.an.gateway.dev"
+# CLIENT_ID="00914338-4226-46c0-80dc-5ac1b00f13d5"
+# CLIENT_SECRET="36ad13904852b83c31fa470edde628da861c014fd77ba3e792238c03a0b37807"
+
+# echo "=========================================================="
+# echo "      🚀 SPS MCP Master Gateway 전수 테스트               "
+# echo "=========================================================="
+
+# # 1. ChatGPT 연동 핵심 Discovery 검사
+# echo -n "1. OAuth Authorization Server Discovery: "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" "$GW/.well-known/oauth-authorization-server"
+
+# echo -n "2. OpenID Configuration Discovery: "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" "$GW/.well-known/openid-configuration"
+
+# echo -n "3. OAuth Protected Resource Metadata: "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" "$GW/.well-known/oauth-protected-resource/mcp"
+
+# # 2. OAuth 인증 흐름 검사
+# echo -n "4. Authorize Endpoint (리디렉션 확인): "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" "$GW/authorize?response_type=code&client_id=$CLIENT_ID"
+
+# echo -n "5. Token Endpoint (파라미터 검증 확인): "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST "$GW/token" -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=authorization_code"
+
+# # 3. MCP Core 통신 검사
+# echo -n "6. MCP Status (GET): "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" "$GW/mcp"
+
+# echo -n "7. MCP RPC (POST, 인증 미들웨어 도달 확인): "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST "$GW/mcp" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# # 4. 부가 서비스 라우팅 검사
+# echo -n "8. Gmail Read 라우팅: "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" "$GW/gmail/read"
+
+# echo -n "9. Gmail Send 라우팅: "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST "$GW/gmail/send" -H "Content-Type: application/json" -d '{"to":"test@test.com"}'
+
+# echo -n "10. Agent Chat 라우팅: "
+# curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST "$GW/agent/chat" -H "Content-Type: application/json" -d '{"message":"hi"}'
+
+# echo "=========================================================="
+# echo "테스트 완료!"
+# EOF
+
+# chmod +x run_full_test.sh
+# ./run_full_test.sh

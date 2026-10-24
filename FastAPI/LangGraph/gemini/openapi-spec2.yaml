@@ -1,0 +1,193 @@
+# cat << 'EOF' > openapi-spec.yaml
+swagger: "2.0"
+info:
+  title: "SPS Gemini Agent & MCP Integrated Gateway"
+  version: "1.0.0"
+schemes:
+  - "https"
+produces:
+  - "application/json"
+consumes:
+  - "application/json"
+paths:
+  # 1. MCP Core 엔드포인트
+  /mcp:
+    get:
+      operationId: "getMcp"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/mcp"
+      responses:
+        200:
+          description: "성공"
+    post:
+      operationId: "postMcp"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/mcp"
+      parameters:
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+
+  # 2. MCP 스트림 & 메시지 엔드포인트
+  /sse:
+    get:
+      operationId: "getSse"
+      produces:
+        - "text/event-stream"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/sse"
+      responses:
+        200:
+          description: "성공"
+
+  /messages:
+    post:
+      operationId: "postMessages"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/messages"
+      parameters:
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+
+  # 3. OAuth & OpenID 엔드포인트
+  /authorize:
+    get:
+      operationId: "getAuthorize"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/authorize"
+      responses:
+        200:
+          description: "성공"
+
+  /token:
+    post:
+      operationId: "postToken"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/token"
+      responses:
+        200:
+          description: "성공"
+
+  /.well-known/openid-configuration:
+    get:
+      operationId: "getOpenIdConfig"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/openid-configuration"
+      responses:
+        200:
+          description: "성공"
+
+  /.well-known/oauth-authorization-server:
+    get:
+      operationId: "getOauthAuthServer"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/oauth-authorization-server"
+      responses:
+        200:
+          description: "성공"
+
+  /.well-known/oauth-protected-resource/mcp:
+    get:
+      operationId: "getOauthResourceMcp"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/.well-known/oauth-protected-resource/mcp"
+      responses:
+        200:
+          description: "성공"
+
+  # 4. Gmail 엔드포인트
+  /gmail/read:
+    get:
+      operationId: "readRecentEmails"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/gmail/read"
+      parameters:
+        - name: "max_results"
+          in: "query"
+          required: false
+          type: "integer"
+          default: 3
+      responses:
+        200:
+          description: "성공"
+
+  /gmail/send:
+    post:
+      operationId: "sendGmail"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/gmail/send"
+      parameters:
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+
+  # 5. 에이전트 대화 엔드포인트
+  /agent/chat:
+    post:
+      operationId: "chatWithSpsAgent"
+      x-google-backend:
+        address: "https://subprime-glowworm-mundane.ngrok-free.dev/agent/chat"
+      parameters:
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            type: "object"
+      responses:
+        200:
+          description: "성공"
+# EOF
+
+# 2단계: 새 Config 생성 (sps-gateway-config-v2)
+# gcloud api-gateway api-configs create sps-gateway-config-v2 \
+#   --api=sps-haness-mcp-gmail-agent-api \
+#   --openapi-spec=openapi-spec.yaml \
+#   --display-name="SPS Gateway Config v2"
+
+# 생성된 코드에는 여기에 표시되지 않은 라이선스 제한사항이 적용될 수 있습니다. 주의해서 코드를 사용하세요.자세히 알아보기 
+
+# 3단계: 게이트웨이(sps-gateway)에 업데이트 배포
+# gcloud api-gateway gateways update sps-gateway \
+#   --api=sps-haness-mcp-gmail-agent-api \
+#   --api-config=sps-gateway-config-v2 \
+#   --location=asia-northeast1
+  
+# 3. API Config 등록 (OpenAPI 스펙 업로드)
+# 작성해 두신 /data/vm_project/openapi-spec.yaml 파일을 사용하여 새 API Config(예: sps-agent-cfg-v1)를 등록합니다.
+# gcloud api-gateway api-configs create sps-agent-cfg-v1 \
+#     --api=sps-haness-mcp-gmail-agent-api \
+#     --openapi-spec=/data/vm_project/openapi-spec.yaml \
+#     --display-name="SPS Agent Config v1"
+	
+# gcloud api-gateway api-configs create sps-agent-cfg-v5 \
+#     --api=sps-mcp-api \
+#     --openapi-spec=openapi-spec.yaml \
+#     --display-name="SPS Agent Config v5"
+
+# 4단계: 배포된 Gateway URL 확인
+# 배포가 완료되면 게이트웨이의 호스트 URL(엔드포인트)을 확인합니다.
+
+# gcloud api-gateway gateways describe sps-gateway \
+#     --location=asia-northeast1 \
+#     --format="value(defaultHostname)"
+	
+# jeajea_park@cloudshell:~ (gen-lang-client-0968716109)$ gcloud api-gateway gateways describe sps-gateway \
+#     --location=asia-northeast1 \
+#     --format="value(defaultHostname)"
+# sps-gateway-459577949780.asia-northeast1.gateway.dev
