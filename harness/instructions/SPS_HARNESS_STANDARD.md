@@ -48,3 +48,12 @@
 - Do not modify production resources without explicit approval.
 - Do not commit automatically unless explicitly requested.
 - Do not perform destructive database operations without evidence and verification.
+
+## MCP Response Timeout Policy
+
+- The single MCP response-liveness limit is **150 seconds (2 minutes 30 seconds)**.
+- If an MCP call returns no response within 150 seconds, stop the current MCP operation and report the tool, elapsed time, and last confirmed state. Do not silently extend or repeat the same call.
+- An explicit connection or authentication failure may be reported immediately; waiting 150 seconds is not required.
+- Shorter per-tool execution limits (for example, 120 seconds for source execution or an SSH request) remain valid and do not replace the 150-second client liveness limit.
+- A returned job ID is a response, not proof of completion. Long jobs use their own execution budget and bounded status calls; each status call still follows this policy.
+- A client timeout does not prove that a remote job stopped. Query its saved job state before submitting another job.
