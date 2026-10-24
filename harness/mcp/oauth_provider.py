@@ -71,6 +71,21 @@ class HarnessOAuthSettings:
     client_registry_path: str
     # 비어 있으면 일반 CommonAuth 토큰은 받지 않습니다. 사용자 ID는 정확히 일치해야 합니다.
     common_auth_allowed_subjects: frozenset[str] = frozenset()
+    # 필수 scope(scopes)와 별개로 "발급할 수 있는" 관리자 scope. 없어도 토큰은 유효하다.
+    # harness/mcp/scope_guard.py의 ADMIN_SCOPE와 반드시 같은 값이어야 한다(테스트로 확인).
+    admin_scope: str = "mcp:admin"
+    # True면 scope를 따로 요청하지 않은 로그인(기존 클라이언트)에도 관리자 scope를 함께 발급한다.
+    default_grants_admin: bool = True
+
+    @property
+    def grantable_scopes(self) -> tuple[str, ...]:
+        """클라이언트가 요청해도 되는 scope 전체(필수 scope + 관리자 scope, 중복 제거)."""
+        return tuple(dict.fromkeys((*self.scopes, self.admin_scope)))
+
+    @property
+    def default_scopes(self) -> tuple[str, ...]:
+        """scope를 따로 요청하지 않은 로그인에 발급할 scope."""
+        return self.grantable_scopes if self.default_grants_admin else self.scopes
 
     @classmethod
     def from_environment(cls) -> "HarnessOAuthSettings":
@@ -140,6 +155,11 @@ class HarnessOAuthSettings:
             scopes=scopes,
             client_registry_path=client_registry_path,
             common_auth_allowed_subjects=common_auth_allowed_subjects,
+            # false/0/no/off로 두면 scope를 따로 요청하지 않은 로그인에 관리자 scope를 주지 않는다.
+            default_grants_admin=os.getenv("SPS_MCP_OAUTH_DEFAULT_GRANTS_ADMIN", "true")
+            .strip()
+            .lower()
+            not in ("0", "false", "no", "off"),
         )
 
     @staticmethod
@@ -352,8 +372,9 @@ class HarnessOAuthProvider(
                 "invalid_request",
                 "OAuth resource does not match the SPS Harness MCP resource.",
             )
-        requested_scopes = list(params.scopes or self.settings.scopes)
-        if not set(requested_scopes).issubset(self.settings.scopes):
+        # 필수 scope뿐 아니라 관리자 scope도 요청할 수 있다. 목록에 없는 scope만 거부한다.
+        requested_scopes = list(params.scopes or self.settings.default_scopes)
+        if not set(requested_scopes).issubset(self.settings.grantable_scopes):
             raise AuthorizeError("invalid_scope", "Requested OAuth scope is not supported.")
 
         state = secrets.token_urlsafe(32)
@@ -405,7 +426,8 @@ class HarnessOAuthProvider(
         params = pending.params
         authorization_code = AuthorizationCode(
             code=authorization_code_value,
-            scopes=list(params.scopes or self.settings.scopes),
+            # scope를 따로 요청하지 않은 로그인에는 기본 발급 scope(관리자 scope 포함 가능)를 준다.
+            scopes=list(params.scopes or self.settings.default_scopes),
             expires_at=time.time() + self.settings.authorization_code_expire_seconds,
             client_id=pending.client_id,
             code_challenge=params.code_challenge,

@@ -619,6 +619,24 @@ SPS_SSH_TARGETS = {
 # 개별 SSH는 150초 이내 응답하며 장기 모델 작업은 원격에서 별도로 실행합니다.
 SPS_SSH_JOB_TIMEOUT_SECONDS = 3000
 SPS_SSH_REQUEST_TIMEOUT_SECONDS = 120
+# SPS Harness MCP 소스 도구 자동 감사 설정(harness/mcp/source_audit.py가 사용).
+# - verified_query_id: cm_verified_sql_query에 등록된 harness_source_audit INSERT Query ID.
+#   (2026-10-24 재등록, 11개 파라미터: id, user_id, file_name, task_type, learning_type, accuracy,
+#    created_by, updated_by, program_id, client_ip, 중복검사 id. 이전 ..._00004는 id 컬럼이 없어 폐기 대상)
+# - identifier_object_code: 행 id(Level 4)를 발급할 sp_object Object 코드(SP_SR_SOURCE_AUDIT_20261024_00001).
+# - agent_session_id: user_id에 넣을 AI 에이전트 세션 ID({AI 모델 ID}_{YYYYMMDD}_{HHMMSS} KST).
+#   MCP 서버는 호출한 에이전트를 알 수 없으므로 환경변수로 지정한다.
+# - requester_id: created_by/updated_by에 넣을 요청자. 환경변수로 바꿀 수 있다.
+SOURCE_AUDIT = {
+    "verified_query_id": os.getenv(
+        "SPS_SOURCE_AUDIT_QUERY_ID", "CM_CO_HARNESS_SOURCE_AUDIT_CREATE_L4_20261024_183559_00006"
+    ),
+    "identifier_object_code": "SOURCE_AUDIT",
+    "agent_session_id": os.getenv("SPS_SOURCE_AUDIT_AGENT_SESSION_ID", "SPS_HARNESS_MCP"),
+    "requester_id": os.getenv("SPS_SOURCE_AUDIT_REQUESTER_ID", "jeaje"),
+    "program_id": "SPS_HARNESS_SOURCE_AUDIT",
+    "client_ip": "127.0.0.1",
+}
 # 공개 문서 카탈로그 수집기(FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py) 공통 설정.
 # - 2026-10-25 사용자 지침 4: 수집기 안에 박혀 있던 상한·기준값을 루트 config로 옮김.
 # - max_time_limit_seconds: 워커 1회 실행 최대 시간(LuckyBoys 승인 30,000초).

@@ -291,3 +291,44 @@ def test_gemini_cli_runs_memory_graph_with_thread_id(monkeypatch, capsys) -> Non
     monkeypatch.setattr(agent, "create_gemini_model", TestModel)
     asyncio.run(agent.run_agent("test-query", thread_id="test-thread"))
     assert "graph-complete" in capsys.readouterr().out
+
+
+def test_gemini_api_uses_shared_graph_and_authenticated_subject(monkeypatch):
+    """CLI와 API가 공유하는 그래프 경로를 실제 HTTP endpoint에서 검증한다."""
+    from fastapi.testclient import TestClient
+    from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+    agent = load_gemini_agent_for_test(monkeypatch)
+    seen = []
+
+    class Graph:
+        async def ainvoke(self, state, config):
+            assert isinstance(state["messages"][0], SystemMessage)
+            assert isinstance(state["messages"][1], HumanMessage)
+            seen.append((state["messages"][1].content, config["configurable"]["thread_id"]))
+            return {"messages": [AIMessage(content="api-complete")]}
+
+    async def get_graph():
+        return Graph()
+
+    monkeypatch.setattr(agent, "get_or_create_agent", get_graph)
+    token = CommonAuth().issue_access_token("api-test-user")
+    with TestClient(agent.app) as client:
+        assert client.post("/agent/chat", json={"user_input": "test-query"}).status_code == 401
+        response = client.post("/agent/chat", json={"user_input": "test-query"},
+                               headers={"Authorization": "Bearer " + token})
+    assert response.status_code == 200
+    assert response.json() == {"result": "api-complete"}
+    assert len(seen) == 1 and seen[0][0] == "test-query" and seen[0][1]
+
+
+@pytest.mark.parametrize("query", ["", " ", None])
+def test_gemini_shared_graph_rejects_bad_query_before_execution(monkeypatch, query):
+    """잘못된 입력은 MCP·API 공통 실행 경계에서 모델 호출 전에 거부한다."""
+    agent = load_gemini_agent_for_test(monkeypatch)
+
+    class Graph:
+        async def ainvoke(self, *args, **kwargs):
+            pytest.fail("invalid query must not execute the graph")
+
+    with pytest.raises(ValueError, match="query"):
+        asyncio.run(agent._invoke_graph(Graph(), query, "test-thread"))

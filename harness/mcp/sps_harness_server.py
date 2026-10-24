@@ -223,8 +223,9 @@ Always:
         resource_server_url=AnyHttpUrl(OAUTH_SETTINGS.resource_url),
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
-            valid_scopes=list(OAUTH_SETTINGS.scopes),
-            default_scopes=list(OAUTH_SETTINGS.scopes),
+            # 관리자 scope(mcp:admin)도 요청 가능하게 하되, 모든 요청에 필수인 건 아래 required_scopes뿐이다.
+            valid_scopes=list(OAUTH_SETTINGS.grantable_scopes),
+            default_scopes=list(OAUTH_SETTINGS.default_scopes),
         ),
         revocation_options=RevocationOptions(enabled=True),
         required_scopes=list(OAUTH_SETTINGS.scopes),
@@ -416,6 +417,25 @@ def read_harness_memory(relative_path: str) -> str:
 #             timeout=600.0,
 #         )
 #         return Response(content=resp.content, status_code=resp.status_code, headers=dict(resp.headers))
+
+# 파괴적 도구(scope_guard.ADMIN_TOOL_NAMES, 7개)는 등록 전에 관리자 scope 가드로 감싼다.
+# 모드는 SPS_MCP_ADMIN_SCOPE_MODE=off|audit|enforce 이고 기본값 off라 지금 동작은 그대로다.
+# (모드 변경은 환경변수 수정 후 서비스 재시작으로 반영된다. 이름이 없으면 기동 시 바로 실패해
+#  가드 누락을 숨기지 않는다 — tests/test_admin_scope_guard.py가 목록과 등록부를 대조한다.)
+from harness.mcp.scope_guard import ADMIN_TOOL_NAMES, admin_scope_required  # noqa: E402
+
+for _admin_tool_name in sorted(ADMIN_TOOL_NAMES):
+    globals()[_admin_tool_name] = admin_scope_required(globals()[_admin_tool_name])
+del _admin_tool_name
+
+# 소스 도구(source_audit.SOURCE_AUDIT_TASK_TYPES, 6개)는 등록 전에 감사 기록 래퍼로 감싼다.
+# 호출이 정상 종료되면 harness_source_audit에 등록 Verified SQL로 1건씩 남긴다(실패해도 도구는 계속).
+# tests/test_source_audit_wrapper.py가 이 감싸기가 mcp.tool() 등록보다 앞에 있는지 대조한다.
+from harness.mcp.source_audit import SOURCE_AUDIT_TASK_TYPES, source_audit_recorded  # noqa: E402
+
+for _audit_tool_name in sorted(SOURCE_AUDIT_TASK_TYPES):
+    globals()[_audit_tool_name] = source_audit_recorded(globals()[_audit_tool_name])
+del _audit_tool_name
 
 mcp.tool()(source_search)
 mcp.tool()(source_read)
