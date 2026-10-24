@@ -43,14 +43,15 @@ def test_failed_worker_is_not_success(process_context):
     process_context.return_value = SimpleNamespace(returncode=1, communicate=AsyncMock(return_value=(b"", b"failed")))
     assert not asyncio.run(module.run_sps_orchestrator("task", False))["success"]
 
-def test_worker_reuses_existing_api_function(monkeypatch, capsys):
+def test_worker_reuses_existing_api_function_with_internal_auth(monkeypatch, capsys):
     endpoint = AsyncMock(return_value={"success": True, "response": "existing graph"})
     # Import isolation verifies delegation without constructing any actual Gemini model.
     monkeypatch.setitem(sys.modules, "FastAPI.LangGraph.sps_main_orchestrator",
                         SimpleNamespace(ChatRequest=lambda **kw: kw, api_chat_orchestrator=endpoint))
+    monkeypatch.setattr(module.project_config, "SPS_MAIN_ORCHESTRATOR_API_KEY", "test-key")
     monkeypatch.setattr(sys, "stdin", io.StringIO('{"query": "task"}'))
     asyncio.run(module._worker())
-    endpoint.assert_awaited_once_with({"query": "task"})
+    endpoint.assert_awaited_once_with({"query": "task"}, authorization="Bearer test-key")
     assert json.loads(capsys.readouterr().out)["response"] == "existing graph"
 
 def test_registration_and_original_source_compile():

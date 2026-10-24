@@ -102,7 +102,13 @@ async def _worker() -> None:
     # Load the original graph only inside the requested, environment-configured worker.
     from FastAPI.LangGraph.sps_main_orchestrator import ChatRequest, api_chat_orchestrator
     request = json.loads(sys.stdin.read())
-    result = await api_chat_orchestrator(ChatRequest(query=request["query"]))
+    # FastAPI normally injects the Authorization header. This worker calls the
+    # endpoint function directly, so it must pass the configured server key
+    # explicitly; otherwise the Header descriptor reaches authentication code
+    # as a value and the request fails before the graph starts.
+    authorization = f"Bearer {project_config.SPS_MAIN_ORCHESTRATOR_API_KEY}"
+    result = await api_chat_orchestrator(
+        ChatRequest(query=request["query"]), authorization=authorization)
     print(json.dumps(result, ensure_ascii=False))
 
 
