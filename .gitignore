@@ -128,3 +128,24 @@ ollama_models/
 ollama_runtime/
 credentials.json
 token.json
+
+# ============================================
+# 수정 전 원본 백업 (파일명_BACKUP_날짜_시분초) — 디스크에만 보존, Git 제외
+# 기존 *_backup* 규칙은 대소문자를 구분하므로 대문자 BACKUP을 별도 등록
+# ============================================
+*_BACKUP_*
+*_BACKUP2*
+.env_BACKUP_*
+haness/backups/
+
+# ============================================
+# 실행 산출물 / 캐시 / 바이너리 / 임시 다운로드
+# ============================================
+nohup.out
+.faiss_cache/
+pytest-of-*/
+output/*.gz
+cloudflared-linux-amd64
+cloudflared.deb
+client_downloads/
+C:*
