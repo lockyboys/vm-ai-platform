@@ -5,9 +5,11 @@
 # CHANGE HISTORY
 # =============================================================================
 # 20260902 | Codex | Harness 표준 파일 헤더와 커밋 대상 검증 역할을 보강했음
+# 20261025 | Claude | 삭제 staged 경로 커밋 허용, git_stage_manage(스테이징 통합 관리) 추가
 # =============================================================================
 # 이 파일은 무엇을 하나요?
 # - git_add와 git_stage_delete는 사용자가 고른 파일만 커밋 준비 상태로 만듭니다.
+# - git_stage_manage는 스테이징 조회·추가·해제·전체해제·선택만 유지를 한 도구로 제공합니다.
 # - git_commit은 준비된 파일이 예상한 목록과 같을 때만 커밋합니다.
 # 주의: 관련 없는 파일이 섞이면 커밋하지 않으며, 원격 저장소로 push하지 않습니다.
 from __future__ import annotations
@@ -91,7 +93,17 @@ def _validate_paths(paths: list[str], *, allow_deleted: bool = False) -> list[st
             tracked_result = _run_git(
                 ["ls-files", "--error-unmatch", "--", normalized_path]
             )
-            if tracked_result.returncode != 0:
+            # 삭제가 이미 스테이징된 경로는 index에서 빠져 ls-files가 실패한다.
+            # 이 경우 HEAD 기준 삭제가 staged 상태인지(--diff-filter=D) 추가 확인해
+            # git_commit이 삭제 포함 커밋을 거부하지 않도록 한다.
+            # 추적된 적도, 삭제가 스테이징된 적도 없는 경로는 기존처럼 거부한다.
+            staged_delete_result = _run_git(
+                ["diff", "--cached", "--name-only", "--diff-filter=D", "--", normalized_path]
+            )
+            is_staged_delete = (
+                staged_delete_result.returncode == 0 and staged_delete_result.stdout.strip() != ""
+            )
+            if tracked_result.returncode != 0 and not is_staged_delete:
                 raise ValueError("Only tracked deleted files can be staged.")
         else:
             raise ValueError("Only existing regular files can be staged.")
@@ -314,4 +326,151 @@ def git_commit(
         "committed_paths": actual_staged_paths,
         "git_output": result.stdout.splitlines(),
         "remaining_staged_paths": _staged_paths(),
+    }
+
+
+# =============================================================================
+# git_stage_manage — 스테이징(Git index) 통합 관리 도구 (2026-10-25 추가)
+# -----------------------------------------------------------------------------
+# 배경: git_commit은 "staged 집합 == expected_paths"일 때만 커밋한다.
+#       다른 세션이 올린 파일이나 잘못 올린 삭제를 내릴 방법이 없어 커밋이 막혔다.
+# 원칙: Git index만 바꾼다. 작업 트리 파일 내용·존재 여부는 절대 바꾸지 않는다
+#       (git restore --staged 만 사용, --worktree/checkout/reset --hard 금지).
+# 기본 dry_run=True: 무엇이 바뀔지 계획만 돌려주고 index는 그대로 둔다.
+# =============================================================================
+GIT_STAGE_MANAGE_ACTIONS = (
+    "status",        # 현재 staged 파일과 변경 종류(A/M/D/R...) 조회
+    "stage",         # 존재하는 파일 스테이징(git_add 위임)
+    "stage_delete",  # 이미 지운 추적 파일의 삭제 스테이징(git_stage_delete 위임)
+    "unstage",       # 지정한 staged 파일만 스테이징 해제
+    "unstage_all",   # staged 파일 전체 스테이징 해제
+    "keep_only",     # 지정한 파일만 남기고 나머지 staged 파일 해제
+)
+
+
+def _staged_entries() -> list[dict[str, str]]:
+    """staged 파일을 [{"status": 변경종류, "path": 경로}] 형태로 경로순 정렬해 돌려준다.
+
+    rename(R)/copy(C)는 name-status에 "R100<TAB>old<TAB>new"로 나오므로 새 경로를 쓰고
+    점수 숫자는 떼어 한 글자 상태만 남긴다.
+    """
+    result = _run_git(["diff", "--cached", "--name-status", "--diff-filter=ACDMRTUXB"])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Unable to read staged files.")
+    entries: list[dict[str, str]] = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        columns = line.split("\t")
+        entries.append({"status": columns[0][:1], "path": columns[-1]})
+    return sorted(entries, key=lambda entry: entry["path"])
+
+
+def _validate_unstage_paths(paths: list[str]) -> list[str]:
+    """해제 대상 경로의 형식만 검사한다(존재 여부는 보지 않음: 삭제 staged도 해제 대상이므로).
+
+    잘못된 입력은 모두 ValueError: 빈 목록/빈 문자열, 절대경로, '.' '..' 세그먼트,
+    MAX_PATHS 초과. Path()는 'a/./b'의 '.'을 지워 버리므로 원문 문자열을 '/'로 나눠 검사한다.
+    """
+    if not paths:
+        raise ValueError("At least one explicit path is required.")
+    if len(paths) > MAX_PATHS:
+        raise ValueError(f"No more than {MAX_PATHS} paths are allowed.")
+    normalized: list[str] = []
+    for raw in paths:
+        text = (raw or "").strip().replace("\\", "/")
+        if not text:
+            raise ValueError("Git paths must not be empty.")
+        if text.startswith("/") or Path(text).is_absolute():
+            raise ValueError("Only project-relative Git paths are allowed.")
+        if any(segment in {"", ".", ".."} for segment in text.split("/")):
+            raise ValueError("Dot segments are not allowed in Git paths.")
+        if text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def _restore_staged(paths: list[str]) -> None:
+    """지정 경로의 index 항목만 HEAD 상태로 되돌린다(작업 트리는 건드리지 않음).
+
+    HEAD가 없는 첫 커밋 전 저장소에서는 restore --staged가 실패하므로 rm --cached로 대체한다.
+    """
+    has_head = _run_git(["rev-parse", "--verify", "--quiet", "HEAD"]).returncode == 0
+    if has_head:
+        result = _run_git(["restore", "--staged", "--", *paths])
+    else:
+        result = _run_git(["rm", "--cached", "--quiet", "--", *paths])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Unable to unstage files.")
+
+
+def git_stage_manage(
+    action: str,
+    paths: list[str] | None = None,
+    dry_run: bool = True,
+) -> dict:
+    """Manage the Git index: status, stage, stage_delete, unstage, unstage_all, keep_only.
+
+    Only the index changes; working-tree files are never modified or deleted.
+    dry_run=True (default) returns the plan without changing the index.
+    - status: list staged paths with change type (A/M/D/R...).
+    - stage / stage_delete: same rules as git_add / git_stage_delete.
+    - unstage: unstage the given paths (each must currently be staged).
+    - unstage_all: unstage every staged path (takes no paths).
+    - keep_only: keep only the given staged paths and unstage everything else.
+    """
+    normalized_action = (action or "").strip().lower()
+    if normalized_action not in GIT_STAGE_MANAGE_ACTIONS:
+        raise ValueError(
+            f"Unknown action: {action!r}. Allowed: {', '.join(GIT_STAGE_MANAGE_ACTIONS)}"
+        )
+    requested = list(paths or [])
+
+    # 조회 전용: 인자 검사 없이 현재 상태만 돌려준다.
+    if normalized_action == "status":
+        return {"action": "status", "staged": _staged_entries()}
+
+    # 추가 계열은 기존 검증 규칙을 그대로 재사용한다(비밀파일·제외폴더 차단 포함).
+    if normalized_action == "stage":
+        return {"action": "stage", **git_add(requested, dry_run=dry_run)}
+    if normalized_action == "stage_delete":
+        return {"action": "stage_delete", **git_stage_delete(requested, dry_run=dry_run)}
+
+    staged_before = _staged_paths()
+
+    # 해제 대상 결정
+    if normalized_action == "unstage_all":
+        if requested:
+            raise ValueError("unstage_all does not take paths.")
+        if not staged_before:
+            raise ValueError("There are no staged files to unstage.")
+        targets = list(staged_before)
+    else:
+        normalized = _validate_unstage_paths(requested)
+        not_staged = [path for path in normalized if path not in staged_before]
+        if not_staged:
+            raise ValueError(f"Paths are not staged: {not_staged}")
+        if normalized_action == "unstage":
+            targets = normalized
+        else:  # keep_only
+            targets = [path for path in staged_before if path not in normalized]
+
+    targets = sorted(targets)
+    if dry_run:
+        return {
+            "action": normalized_action,
+            "dry_run": True,
+            "staged_before": staged_before,
+            "would_unstage": targets,
+            "would_remain": [path for path in staged_before if path not in targets],
+        }
+
+    if targets:
+        _restore_staged(targets)
+    return {
+        "action": normalized_action,
+        "dry_run": False,
+        "staged_before": staged_before,
+        "unstaged": targets,
+        "staged_after": _staged_paths(),
     }

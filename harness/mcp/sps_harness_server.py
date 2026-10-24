@@ -108,6 +108,7 @@ from harness.mcp.tools.git_mutation_tools import (
     git_add,
     git_commit,
     git_stage_delete,
+    git_stage_manage,
 )
 from harness.mcp.tools.operational_tools import (
     operational_service_diagnostics,
@@ -487,6 +488,8 @@ mcp.tool()(git_log)
 mcp.tool()(git_blame)
 mcp.tool()(git_add)
 mcp.tool()(git_stage_delete)
+# 스테이징 조회·추가·삭제반영·해제·전체해제·선택유지 통합 도구(index만 변경, 작업 파일 불변).
+mcp.tool()(git_stage_manage)
 mcp.tool()(git_commit)
 
 mcp.tool()(operational_service_diagnostics)
