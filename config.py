@@ -586,3 +586,11 @@ SPS_SOURCE_REPAIR_AUDIT_DIR = "harness/memory/source_repairs"
 # 보험사뿐 아니라 공사/정부/복지관 등 공개 문서 수집에 같은 저장 설정을 사용합니다.
 SPS_DOCUMENT_DOWNLOAD_DIR = BASE_DIR / "downloaded_docs"
 
+# 로컬 8003 API의 터미널 검증 설정. 비밀키 값은 저장하지 않고 보호 파일 경로만 지정한다.
+AGENT_CLI = {
+    "endpoint": "http://127.0.0.1:8003/api/agent/context",
+    "timeout_seconds": 90,
+    "auth_env_file": "/etc/sps-harness/secrets.env",
+    "token_lifetime_seconds": 180,
+    "max_query_length": 12000,
+}
