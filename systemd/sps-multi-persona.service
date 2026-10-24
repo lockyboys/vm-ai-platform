@@ -1,0 +1,21 @@
+[Unit]
+Description=SPS Multi-Persona Gemini source review
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# The CLI performs one review and then exits; run with systemctl start/restart.
+Type=oneshot
+User=jeaje
+Group=jeaje
+WorkingDirectory=/data/vm_project
+
+# systemd reads both files and injects variables into the process.
+# The Python source never opens /etc/sps-harness/secrets.env.
+EnvironmentFile=/data/vm_project/.env
+EnvironmentFile=/etc/sps-harness/secrets.env
+
+ExecStart=/data/vm_project/venv/bin/python /data/vm_project/FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py --source-path /data/vm_project/FastAPI/LangGraph/agent_memory.py --error-path /data/vm_project/FastAPI/LangGraph/multi_persona/multi_persona_error.log
+
+[Install]
+WantedBy=multi-user.target
