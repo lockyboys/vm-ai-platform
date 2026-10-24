@@ -19,6 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 import config as project_config
+# 공통 출력 검증은 모델을 실행하지 않으며 소스 누락을 성공으로 오판하지 않습니다.
+from FastAPI.LangGraph.multi_persona.review_contract import build_review_query, normalize_plan, validate_review, source_block
 from typing import cast, Dict, Any, List, Optional
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage, ToolMessage
@@ -63,9 +65,10 @@ def get_message_text(message: BaseMessage) -> str:
 # =====================================================================
 # 2. 환경 변수 로드 및 LLM 팩토리 함수
 # =====================================================================
-load_dotenv(override=True)
+# 실행자가 지정한 GPU·컨텍스트·타임아웃 환경을 .env로 덮어쓰지 않습니다.
+load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
 
-def initialize_llm(temp: float = 0.2) -> ChatOllama:
+def initialize_llm(temp: float = 0.2, output_limit: Optional[int] = None) -> ChatOllama:
     """
     [목적]
     Ollama LLM 인스턴스를 격리된 스코프 내에서 안전하게 생성하는 팩토리 함수입니다.
@@ -82,10 +85,17 @@ def initialize_llm(temp: float = 0.2) -> ChatOllama:
     OLLAMA_TIMEOUT 기본값을 120초로 설정하여 대형 모델 응답 지연 시 타임아웃 예외 발생에 대비합니다.
     """
     return ChatOllama(
-        model=os.getenv("OLLAMA_MODEL", "gemma4:e4b").strip(),
+        # 호스트별 루트 config.py 값을 사용하며, 명시적 환경 변수는 우선합니다.
+        model=os.getenv("OLLAMA_MODEL", getattr(project_config, "MULTI_PERSONA_OLLAMA_MODEL", "gemma4:e4b")).strip(),
         base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip(),
         temperature=temp,
-        timeout=float(os.getenv("OLLAMA_TIMEOUT", "120")),
+        # GPU 서버에서만 reasoning=False를 설정해 계획·진단 단계의 숨은 출력 낭비를 막습니다.
+        reasoning=getattr(project_config, "MULTI_PERSONA_OLLAMA_REASONING", None),
+        client_kwargs={"timeout": float(os.getenv("OLLAMA_TIMEOUT", "3000"))},
+        # 긴 소스 입력과 전체 코드 출력 공간을 함께 확보합니다. 중앙 설정과 실행 환경을 우선합니다.
+        num_ctx=int(os.getenv("OLLAMA_CONTEXT_LENGTH", str(getattr(project_config, "MULTI_PERSONA_OLLAMA_CONTEXT", 65536)))),
+        num_predict=int(output_limit if output_limit is not None else os.getenv(
+            "OLLAMA_NUM_PREDICT", str(getattr(project_config, "MULTI_PERSONA_OLLAMA_OUTPUT", 32768)))),
     )
 
 # =====================================================================
@@ -97,13 +107,15 @@ class AdvancedPersonas:
 
     [요청 흐름]
     - ORCHESTRATOR가 먼저 호출되어 실행 순서를 계획하고, 필요한 담당 페르소나만 정해진 상한(최대 호출 수) 안에서 순차 호출한다.
-    - 프로그램 소스의 최종본은 PARTNER가, 문서의 최종본은 DOCUMENTER가 전체 결과물로 반환한다.
+    - 프로그램 소스의 최종본은 PARTNER가 전체 결과물로 반환한다.
+    - 문서의 최종본은 DOCUMENTER가 전체 결과물로 반환한다.
 
     [요청 라우팅 기준]
     주담당은 한 명만 두고, 요청이 겹치면 아래 기준으로 나눈다.
 
     총괄
     - ORCHESTRATOR: 여러 시스템·에이전트의 실행 흐름 조율
+    - LangChain 또는 LangGraph가 포함된 요청은 실행 계획 단계에서 반드시 PROMPT_ENGINEER에 배정
 
     설계·기획
     - ARCHITECT: 구조·경계·데이터 흐름의 설계와 재설계
@@ -122,12 +134,16 @@ class AdvancedPersonas:
 
     운영·지원
     - DEVOPS: 배포, CI/CD, 서비스 기동, 로그·모니터링, 장애 대응
-    - DOCUMENTER: README·API 문서·변경 이력·릴리스 노트 작성, 최종 문서 제출
     - TUTOR: 개념과 코드를 학습자에게 설명
 
+    문서
+    - DOCUMENTER: README·API 문서·변경 이력·릴리스 노트 작성, 최종 문서 제출
+
     [공통 원칙]
-    - REVIEWER는 진단만 하고, 조치는 표의 '담당 페르소나'로 넘긴다.
-    - 모든 페르소나는 코드·쿼리·설정에 주석을 반드시 붙인다.
+    - ORCHESTRATOR는 요청당 호출 상한(기본 5회)을 지키고, 상한에 도달하면 즉시 중단해 결과와 미완료 단계를 보고한다.
+    - REVIEWER는 진단만 하고, 조치는 표의 '담당 페르소나'로 넘긴다. 단, 기능이 바뀌지 않는 주석 추가만 허용한다.
+    - DOCUMENTER는 여러 결과를 합친 전체 문서본을 최종 결과물로 반환하며, 확인되지 않은 내용은 `미확인`으로 표시한다.
+    - 모든 페르소나는 자신이 작성·제시한 코드·쿼리·설정에 주석을 반드시 붙인다. 다른 페르소나의 산출물 전체를 검토하거나 주석을 대신 달지 않는다.
     """
 
     ORCHESTRATOR_PROMPT = """
@@ -140,8 +156,10 @@ class AdvancedPersonas:
     - 실패가 발생해도 전체 흐름의 정합성이 유지되도록 보상(rollback)과 복구 경로를 준비합니다.
     ## 3. 핵심 작업 (Core Tasks)
     - 요청을 분석해 필요한 담당 페르소나만 고르고, 실행 계획(순서, 병렬 가능 구간, 단계별 입출력 계약)을 먼저 세웁니다.
+    - 요청이나 대상 코드에 LangChain 또는 LangGraph가 포함되면 해당 단계는 반드시 PROMPT_ENGINEER에게 배정하고, 다른 페르소나가 대신 맡지 않도록 한다.
     - 각 단계의 상태(대기, 실행 중, 성공, 실패, 보상 완료)를 정의하고 상태 전이를 기록합니다.
-    - 정해진 상한 안에서 담당 페르소나를 순차 호출하며, 앞 단계의 결과를 다음 단계의 입력으로 전달합니다.
+    - 담당 페르소나는 상한 안에서 순차 호출하며, 앞 단계의 결과를 다음 단계의 입력으로 전달합니다.
+    - 상한: 한 요청당 담당 페르소나 호출은 기본 5회를 넘지 않는다(요청마다 조정 가능). 상한에 도달하면 다음 호출을 하지 않고 즉시 중단한다. 중단 시 지금까지의 결과, 완료된 단계, 미완료 단계를 `미확인`으로 표시해 보고한다. 중단된 요청을 자동으로 재개하지 않는다.
     - 최종 결과물을 취합합니다. 프로그램 소스는 PARTNER에게, 문서는 DOCUMENTER에게 전체 결과물을 받아 최종본으로 반환하도록 요청합니다.
     - 관측 지점(요청 추적 ID, 단계별 로그, 소요 시간)을 정의해 장애 시 어느 단계에서 멈췄는지 바로 알 수 있게 합니다.
     ## 4. 출력 형식 강제 (Output Formatting)
@@ -174,8 +192,10 @@ class AdvancedPersonas:
     - Prepare compensation (rollback) and recovery paths so overall consistency holds even when a step fails.
     ## 3. Core Tasks
     - Analyze the request, select only the owner personas it needs, and first produce an execution plan (order, parallelizable segments, input/output contract per step).
+    - If the request or target code involves LangChain or LangGraph, always assign that step to PROMPT_ENGINEER and do not let another persona take it over.
     - Define per-step states (pending, running, succeeded, failed, compensated) and record every state transition.
-    - Invoke owner personas sequentially within the defined limit, passing each step's result as the next step's input.
+    - Invoke owner personas sequentially within the limit, passing each step's result as the next step's input.
+    - Limit: each request allows at most 5 owner-persona invocations by default (adjustable per request). When the limit is reached, make no further calls and stop immediately. On stop, report results so far, completed steps, and unfinished steps marked as unverified. Do not resume a stopped request automatically.
     - Assemble final deliverables: request the complete program source from PARTNER and the complete document from DOCUMENTER and return them as the final versions.
     - Define observability points (request trace ID, per-step logs, elapsed time) so that a failure can be traced to the exact step where it stopped.
     ## 4. Output Formatting
@@ -335,10 +355,11 @@ class AdvancedPersonas:
     REVIEWER_PROMPT = """
     [KOR]
     ## 1. 역할 (Role)
-    - 언어·프레임워크에 관계없이 지정된 코드나 변경분을 읽고 정확성, 보안, 성능, 유지보수성의 결함과 위험을 진단하는 시니어 리뷰어입니다. 정적 리뷰만 수행하며 수정, 재설계, 테스트 작성은 하지 않습니다.
+    - 언어·프레임워크에 관계없이 지정된 코드나 변경분을 읽고 정확성, 보안, 성능, 유지보수성의 결함과 위험을 진단하는 시니어 리뷰어입니다. 정적 리뷰만 수행하며 수정, 재설계, 테스트 작성은 하지 않습니다(주석 추가만 예외).
     ## 2. 책임 (Responsibilities)
     - 실제 결함과 회귀 위험을 코드 근거로 식별하고 영향도 순으로 우선순위를 정합니다.
     - 진단과 지적만 하며, 각 발견 사항의 후속 조치를 맡을 담당 페르소나를 지정합니다. ARCHITECT(구조 재설계), PARTNER(구현·수정), BUG_HUNTER(재현·근본 원인), TESTER(테스트 작성·실행), SQL_EXPERT(쿼리 튜닝), PROMPT_ENGINEER(프롬프트·RAG), SECURITY(위협 모델링·보안 설계), DEVOPS(배포·운영 설정), DOCUMENTER(문서화).
+    - 주석만 추가하는 것은 허용된다. 검토 대상 코드의 로직, 이름, 구조는 바꾸지 않고, 추가한 주석의 위치와 내용을 보고에 명시한다.
     ## 3. 핵심 작업 (Core Tasks)
     - 리뷰 범위(파일, 변경분, 호출 경로)를 먼저 확정하고 아래 항목을 점검합니다.
     - ① 정확성: 요구사항 대비 실제 동작, 경계값과 오류 입력 ② 보안: 인젝션, 인증·인가 누락, 시크릿 노출, 입력 검증(위협 모델링은 SECURITY 영역) ③ 동시성: 경쟁 조건, 데드락, 원자성 ④ 오류 처리·자원: 예외 누락, 자원 누수, 무한 재시도, 타임아웃 부재 ⑤ 성능: 알고리즘 복잡도, N+1, 불필요한 I/O(SQL 실행 계획은 SQL_EXPERT 영역) ⑥ 유지보수성: 중복, 결합도, 인터페이스 오염, 죽은 코드 ⑦ 하위 호환성: API, 스키마, 설정 변경의 파급 ⑧ 테스트 공백: 검증되지 않은 경로 ⑨ 의존성 위험: 버전, 라이선스, 알려진 취약점
@@ -364,13 +385,15 @@ class AdvancedPersonas:
     - P0: 정확성, 보안, 데이터 손실. P1: 안정성, 성능, 테스트 공백. P2: 가독성과 스타일.
     - 검토 범위를 명시하고 범위 밖 사항은 제안으로 분리합니다.
     - 코드 수정, 구조 재설계, 테스트 작성, 쿼리 튜닝, 장애 원인 재현은 REVIEWER의 범위가 아니므로 담당 페르소나로 넘기고, 코드를 이해시키기 위한 설명은 TUTOR로 넘깁니다.
+    - 주석 추가는 실제 동작이 바뀌지 않을 때만 허용된다. 주석이 실제 동작과 어긋나면 주석을 달지 않고 발견 사항으로 보고한다.
     ---
     [ENG]
     ## 1. Role
-    - Act as a senior reviewer, regardless of language or framework, who reads specified code or changes and diagnoses defects and risks in correctness, security, performance, and maintainability. Perform static review only; do not fix, redesign, or write tests.
+    - Act as a senior reviewer, regardless of language or framework, who reads specified code or changes and diagnoses defects and risks in correctness, security, performance, and maintainability. Perform static review only; do not fix, redesign, or write tests (comment-only additions are the exception).
     ## 2. Responsibilities
     - Identify evidence-based defects and regression risks and prioritize them by impact.
     - Diagnose and point out only. Assign a follow-up persona to each finding: ARCHITECT (structural redesign), PARTNER (implementation and fixes), BUG_HUNTER (reproduction and root cause), TESTER (writing and running tests), SQL_EXPERT (query tuning), PROMPT_ENGINEER (prompt and RAG), SECURITY (threat modeling and security design), DEVOPS (deployment and operations setup), DOCUMENTER (documentation).
+    - You may add comments to the reviewed code only. Do not change its logic, names, or structure, and list each added comment's location and content in the report.
     ## 3. Core Tasks
     - Fix the review scope (files, changes, call paths) first, then check the following.
     - (1) Correctness: actual behavior vs requirements, boundary values, invalid inputs. (2) Security: injection, missing authentication/authorization, secret exposure, input validation (threat modeling belongs to SECURITY). (3) Concurrency: race conditions, deadlocks, atomicity. (4) Error handling and resources: missing exceptions, leaks, unbounded retries, absent timeouts. (5) Performance: algorithmic complexity, N+1, unnecessary I/O (SQL execution plans belong to SQL_EXPERT). (6) Maintainability: duplication, coupling, interface pollution, dead code. (7) Backward compatibility: ripple effects of API, schema, or config changes. (8) Test gaps: unverified paths. (9) Dependency risk: versions, licenses, known vulnerabilities.
@@ -396,6 +419,7 @@ class AdvancedPersonas:
     - P0: correctness, security, data loss. P1: stability, performance, test gaps. P2: readability and style.
     - State the review scope, separate out-of-scope items as suggestions, and distinguish matters of taste from defects.
     - Code fixes, structural redesign, test writing, query tuning, and failure reproduction are outside REVIEWER's scope; hand them to the owner persona, and hand explanations meant to teach the code to TUTOR.
+    - Adding comments is allowed only when behavior is unchanged. If a comment would not match actual behavior, do not write it; report the mismatch as a finding.
     """
 
     TUTOR_PROMPT = """
@@ -792,7 +816,8 @@ class AdvancedPersonas:
     [KOR]
     ## 1. 역할 (Role)
     - 프로젝트 성격에 관계없이 README, API 문서, 아키텍처와 운영 문서, 변경 이력, 릴리스 노트를 작성하고 정리하는 기술 문서 작성자입니다.
-    - 여러 페르소나의 결과를 모아 최종 문서본을 완성해 ORCHESTRATOR에게 반환합니다.
+    - 여러 페르소나의 결과를 모아 중복을 제거하고 전체 문서를 완성합니다.
+    - 완성된 최종 문서본 전체를 결과물로 ORCHESTRATOR에게 반환합니다. 일부 조각이 아닌 전체 문서로 반환합니다.
     ## 2. 책임 (Responsibilities)
     - 독자(사용자, 개발자, 운영자)를 구분해 정확하고 최신 상태의 문서를 유지합니다.
     - 코드, 설정, 문서가 어긋나지 않도록 관리합니다.
@@ -826,7 +851,8 @@ class AdvancedPersonas:
     [ENG]
     ## 1. Role
     - Act as a technical writer, regardless of project type, who writes and maintains READMEs, API docs, architecture and operations docs, changelogs, and release notes.
-    - Assemble the outputs of several personas into a final document and return it to ORCHESTRATOR.
+    - Assemble the outputs of several personas into one complete document, removing duplicates.
+    - Return the entire finished final document to ORCHESTRATOR as the deliverable, never a partial fragment.
     ## 2. Responsibilities
     - Distinguish readers (users, developers, operators) and keep documents accurate and current.
     - Prevent drift between code or configuration and documentation.
@@ -1055,8 +1081,10 @@ def create_persona_graph():
     Ollama용 LLM과 도구를 요청별로 만들고, 계획·다중 페르소나·검증 흐름을 실행합니다.
     """
     # 요청별 모델 인스턴스로 툴 바인딩과 체크포인트 상태의 공유를 막습니다.
-    router_llm = initialize_llm(temp=0.1)
+    router_llm = initialize_llm(temp=0.1, output_limit=512)
     agent_llm_base = initialize_llm(temp=0.4)
+    # 계획/진단 결과는 짧게 제한하고 전체 소스 출력은 마지막 PARTNER에만 허용합니다.
+    analysis_llm_base = initialize_llm(temp=0.2, output_limit=2048)
     verifier_llm = initialize_llm(temp=0.1)
 
     # Tavily 키가 설정된 경우에만 검색 도구를 요청 범위에서 활성화합니다.
@@ -1095,8 +1123,10 @@ def create_persona_graph():
     # Tavily 도구 호출을 지원할 때만 모델에 도구 스키마를 전달합니다.
     if agent_tools:
         agent_llm = agent_llm_base.bind_tools(agent_tools)
+        analysis_llm = analysis_llm_base.bind_tools(agent_tools)
     else:
         agent_llm = agent_llm_base
+        analysis_llm = analysis_llm_base
 
     def planner_node(state: AgentState):
         """요청을 먼저 분석해 실행 순서와 필요한 페르소나를 제한 개수로 계획합니다."""
@@ -1105,14 +1135,18 @@ def create_persona_graph():
              if isinstance(message, HumanMessage)),
             "",
         )
+        # 계획에는 소스 전문이 필요 없으므로 지시문만 전달해 입력 예산을 보존합니다.
+        planner_query = query.split("```python\n", 1)[0][:6000]
+        planner_query += "\n분석 대상: Python 소스 코드 리뷰 및 LangGraph 개선."
         planner_prompt = [
             SystemMessage(content=(
                 "요청을 먼저 분석하고 실행 순서가 있는 페르소나 계획을 세우세요. "
                 f"필요한 역할만 중복 없이 최대 {MAX_PERSONAS_PER_PLAN}개 선택합니다. "
+                "요청 또는 대상 코드에 LangChain이나 LangGraph가 포함되면 반드시 PROMPT_ENGINEER를 계획에 포함합니다. "
                 "JSON 객체 하나만 반환하세요: "
                 f'{{"personas":["ROLE", ...]}}. 허용 목록: {", ".join(PERSONA_KEYS)}.'
             )),
-            HumanMessage(content=query),
+            HumanMessage(content=planner_query),
         ]
         response = safe_invoke_llm(router_llm, planner_prompt, "planner_node")
         text = get_message_text(response).strip()
@@ -1131,8 +1165,16 @@ def create_persona_graph():
                     break
         except (json.JSONDecodeError, TypeError, AttributeError):
             plan = []
+        # LLM이 규칙을 누락해도 LangChain/LangGraph 요청에는 PROMPT_ENGINEER를 강제합니다.
+        if any(marker in query.lower() for marker in ("langchain", "langgraph")):
+            plan = ["PROMPT_ENGINEER"] + [
+                role for role in plan if role != "PROMPT_ENGINEER"
+            ]
+            plan = plan[:MAX_PERSONAS_PER_PLAN]
         if not plan:
             plan = ["REVIEWER"]
+        # 필수 설계 담당과 마지막 전체 소스 작성 담당의 자리를 예약합니다.
+        plan = normalize_plan(plan, query, MAX_PERSONAS_PER_PLAN)
         print(f"🧭 [Planner] 실행 계획: {' → '.join(plan)}")
         return {
             "persona": plan[0],
@@ -1173,6 +1215,10 @@ def create_persona_graph():
                 if agent_tools else
                 "\nTAVILY_API_KEY가 없어 Tavily 검색을 사용할 수 없습니다."
             )
+            # 설계/진단 담당은 결함만 요약하고 마지막 PARTNER만 전체 수정 코드를 생성합니다.
+            if persona != "PARTNER":
+                system_instruction += "\n이번 단계는 8개 이내 진단·수정 지침만 작성하고 전체 코드는 다음 PARTNER에게 넘기세요."
+            selected_llm = agent_llm if persona == "PARTNER" else analysis_llm
             prior_work = "\n\n".join(outputs) or "앞선 페르소나 결과는 없습니다."
             persona_messages = [
                 SystemMessage(content=system_instruction + web_instruction),
@@ -1182,7 +1228,7 @@ def create_persona_graph():
                 )),
             ]
             print(f"🤖 [Agent] {persona} 호출 ({persona_calls + 1}/{MAX_PERSONA_CALLS})")
-            response = safe_invoke_llm(agent_llm, persona_messages, f"agent_{persona}")
+            response = safe_invoke_llm(selected_llm, persona_messages, f"agent_{persona}")
             persona_calls += 1
             llm_calls += 1
     
@@ -1224,7 +1270,7 @@ def create_persona_graph():
                     ))
                     break
                 response = safe_invoke_llm(
-                    agent_llm,
+                    selected_llm,
                     persona_messages,
                     f"agent_{persona}_tool_followup",
                 )
@@ -1269,7 +1315,21 @@ def create_persona_graph():
             ),
             "",
         )
-        persona = state.get("persona", "REVIEWER")
+        # 마지막 PARTNER 초안이 완전한 경우 원본+초안을 모델에 다시 넣지 않습니다.
+        # 검증은 제목·닫힌 코드 블록·AST·기존 최상위 정의를 확인합니다.
+        partner_marker = "### PARTNER\n"
+        partner_draft = draft.rsplit(partner_marker, 1)[-1].strip() if partner_marker in draft else ""
+        if partner_draft and not validate_review(partner_draft, original_request):
+            print("[출력 검증] PARTNER 전체 소스 계약 통과; 중복 생성 호출 생략")
+            return {
+                "messages": [AIMessage(content=partner_draft)],
+                "final_response": partner_draft,
+                "verification_succeeded": True,
+                "persona_call_count": int(state.get("persona_call_count", 0)),
+                "tavily_call_count": int(state.get("tavily_call_count", 0)),
+                "llm_call_count": int(state.get("llm_call_count", 0)),
+            }
+        persona = "PARTNER" if "## 3. 최종 수정 전체 소스 코드" in original_request else state.get("persona", "REVIEWER")
         persona_instruction = getattr(
             AdvancedPersonas,
             f"{persona}_PROMPT",
@@ -1285,7 +1345,7 @@ def create_persona_graph():
             "## 3. 최종 수정 전체 소스 코드\n"
             "3번에는 입력 소스 전체를 반영한 Python 코드 블록을 넣고, 수정하지 않은 부분도 생략하지 마세요.\n"
             "Draft에 전체 소스가 없으면 원본 요청의 입력 소스를 기준으로 수정본 전체를 작성하세요.\n"
-            "LangGraph StateGraph의 독립 노드·상태 전이·조건부 엣지로 흐름을 구성하고, 기존 Python 반복문 오케스트레이션을 복제하지 마세요.\\n"
+            "LangGraph StateGraph의 독립 노드·상태 전이·조건부 엣지로 흐름을 구성하고, 기존 Python 반복문 오케스트레이션을 복제하지 마세요.\n"
             "이 규칙은 다단계 흐름·재요청·재시도는 LangGraph 노드와 조건부 엣지로 표현하고, 노드 내부 Python 반복문으로 오케스트레이션하지 마세요. "
             "코드·로그에 없는 사실은 완료로 단정하지 말고 '미확인'으로 표시하세요."
         )
@@ -1303,8 +1363,8 @@ def create_persona_graph():
             verifier_prompt = [
                 SystemMessage(content=verifier_system),
                 HumanMessage(content=(
-                    f"원본 요청 및 입력 소스:\\n{original_request}\\n\\n"
-                    f"페르소나 초안:\\n{draft}"
+                    f"원본 요청 및 입력 소스:\n{original_request}\n\n"
+                    f"페르소나 초안:\n{draft}"
                 )),
             ]
             verified_response = safe_invoke_llm(
@@ -1319,9 +1379,13 @@ def create_persona_graph():
             if final_text.startswith("[시스템 경고]"):
                 print(f"[경고] 검증 모델 호출 실패: {final_text}")
                 final_text = ""
-            if final_text:
+            # 제목만 있거나 중간에 잘린 코드는 재요청하며 검증 성공으로 처리하지 않습니다.
+            output_errors = validate_review(final_text, original_request)
+            if final_text and not output_errors:
                 verification_succeeded = True
                 break
+            print("[출력 계약 실패]", output_errors)
+            final_text = ""
     
             if attempt >= max_persona_retries:
                 error_notice = (
@@ -1448,23 +1512,8 @@ if __name__ == "__main__":
         previous_error = error_path.read_text(encoding="utf-8")
 
     # 사용자 요청에 분석 파일 내용과 이전 오류를 넣어 원인·재현·수정안을 요청합니다.
-    query = (
-        f"다음 경로의 Python 소스를 엄격하게 코드 리뷰하세요.\\n"
-        f"소스 경로: {source_path}\\n\\n"
-        "메모리 누수, 동시성, 예외 처리, 리소스 해제와 유지보수성을 확인하고,\\n"
-        "전문가적 견해·수정된 코드 블록·근거를 포함하세요.\\n"
-        "최종 답변에는 아래 세 제목을 이 순서와 문구 그대로 반드시 모두 출력하세요:\\n"
-        "## 1. 전문가적 견해 및 종합 평가\\n"
-        "## 2. 위험도 및 진단 리포트\\n"
-        "## 3. 최종 수정 전체 소스 코드\\n"
-        "3번에는 입력된 Python 소스 전체를 LangGraph 구조로 개선한 수정본을 코드 블록에 출력하고, 변경하지 않은 부분도 생략하거나 ...로 줄이지 마세요.\\n"
-        "기존 구조를 답습하지 말고 LangGraph StateGraph의 독립 노드·상태 전이·조건부 엣지로 재구성하세요.\\n"
-        "수정할 내용이 없어도 3번 제목과 전체 소스 코드 블록을 출력하세요.\\n"
-        "오류 로그가 제공되면 원인과 재현 조건을 분석하고 소스 수정안에 반영하세요.\\n\\n"
-        + (f"이전 실행 오류 로그:\\n```text\\n{previous_error}\\n```\\n\\n" if previous_error else "")
-        + f"```python\\n{target_code}\\n```"
-    )
-    print(f"질문:\n{query}\n" + "=" * 60)
+    query = build_review_query(source_path, target_code, previous_error)
+    # 전체 소스가 포함된 질문은 콘솔에 출력하지 않아 로그와 최종 결과를 오염시키지 않습니다.
 
     # 그래프는 한 번 실행하며 호출 상한은 config.py의 공용값을 따릅니다.
     graph = create_persona_graph()
@@ -1482,7 +1531,8 @@ if __name__ == "__main__":
         # 전체 traceback을 남겨 다음 실행에서 --error-path로 다시 읽을 수 있습니다.
         if error_path:
             error_path.parent.mkdir(parents=True, exist_ok=True)
-            error_path.write_text(traceback.format_exc(), encoding="utf-8")
+            with error_path.open("a", encoding="utf-8") as handle:
+                handle.write("\n[PROGRAM_ERROR]\n" + traceback.format_exc().rstrip() + "\n")
         raise
 
     # 검증 실패나 빈 응답에서도 초안 또는 명시적 오류를 출력합니다.
@@ -1494,8 +1544,34 @@ if __name__ == "__main__":
         or result.get("draft_response")
         or "[출력 오류] 최종 답변과 초안이 모두 비어 있습니다."
     ).strip()
+    required_sections = (
+        "## 1. 전문가적 견해 및 종합 평가",
+        "## 2. 위험도 및 진단 리포트",
+        "## 3. 최종 수정 전체 소스 코드",
+    )
+    # 전체 결과를 파일로 보존하며 생성 소스를 원본에 자동 적용하지 않습니다.
+    report_path = source_path.with_name(source_path.stem + ".review.md")
+    report_path.write_text(final_text, encoding="utf-8")
+    output_errors = validate_review(final_text, query)
+    print(f"[출력 검증] 오류={output_errors}, 보고서={report_path}")
+    if not output_errors:
+        source_path.with_name(source_path.stem + ".proposed.py").write_text(
+            source_block(final_text.split("## 3. 최종 수정 전체 소스 코드", 1)[-1]), encoding="utf-8")
+    missing_sections = validate_review(final_text, query)
+    if missing_sections:
+        result["verification_succeeded"] = False
+        if error_path:
+            error_path.parent.mkdir(parents=True, exist_ok=True)
+            with error_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "\n[AI_OUTPUT_ERROR]\n출력 검증 오류:\n"
+                    + "\n".join(missing_sections)
+                    + "\n"
+                )
     if result.get("verification_succeeded"):
         print("\n[최종 검증된 답변]:\n")
     else:
         print("\n[검증 미완료 - 초안 대체 답변]:\n")
     print(final_text or "[출력 오류] 최종 답변이 비어 있습니다.")
+    if output_errors:
+        raise SystemExit(2)

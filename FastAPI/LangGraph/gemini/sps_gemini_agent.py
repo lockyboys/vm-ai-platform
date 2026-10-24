@@ -4,6 +4,7 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager
 
+import argparse
 import os
 import sys
 import base64
@@ -57,6 +58,8 @@ MCP_URL = os.getenv("SPS_MCP_URL", "http://127.0.0.1:8000/mcp")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("SPS_GEMINI_AGENT_TIMEOUT_SECONDS", "120"))
 AGENT_RECURSION_LIMIT = int(os.getenv("SPS_GEMINI_AGENT_RECURSION_LIMIT", "12"))
+# CLI와 API 모두 프로세스 환경의 토큰을 사용하며 파일에 저장하지 않는다.
+BEARER_TOKEN = os.getenv("SPS_MCP_BEARER_TOKEN", "").strip()
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -92,13 +95,22 @@ agent_instance = None
 def generate_and_inject_jwt(user_id: str = "jeaje") -> str:
     auth = CommonAuth()
     token = auth.issue_access_token(user_id)
+    global BEARER_TOKEN
+    BEARER_TOKEN = token
     os.environ["SPS_MCP_BEARER_TOKEN"] = token
     return token
 
 def create_mcp_client() -> MultiServerMCPClient:
     # 프로세스 시작 시 주입된 토큰은 만료·회전됐을 수 있어 MCP 연결마다 새로 발급합니다.
     # 발급은 CommonAuth 환경 설정을 사용하며 비밀값이나 토큰을 로그에 남기지 않습니다.
-    token = generate_and_inject_jwt()
+    # 검증된 현재 토큰의 주체를 보존한 채 갱신한다. 만료·무효 토큰은 설정 주체로 재발급한다.
+    subject = os.getenv("SPS_AGENT_SUBJECT_ID", "jeaje")
+    if BEARER_TOKEN:
+        try:
+            subject = CommonAuth().verify_token(BEARER_TOKEN, expected_type="access")["sub"]
+        except AuthenticationError:
+            pass
+    token = generate_and_inject_jwt(subject)
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json, text/event-stream",
@@ -107,11 +119,91 @@ def create_mcp_client() -> MultiServerMCPClient:
     return MultiServerMCPClient({
         "sps_harness": {
             "transport": "streamable_http",
-            "url": "http://127.0.0.1:8000/mcp",
+            "url": os.getenv("SPS_MCP_URL", MCP_URL),
             "headers": headers
         }
     })
 
+
+
+def validate_environment(*, require_gemini: bool = True) -> None:
+    """CLI 접속 전에 토큰 형식과 필요한 공급자 키만 검증한다. 비밀값은 출력하지 않는다."""
+    if len(BEARER_TOKEN.split(".")) != 3 or not all(BEARER_TOKEN.split(".")):
+        raise RuntimeError("SPS_MCP_BEARER_TOKEN must be a three-part JWT")
+    if require_gemini and not (os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()):
+        raise RuntimeError("GOOGLE_API_KEY or GEMINI_API_KEY is required")
+
+
+def issue_common_auth_token(user_id: str) -> None:
+    """명시한 주체의 토큰을 발급한다. 발급 실패 시 기존 환경 토큰은 유지한다."""
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise ValueError("CommonAuth user_id must not be empty")
+    generate_and_inject_jwt(user_id.strip())
+
+
+async def _invoke_graph(graph, query: str, thread_id: str) -> str:
+    """CLI·API 호출자가 같은 그래프 입력/스레드/응답 검증 경로를 사용한다."""
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must not be empty")
+    result = await asyncio.wait_for(
+        graph.ainvoke(
+            {"messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=query)],
+             "thread_id": thread_id},
+            config={"configurable": {"thread_id": thread_id},
+                    "recursion_limit": AGENT_RECURSION_LIMIT},
+        ),
+        timeout=AGENT_TIMEOUT_SECONDS,
+    )
+    messages = result.get("messages", [])
+    if not messages:
+        raise RuntimeError("Gemini returned no messages")
+    response = extract_message_content(getattr(messages[-1], "content", messages[-1]))
+    if not response.strip():
+        raise RuntimeError("Gemini returned an empty response")
+    return response
+
+
+async def run_agent(user_query: str, thread_id: str = "sps-gemini-cli",
+                    subject_id: str | None = None) -> None:
+    """기존 CLI 진입점을 복구하고 API와 동일한 그래프로 요청을 실행한다."""
+    if subject_id:
+        issue_common_auth_token(subject_id)
+    validate_environment()
+    graph, _ = await create_agent()
+    print(await _invoke_graph(graph, user_query, thread_id))
+
+
+async def main() -> None:
+    """MCP만 점검하는 CLI와 일반 대화를 분리하고 예외 원문·토큰은 노출하지 않는다."""
+    parser = argparse.ArgumentParser(description="SPS Gemini LangGraph Agent")
+    parser.add_argument("query", nargs="*")
+    parser.add_argument("--thread-id", default="sps-gemini-cli")
+    parser.add_argument("--common-auth-user")
+    parser.add_argument("--check-mcp", action="store_true")
+    args = parser.parse_args()
+    try:
+        if args.common_auth_user:
+            issue_common_auth_token(args.common_auth_user)
+        if args.check_mcp:
+            validate_environment(require_gemini=False)
+            loaded_tools = await asyncio.wait_for(
+                create_mcp_client().get_tools(), timeout=AGENT_TIMEOUT_SECONDS)
+            print(f"MCP_OK tools={len(loaded_tools)}")
+        else:
+            await run_agent(" ".join(args.query).strip() or "SPS MCP 상태를 확인해줘.",
+                            args.thread_id, args.common_auth_user)
+    except Exception as error:
+        pending, details = [error], []
+        while pending:
+            current = pending.pop()
+            children = getattr(current, "exceptions", ())
+            if children:
+                pending.extend(children)
+                continue
+            status = getattr(getattr(current, "response", None), "status_code", None)
+            details.append(f"HTTP {status}" if status is not None else type(current).__name__)
+        print("MCP_AGENT_FAILED: " + ", ".join(sorted(set(details))), file=sys.stderr)
+        raise SystemExit(1) from None
 
 # ==========================================
 # 에이전트 인스턴스 안전 로드 함수
@@ -268,6 +360,7 @@ async def invoke_agent(
 
     # 기존 로직 동일: 환경변수 검증 후 MCP 클라이언트 생성 및 48개 도구 로드
     agent, tool_count = await create_agent()
+    return await _invoke_graph(agent, query, thread_id), tool_count
 
 async def create_agent():
     mcp_tools = []
@@ -280,7 +373,7 @@ async def create_agent():
 
     all_tools = mcp_tools + [read_recent_emails, send_gmail]
     print(f"🛠️ 최종 탑재된 총 도구 개수: {len(all_tools)}")
-    return build_graph(create_gemini_model(), all_tools)
+    return build_graph(create_gemini_model(), all_tools), len(mcp_tools)
 
 
 def extract_message_content(content: Any) -> str:
@@ -384,17 +477,8 @@ async def api_chat_agent(
         
         import asyncio
         thread_id = str(uuid4())
-        result = await asyncio.wait_for(
-            current_agent.ainvoke(
-                {
-                    "messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=req.user_input)], 
-                    "thread_id": thread_id
-                },
-                config={"configurable": {"thread_id": thread_id}, "recursion_limit": AGENT_RECURSION_LIMIT},
-            ), timeout=AGENT_TIMEOUT_SECONDS
-        )
-        messages = result.get("messages", [])
-        return {"result": extract_message_content(getattr(messages[-1], 'content', messages[-1]))}
+        # MCP/CLI와 API가 동일한 입력·스레드·시간 제한·빈 응답 검증을 사용한다.
+        return {"result": await _invoke_graph(current_agent, req.user_input, thread_id)}
     except Exception as e:
         import traceback
         traceback.print_exc()

@@ -584,6 +584,11 @@ SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS = 5
 SPS_SOURCE_REPAIR_AUDIT_DIR = "harness/memory/source_repairs"
 # 보험사뿐 아니라 공사/정부/복지관 등 공개 문서 수집에 같은 저장 설정을 사용합니다.
 SPS_DOCUMENT_DOWNLOAD_DIR = BASE_DIR / "downloaded_docs"
+
+
+# 긴 Python 소스 리뷰의 요청별 입력/출력 예산. GPU 메모리와 함께 실측합니다.
+MULTI_PERSONA_OLLAMA_CONTEXT = 65536
+MULTI_PERSONA_OLLAMA_OUTPUT = 32768
 # 공개 문서 카탈로그 수집기(FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py) 공통 설정.
 # - 2026-10-25 사용자 지침 4: 수집기 안에 박혀 있던 상한·기준값을 루트 config로 옮김.
 # - max_time_limit_seconds: 워커 1회 실행 최대 시간(LuckyBoys 승인 30,000초).

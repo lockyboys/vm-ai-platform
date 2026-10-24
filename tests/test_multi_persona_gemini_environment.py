@@ -39,8 +39,12 @@ def test_injected_runtime_key_accepted(name):
 
 
 def test_agent_source_does_not_reference_protected_secret_path():
-    # AI 에이전트 소스가 보호 파일 경로·dotenv_values·Path.open을 참조하지 않는지 확인한다.
-    source = SOURCE.read_text(encoding="utf-8")
-    assert "/etc/sps-harness/secrets.env" not in source
-    assert "dotenv_values" not in source
-    assert "secret_path.open" not in source
+    # systemd 실행 안내 주석은 파일 접근이 아니다. 실행 코드의 경로·API 참조를 검사한다.
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+    strings = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert not any("/etc/sps-harness/secrets.env" in value for value in strings)
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    assert "dotenv_values" not in names
+    assert not any(isinstance(n, ast.Attribute) and n.attr == "open"
+                   and isinstance(n.value, ast.Name) and n.value.id == "secret_path"
+                   for n in ast.walk(tree))

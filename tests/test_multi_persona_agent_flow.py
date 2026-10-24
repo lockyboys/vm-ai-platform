@@ -126,3 +126,20 @@ def test_final_text_handles_empty_messages_without_index_error():
     """빈 messages와 final_response에서도 오류 대신 초안/안내를 반환해야 합니다."""
     assert MODULE.resolve_final_text({"messages": [], "final_response": "", "draft_response": "초안"}) == "초안"
     assert MODULE.resolve_final_text({"messages": [], "final_response": ""}) == "[출력 오류] 최종 답변과 초안이 모두 비어 있습니다."
+
+
+def test_planner_forces_prompt_engineer_for_langgraph_request(monkeypatch):
+    """LangGraph 요청에서 모델이 역할을 누락해도 PROMPT_ENGINEER를 강제합니다."""
+    monkeypatch.setattr(MODULE, "MAX_PERSONAS_PER_PLAN", 3)
+    monkeypatch.setattr(
+        MODULE,
+        "router_llm",
+        FakeLLM([AIMessage(content='{"personas":["REVIEWER"]}')]),
+    )
+
+    result = MODULE.router_node(
+        {"messages": [HumanMessage(content="LangGraph StateGraph를 점검해줘")]}
+    )
+
+    assert result["persona_plan"][0] == "PROMPT_ENGINEER"
+    assert "REVIEWER" in result["persona_plan"]
