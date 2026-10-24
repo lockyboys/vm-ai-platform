@@ -19,14 +19,57 @@ _TABLE_DDL = re.compile(
 _IDENTIFIER = re.compile(r"`?([A-Za-z_][A-Za-z0-9_$]*)`?")
 
 
+def _mask_quoted_literals(statement: str) -> str:
+    """따옴표('...', "...", `...`) 안의 글자를 같은 길이의 공백으로 바꾼 사본을 돌려준다.
+
+    목적: 문장 구분자(;)·주석(--, /* */, #) 검사를 따옴표 밖에서만 하기 위함(2026-10-24 버그 수정).
+          기존에는 COMMENT 문자열 안의 ';'까지 거부해 표준 '[MONGODB_PAYLOAD] ...; ...' COMMENT를 넣지 못했다.
+    규칙: '' / "" / `` 연속은 이스케이프, '와 " 안의 백슬래시는 다음 글자를 이스케이프한다.
+    주의: 닫히지 않은 따옴표는 이후 전체가 문자열로 숨겨져 검사를 우회할 수 있으므로 거부한다.
+    """
+    masked: list[str] = []
+    quote = None
+    index = 0
+    length = len(statement)
+    while index < length:
+        char = statement[index]
+        if quote is None:
+            if char in ("'", '"', "`"):
+                quote = char
+            masked.append(char)
+            index += 1
+            continue
+        if char == "\\" and quote in ("'", '"') and index + 1 < length:
+            masked.append("  ")
+            index += 2
+            continue
+        if char == quote:
+            if index + 1 < length and statement[index + 1] == quote:
+                masked.append("  ")
+                index += 2
+                continue
+            quote = None
+            masked.append(char)
+            index += 1
+            continue
+        masked.append(" ")
+        index += 1
+    if quote is not None:
+        raise ValueError("Unterminated quoted literal in DDL statement.")
+    return "".join(masked)
+
+
 def _parse_target(statement: str, database_name: str) -> tuple[str, str]:
-    if not statement.strip() or any(token in statement for token in (";", "--", "/*", "*/", "#")):
-        # One optional trailing semicolon is accepted below; comments are not.
-        stripped = statement.strip()
-        if stripped.endswith(";") and stripped.count(";") == 1 and not any(
-            token in statement for token in ("--", "/*", "*/", "#")
-        ):
-            statement = stripped[:-1]
+    if not statement.strip():
+        raise ValueError("Provide exactly one table DDL statement without SQL comments.")
+    # 따옴표 안은 데이터이므로 공백 처리한 사본으로만 구분자·주석을 검사한다.
+    masked = _mask_quoted_literals(statement).strip()
+    if any(token in masked for token in ("--", "/*", "*/", "#")):
+        raise ValueError("Provide exactly one table DDL statement without SQL comments.")
+    if ";" in masked:
+        # 따옴표 밖 ';'는 문장 끝 하나만 허용한다(기존 동작 유지). 그 외는 다중 문장으로 거부.
+        if masked.endswith(";") and masked.count(";") == 1:
+            statement = statement.strip()[:-1]
         else:
             raise ValueError("Provide exactly one table DDL statement without SQL comments.")
     match = _TABLE_DDL.match(statement)
