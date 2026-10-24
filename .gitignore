@@ -152,3 +152,6 @@ C:*
 
 # 사용자가 백업 목적으로 만든 MCP 서버 번호 사본(2026-10-25 사용자 확인)
 harness/mcp/sps_harness_server[0-9].py
+
+# 폐기된 일회성 /sse·/mcp 라우팅 패치 스크립트(재실행 시 옛 코드 재주입 위험, 2026-10-25 사용자 확인)
+/patch_harness.py
