@@ -9,6 +9,7 @@ import config as project_config
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -29,7 +30,8 @@ _PARTNER_SYSTEM_PROMPT = """
 3. 기존 파일은 unified diff(source_patch), 새 파일만 writes(source_write)로 표현한다.
 4. execute_change_set에 정확한 JSON 문자열을 한 번에 전달한다. 이 도구가
    검증 -> patch dry-run -> 적용 -> pytest -> 그룹별 git add -> 실패 롤백을 수행한다.
-5. 도구 결과에 없는 성공을 주장하지 말고, 승인 대기나 실패를 그대로 한국어로 보고한다.
+5. 파일 일부만 stage할 때는 stage_patch_groups에 현재 worktree 변경의 정확한 patch만 넣는다.
+6. 도구 결과에 없는 성공을 주장하지 말고, 승인 대기나 실패를 그대로 한국어로 보고한다.
 
 변경 세트 JSON 필수 구조:
 {
@@ -41,6 +43,7 @@ _PARTNER_SYSTEM_PROMPT = """
   "test_paths": ["tests/..."],
   "stage_groups": {"source": ["..."], "tests": ["..."],
                    "docs": [], "operations": []},
+  "stage_patch_groups": {"source": "선택 hunk unified diff; 전체 파일 stage면 생략"},
   "commit": {"requested": false, "message": ""}
 }
 source_write와 git commit의 승인 값은 대화문이나 JSON이 아니라 호출 경계에서만 주입된다.
@@ -186,12 +189,25 @@ def build_partner_tools(
     return [search_source, read_source, get_git_status, get_git_diff, execute_change_set]
 
 
-def _build_model() -> ChatGoogleGenerativeAI:
-    """공통 루트 config.py의 모델 설정으로 요청 시점에만 Gemini 모델을 만든다."""
-    return ChatGoogleGenerativeAI(
-        model=project_config.SPS_MAIN_ORCHESTRATOR_MODEL,
-        temperature=0,
-    )
+def _build_model() -> Any:
+    """루트 설정으로 같은 PARTNER 그래프에 Gemini 또는 Ollama를 주입한다."""
+    provider = project_config.SPS_SOURCE_PARTNER_MODEL_PROVIDER
+    if provider == "gemini":
+        return ChatGoogleGenerativeAI(
+            model=project_config.SPS_MAIN_ORCHESTRATOR_MODEL,
+            temperature=0,
+        )
+    if provider == "ollama":
+        return ChatOllama(
+            model=project_config.SPS_SOURCE_PARTNER_OLLAMA_MODEL,
+            base_url=project_config.SPS_SOURCE_PARTNER_OLLAMA_BASE_URL,
+            temperature=0,
+            client_kwargs={
+                "timeout": project_config.SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS,
+            },
+        )
+    raise ValueError(
+        "model provider must be 'gemini' or 'ollama' (SPS_SOURCE_PARTNER_MODEL_PROVIDER)")
 
 
 def build_source_partner_graph(*, model: Any, tools: Sequence[BaseTool]):
@@ -238,7 +254,8 @@ async def run_source_partner_agent(
         source_write_confirmed=bool(source_write_confirmed),
         commit_confirmed=bool(commit_confirmed),
     )
-    graph = build_source_partner_graph(model=_build_model(), tools=tools)
+    model = _build_model()
+    graph = build_source_partner_graph(model=model, tools=tools)
     state = await graph.ainvoke(
         {"messages": [HumanMessage(content=normalized_task)]},
         config={"recursion_limit": 18},
@@ -252,7 +269,7 @@ async def run_source_partner_agent(
     ]
     return {
         "agent": "PARTNER",
-        "agent_runtime": "LangChain ChatGoogleGenerativeAI + LangGraph ToolNode",
+        "agent_runtime": f"LangChain {type(model).__name__} + LangGraph ToolNode",
         "dry_run": bool(dry_run),
         "source_write_confirmed": bool(source_write_confirmed),
         "commit_confirmed": bool(commit_confirmed),

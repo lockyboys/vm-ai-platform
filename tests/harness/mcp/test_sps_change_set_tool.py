@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import hashlib
 
 import pytest
 
@@ -35,6 +36,30 @@ def _work_order(*, confirmed=False):
             "method": "none",
             "verification": "pytest",
         },
+    }
+
+
+_BEFORE_SHA = hashlib.sha256(b"OLD = True\n").hexdigest()
+
+
+@pytest.fixture(autouse=True)
+def isolated_source_tree(monkeypatch, tmp_path):
+    """기존 모의 테스트도 실제 서버 파일과 증빙을 변경하지 않도록 격리한다."""
+    from harness.mcp.tools import patch_tools
+    (tmp_path / "haness").mkdir(exist_ok=True)
+    (tmp_path / "haness/example.py").write_text("OLD = True\n", encoding="utf-8")
+    monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(patch_tools, "PROJECT_ROOT", tmp_path)
+
+
+def _patch_receipt(dry_run):
+    """모의 도구도 실제 source_patch와 동일한 해시 증빙 계약을 반환한다."""
+    return {
+        "dry_run": dry_run, "applicable": True, "applied": not dry_run,
+        "paths": ["haness/example.py"],
+        "before_sha256": {"haness/example.py": _BEFORE_SHA},
+        "after_sha256": {"haness/example.py": _BEFORE_SHA},
+        "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
     }
 
 
@@ -77,8 +102,8 @@ def test_change_set_dry_run_checks_patch_and_stage_without_mutation(monkeypatch)
             "dry_run": dry_run,
             "applicable": True,
             "paths": ["haness/example.py"],
-            "before_sha256": {"haness/example.py": "before"},
-            "patch_sha256": "patch",
+            "before_sha256": {"haness/example.py": _BEFORE_SHA},
+            "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
         },
     )
     monkeypatch.setattr(
@@ -93,7 +118,7 @@ def test_change_set_dry_run_checks_patch_and_stage_without_mutation(monkeypatch)
     assert result["state"] == "PLANNED"
     assert patch_calls == [True]
     assert stage_calls == [(["haness/example.py"], True)]
-    assert "evidence_path" not in result
+    assert result["evidence_path"]
 
 
 def test_patch_paths_must_match_stage_groups(monkeypatch):
@@ -112,6 +137,69 @@ def test_patch_paths_must_match_stage_groups(monkeypatch):
         module.run_change_set(_work_order(), dry_run=True)
 
 
+def test_unknown_stage_patch_group_is_rejected_before_mutation(monkeypatch):
+    """선언되지 않은 부분 스테이징 그룹은 소스 변경 전에 거부해야 한다."""
+    work_order = _work_order()
+    work_order["stage_patch_groups"] = {"unknown": work_order["patch_text"]}
+    patch_calls = []
+    monkeypatch.setattr(
+        module,
+        "source_patch",
+        lambda *args, **kwargs: patch_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(ValueError, match="stage patch groups"):
+        module.run_change_set(work_order, dry_run=True)
+
+    assert patch_calls == []
+
+
+def test_selected_hunks_stage_after_pytest_in_same_graph(monkeypatch):
+    """부분 patch도 별도 API 없이 기존 변경 그래프의 pytest 뒤에 스테이지해야 한다."""
+    work_order = _work_order(confirmed=True)
+    work_order["stage_patch_groups"] = {"source": work_order["patch_text"]}
+    events = []
+    monkeypatch.setattr(module, "_staged_paths", lambda: [])
+    monkeypatch.setattr(
+        module,
+        "source_patch",
+        lambda patch_text, dry_run=True: _patch_receipt(dry_run),
+    )
+    monkeypatch.setattr(
+        module,
+        "run_pytest_verification",
+        lambda paths, title="": events.append("pytest")
+        or {"success": True, "exit_code": 0, "results": []},
+    )
+    monkeypatch.setattr(
+        module,
+        "git_apply_cached_patch",
+        lambda patch_text, expected_paths, dry_run=True: events.append(
+            ("stage_patch", dry_run, list(expected_paths)))
+        or {"staged_paths": [] if dry_run else list(expected_paths)},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        module,
+        "git_add",
+        lambda *args, **kwargs: pytest.fail("whole-file git add must not run"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_write_change_set_evidence",
+        lambda *args: "evidence.json",
+    )
+
+    result = module.run_change_set(work_order, dry_run=False)
+
+    assert result["state"] == "STAGED"
+    assert events == [
+        "pytest",
+        ("stage_patch", True, ["haness/example.py"]),
+        ("stage_patch", False, ["haness/example.py"]),
+    ]
+
+
 def test_apply_runs_patch_tests_and_separate_git_add(monkeypatch):
     """승인 실행은 patch, pytest, 정확한 source 그룹 저장 순서를 지켜야 한다."""
     patch_calls = []
@@ -126,9 +214,9 @@ def test_apply_runs_patch_tests_and_separate_git_add(monkeypatch):
             "applicable": True,
             "applied": not dry_run,
             "paths": ["haness/example.py"],
-            "before_sha256": {"haness/example.py": "before"},
-            "after_sha256": {"haness/example.py": "after"},
-            "patch_sha256": "patch",
+            "before_sha256": {"haness/example.py": _BEFORE_SHA},
+            "after_sha256": {"haness/example.py": _BEFORE_SHA},
+            "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
         },
     )
     monkeypatch.setattr(
@@ -184,9 +272,9 @@ def test_failed_tests_reverse_patch_and_do_not_stage(monkeypatch):
             "applicable": True,
             "applied": not dry_run,
             "paths": ["haness/example.py"],
-            "before_sha256": {"haness/example.py": "before"},
-            "after_sha256": {"haness/example.py": "after"},
-            "patch_sha256": "patch",
+            "before_sha256": {"haness/example.py": _BEFORE_SHA},
+            "after_sha256": {"haness/example.py": _BEFORE_SHA},
+            "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
         },
     )
     monkeypatch.setattr(
@@ -251,7 +339,7 @@ def test_patch_execution_does_not_require_separate_write_approval(monkeypatch):
         module,
         "source_patch",
         lambda patch_text, dry_run=True: patch_calls.append(dry_run)
-        or {"paths": ["haness/example.py"], "applied": not dry_run},
+        or _patch_receipt(dry_run),
     )
     monkeypatch.setattr(
         module,
@@ -338,7 +426,7 @@ def test_commit_waits_for_approval_after_source_staging(monkeypatch):
         "message": "feat: apply SPS change set",
     }
     monkeypatch.setattr(module, "_staged_paths", lambda: [])
-    monkeypatch.setattr(module, "source_patch", lambda text, dry_run=True: {"paths": ["haness/example.py"]})
+    monkeypatch.setattr(module, "source_patch", lambda text, dry_run=True: _patch_receipt(dry_run))
     monkeypatch.setattr(module, "run_pytest_verification", lambda paths, title="": {"success": True})
     monkeypatch.setattr(module, "git_add", lambda paths, dry_run=True: {"staged_paths": list(paths)})
     monkeypatch.setattr(module, "_write_change_set_evidence", lambda *args: "evidence.json")
@@ -356,7 +444,7 @@ def test_confirmed_commit_runs_dry_run_then_commit(monkeypatch):
     work_order = _work_order(confirmed=True)
     work_order["commit"] = {"requested": True, "confirmed": True, "message": "feat: SPS change set"}
     monkeypatch.setattr(module, "_staged_paths", lambda: [])
-    monkeypatch.setattr(module, "source_patch", lambda text, dry_run=True: {"paths": ["haness/example.py"]})
+    monkeypatch.setattr(module, "source_patch", lambda text, dry_run=True: _patch_receipt(dry_run))
     monkeypatch.setattr(module, "run_pytest_verification", lambda paths, title="": {"success": True})
     monkeypatch.setattr(module, "git_add", lambda paths, dry_run=True: {"staged_paths": list(paths)})
     monkeypatch.setattr(module, "_write_change_set_evidence", lambda *args: "evidence.json")
@@ -373,3 +461,99 @@ def test_confirmed_commit_runs_dry_run_then_commit(monkeypatch):
 
     assert result["state"] == "COMMITTED"
     assert commit_calls == [True, False]
+
+
+def test_dry_run_persists_source_hashes_and_patch_plan(monkeypatch, tmp_path):
+    """계획만 실행해도 실제로 읽은 원본 해시와 dry-run 증빙이 남아야 한다."""
+    import hashlib
+    import subprocess
+    from harness.mcp.tools import patch_tools
+
+    (tmp_path / "haness").mkdir(exist_ok=True)
+    source = tmp_path / "haness/example.py"
+    source.write_text("OLD = True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(patch_tools, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(module, "git_add", lambda *args, **kwargs: {})
+    result = module.run_change_set(_work_order(), dry_run=True)
+
+    report = json.loads((tmp_path / result["evidence_path"]).read_text())
+    expected = hashlib.sha256(source.read_bytes()).hexdigest()
+    assert report["source_before_sha256"] == {"haness/example.py": expected}
+    assert report["patch_plan"]["dry_run"] is True
+    assert report["state"] == "PLANNED"
+    assert source.read_text() == "OLD = True\n"
+
+
+def test_source_change_after_check_blocks_apply(monkeypatch, tmp_path):
+    """dry-run 이후 원본이 바뀌면 실제 patch·pytest·staging 전에 중단해야 한다."""
+    from harness.mcp.tools import patch_tools
+
+    (tmp_path / "haness").mkdir(exist_ok=True)
+    source = tmp_path / "haness/example.py"
+    source.write_text("OLD = True\n", encoding="utf-8")
+    monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(patch_tools, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(module, "_staged_paths", lambda: [])
+    plan = module._validate_request(_work_order(), False)
+    plan["patch_plan"] = {
+        "dry_run": True, "applicable": True, "paths": ["haness/example.py"],
+        "before_sha256": {"haness/example.py": "0" * 64},
+    }
+    plan["source_before_sha256"] = {"haness/example.py": "0" * 64}
+    calls = []
+    monkeypatch.setattr(module, "source_patch", lambda *a, **k: calls.append(k))
+    with pytest.raises(ValueError, match="source changed since dry-run"):
+        module._apply_patch_node(plan)
+    assert calls == []
+    assert source.read_text() == "OLD = True\n"
+
+
+def test_missing_patch_hash_evidence_is_rejected(monkeypatch):
+    """해시가 없는 잘못된 dry-run 응답은 성공 계획으로 인정하지 않아야 한다."""
+    monkeypatch.setattr(module, "source_patch", lambda *a, **k: {
+        "dry_run": True, "applicable": True, "paths": ["haness/example.py"],
+    })
+    with pytest.raises(ValueError, match="patch hash evidence"):
+        module.run_change_set(_work_order(), dry_run=True)
+
+
+def test_real_apply_receipt_exists_before_pytest(monkeypatch, tmp_path):
+    """실제 Git patch의 전후 해시가 pytest 실행 전에 디스크 증빙에 남아야 한다."""
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkeypatch.setattr(module, "_staged_paths", lambda: [])
+    monkeypatch.setattr(module, "git_add", lambda *a, **k: {})
+    observed = []
+
+    def verify_receipt(paths, title=""):
+        report = json.loads((tmp_path / "harness/memory/orchestrator_runs/change-set-change-001.json").read_text())
+        assert report["state"] == "APPLIED"
+        assert report["patch_plan"]["dry_run"] is True
+        assert report["patch_result"]["applied"] is True
+        assert report["source_before_sha256"]["haness/example.py"] == _BEFORE_SHA
+        after = hashlib.sha256((tmp_path / "haness/example.py").read_bytes()).hexdigest()
+        assert report["source_after_sha256"]["haness/example.py"] == after
+        assert after != _BEFORE_SHA
+        observed.append(True)
+        return {"success": True}
+
+    monkeypatch.setattr(module, "run_pytest_verification", verify_receipt)
+    result = module.run_change_set(_work_order(), dry_run=False)
+    assert result["state"] == "STAGED"
+    assert observed == [True]
+
+
+def test_evidence_save_failure_prevents_source_mutation(monkeypatch):
+    """증빙을 저장하지 못하면 검사만 끝내고 실제 patch·pytest·Git 변경을 금지한다."""
+    calls = []
+    monkeypatch.setattr(module, "source_patch", lambda text, dry_run=True: calls.append(dry_run) or _patch_receipt(dry_run))
+
+    def fail_save(*args):
+        raise OSError("evidence disk unavailable")
+
+    monkeypatch.setattr(module, "_write_change_set_evidence", fail_save)
+    with pytest.raises(OSError, match="evidence disk unavailable"):
+        module.run_change_set(_work_order(), dry_run=False)
+    assert calls == [True]

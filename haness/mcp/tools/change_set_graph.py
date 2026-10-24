@@ -1,6 +1,7 @@
 """LangChain 도구와 LangGraph로 SPS 소스 변경 세트를 안전하게 실행한다."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -12,7 +13,11 @@ from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 
 from haness.mcp.tools.multi_persona_tools import PROJECT_ROOT
-from harness.mcp.tools.git_mutation_tools import git_add, git_commit
+from harness.mcp.tools.git_mutation_tools import (
+    git_add,
+    git_apply_cached_patch,
+    git_commit,
+)
 from harness.mcp.tools.patch_tools import source_patch
 from harness.mcp.tools.pytest_tools import run_pytest_verification
 from harness.mcp.tools.write_tools import (
@@ -37,6 +42,7 @@ class ChangeSetState(TypedDict, total=False):
     patch_text: str
     test_paths: list[str]
     stage_groups: dict[str, list[str]]
+    stage_patch_groups: dict[str, str]
     writes: list[dict[str, Any]]
     source_write_confirmed: bool
     write_backups: dict[str, dict[str, Any]]
@@ -46,6 +52,9 @@ class ChangeSetState(TypedDict, total=False):
     commit_result: dict[str, Any]
     activation: dict[str, Any]
     patch_plan: dict[str, Any]
+    source_before_sha256: dict[str, str | None]
+    source_after_sha256: dict[str, str | None]
+    patch_result: dict[str, Any]
     test_result: dict[str, Any]
     staged_groups: dict[str, list[str]]
     state: str
@@ -157,6 +166,23 @@ def _validate_request(payload: dict[str, Any], dry_run: bool) -> ChangeSetState:
     if len(all_paths) != len(set(all_paths)):
         raise ValueError("a path may belong to only one stage group")
 
+    raw_stage_patch_groups = payload.get("stage_patch_groups", {})
+    if not isinstance(raw_stage_patch_groups, dict):
+        raise ValueError("stage_patch_groups must be an object")
+    unknown_patch_groups = set(raw_stage_patch_groups) - set(_STAGE_GROUP_NAMES)
+    if unknown_patch_groups:
+        raise ValueError(
+            f"unknown stage patch groups: {sorted(unknown_patch_groups)}")
+    stage_patch_groups: dict[str, str] = {}
+    for group_name, stage_patch_text in raw_stage_patch_groups.items():
+        if not isinstance(stage_patch_text, str) or not stage_patch_text.strip():
+            raise ValueError(f"stage_patch_groups.{group_name} must be non-empty text")
+        if not stage_groups[group_name]:
+            raise ValueError(f"stage_patch_groups.{group_name} requires stage paths")
+        if set(stage_groups[group_name]) & set(write_paths):
+            raise ValueError("new source_write files cannot use partial staging")
+        stage_patch_groups[group_name] = stage_patch_text
+
     activation = payload.get("activation")
     if not isinstance(activation, dict) or not isinstance(activation.get("required"), bool):
         raise ValueError("activation.required must be boolean")
@@ -173,6 +199,7 @@ def _validate_request(payload: dict[str, Any], dry_run: bool) -> ChangeSetState:
         "patch_text": patch_text,
         "test_paths": test_paths,
         "stage_groups": stage_groups,
+        "stage_patch_groups": stage_patch_groups,
         "writes": writes,
         "source_write_confirmed": source_write_confirmed,
         "write_backups": {},
@@ -216,6 +243,15 @@ def _pytest_tool(test_paths: list[str], title: str) -> dict:
 def _git_add_tool(paths: list[str], dry_run: bool) -> dict:
     """명시된 파일만 Git 인덱스에 올리거나 사전 검사한다."""
     return git_add(paths, dry_run=dry_run)
+
+
+@tool("sps_git_add_selected_patch")
+def _git_add_patch_tool(
+    patch_text: str, expected_paths: list[str], dry_run: bool
+) -> dict:
+    """현재 작업 파일의 선택 hunk만 검증 후 Git 인덱스에 올린다."""
+    return git_apply_cached_patch(
+        patch_text=patch_text, expected_paths=expected_paths, dry_run=dry_run)
 
 
 @tool("sps_git_commit_approved")
@@ -286,6 +322,18 @@ def _validate_node(state: ChangeSetState) -> ChangeSetState:
     return _validate_request(state["request"], state["dry_run"])
 
 
+def _read_source_hashes(paths: list[str]) -> dict[str, str | None]:
+    """원본을 직접 읽어 해시로 기록한다. 신규 파일은 None이며 외부 경로는 거부한다."""
+    root = PROJECT_ROOT.resolve()
+    hashes: dict[str, str | None] = {}
+    for path in paths:
+        target = (root / path).resolve()
+        if root not in target.parents:
+            raise ValueError("source evidence path escapes project")
+        hashes[path] = hashlib.sha256(target.read_bytes()).hexdigest() if target.exists() else None
+    return hashes
+
+
 def _patch_check_node(state: ChangeSetState) -> ChangeSetState:
     if state["patch_text"].strip():
         patch_plan = _patch_check_tool.invoke({"patch_text": state["patch_text"]})
@@ -298,7 +346,29 @@ def _patch_check_node(state: ChangeSetState) -> ChangeSetState:
         raise ValueError(
             f"change paths and stage_groups differ: changes={sorted(actual)}, stage={sorted(expected)}"
         )
-    return {"patch_plan": patch_plan}
+    # 검증 응답과 직접 읽은 원본이 일치해야만 적용 계획을 인정한다.
+    if state["patch_text"].strip():
+        hashes = patch_plan.get("before_sha256", {})
+        digest = hashlib.sha256(state["patch_text"].encode("utf-8")).hexdigest()
+        if (patch_plan.get("dry_run") is not True
+                or patch_plan.get("applicable") is not True
+                or not isinstance(hashes, dict)
+                or set(hashes) != set(patch_plan["paths"])
+                or patch_plan.get("patch_sha256") != digest
+                or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+                       for value in hashes.values())):
+            raise ValueError("missing or invalid patch hash evidence")
+    source_hashes = _read_source_hashes(sorted(expected))
+    if any(source_hashes[path] != value
+           for path, value in patch_plan.get("before_sha256", {}).items()):
+        raise ValueError("source changed since dry-run")
+    checked = {
+        "state": "CHECKED", "success": False,
+        "patch_plan": patch_plan, "source_before_sha256": source_hashes,
+    }
+    # 증빙 저장 실패 시 소스 변경을 시작하지 않는다.
+    evidence_path = _write_change_set_evidence(state["change_set_id"], checked)
+    return {**checked, "evidence_path": evidence_path}
 
 
 def _after_patch_check(state: ChangeSetState) -> str:
@@ -307,9 +377,12 @@ def _after_patch_check(state: ChangeSetState) -> str:
 
 def _stage_plan_node(state: ChangeSetState) -> ChangeSetState:
     write_paths = {value["path"] for value in state["writes"]}
-    for paths in state["stage_groups"].values():
+    for group_name, paths in state["stage_groups"].items():
         existing_paths = [path for path in paths if path not in write_paths]
-        if existing_paths:
+        if group_name in state["stage_patch_groups"]:
+            # 선택 hunk는 source patch 적용 뒤에만 worktree reverse-check가 가능하다.
+            continue
+        elif existing_paths:
             _git_add_tool.invoke({"paths": existing_paths, "dry_run": True})
     commit_state = (
         "AWAITING_APPROVAL" if state["commit"].get("requested") else "NOT_REQUESTED"
@@ -341,13 +414,21 @@ def _apply_patch_node(state: ChangeSetState) -> ChangeSetState:
     existing = _staged_paths()
     if existing:
         raise ValueError(f"pre-existing staged files must be cleared first: {existing}")
+    expected_hashes = state["source_before_sha256"]
+    if _read_source_hashes(list(expected_hashes)) != expected_hashes:
+        raise ValueError("source changed since dry-run")
+    patch_result: dict[str, Any] = {}
     patch_applied = False
     backups: dict[str, dict[str, Any]] = {}
     write_results: list[dict[str, Any]] = []
     try:
         if state["patch_text"].strip():
-            _patch_apply_tool.invoke({"patch_text": state["patch_text"]})
+            patch_result = _patch_apply_tool.invoke({"patch_text": state["patch_text"]})
             patch_applied = True
+            if (patch_result.get("applied") is not True
+                    or patch_result.get("before_sha256") != state["patch_plan"]["before_sha256"]
+                    or patch_result.get("patch_sha256") != state["patch_plan"]["patch_sha256"]):
+                raise ValueError("patch apply evidence differs from dry-run")
         for request in state["writes"]:
             target = (PROJECT_ROOT / request["path"]).resolve()
             existed = target.exists()
@@ -356,12 +437,30 @@ def _apply_patch_node(state: ChangeSetState) -> ChangeSetState:
                 "content": target.read_text(encoding="utf-8") if existed else "",
             }
             write_results.append(_source_write_tool.invoke(request))
+        # 재조회 해시와 적용 응답을 대조하고 pytest 전에 실제 적용 증빙을 남긴다.
+        after_hashes = _read_source_hashes(list(expected_hashes))
+        if any(after_hashes[path] != value
+               for path, value in patch_result.get("after_sha256", {}).items()):
+            raise ValueError("source reread differs from patch apply")
+        if state["patch_text"].strip() and set(patch_result.get("after_sha256", {})) != set(state["patch_plan"]["paths"]):
+            raise ValueError("missing patch apply hash evidence")
+        applied_state = {
+            "write_backups": backups, "write_results": write_results,
+            "patch_result": patch_result, "source_after_sha256": after_hashes,
+        }
+        _write_change_set_evidence(state["change_set_id"], {
+            "state": "APPLIED", "success": False,
+            "patch_plan": state["patch_plan"],
+            "source_before_sha256": expected_hashes,
+            "patch_result": patch_result, "source_after_sha256": after_hashes,
+            "write_results": write_results,
+        })
     except Exception:
         _restore_writes(backups)
         if patch_applied:
             _reverse_patch(state["patch_text"])
         raise
-    return {"write_backups": backups, "write_results": write_results}
+    return applied_state
 
 
 def _test_node(state: ChangeSetState) -> ChangeSetState:
@@ -385,9 +484,18 @@ def _stage_apply_node(state: ChangeSetState) -> ChangeSetState:
             paths = state["stage_groups"][group_name]
             if not paths:
                 continue
-            _git_add_tool.invoke({"paths": paths, "dry_run": True})
-            _git_add_tool.invoke({"paths": paths, "dry_run": False})
             touched.extend(paths)
+            stage_patch_text = state["stage_patch_groups"].get(group_name)
+            if stage_patch_text:
+                arguments = {
+                    "patch_text": stage_patch_text,
+                    "expected_paths": paths,
+                }
+                _git_add_patch_tool.invoke({**arguments, "dry_run": True})
+                _git_add_patch_tool.invoke({**arguments, "dry_run": False})
+            else:
+                _git_add_tool.invoke({"paths": paths, "dry_run": True})
+                _git_add_tool.invoke({"paths": paths, "dry_run": False})
     except Exception:
         _unstage_paths(touched)
         _restore_writes(state.get("write_backups", {}))
@@ -436,6 +544,9 @@ def _evidence_node(state: ChangeSetState) -> ChangeSetState:
         "state": state["state"],
         "success": state["success"],
         "patch_plan": state["patch_plan"],
+        "source_before_sha256": state.get("source_before_sha256", {}),
+        "source_after_sha256": state.get("source_after_sha256", {}),
+        "patch_result": state.get("patch_result"),
         "write_results": state.get("write_results", []),
         "test_result": state.get("test_result"),
         "staged_groups": state.get("staged_groups", {}),
@@ -470,7 +581,7 @@ def _build_change_set_graph():
         _after_patch_check,
         {"stage_plan": "stage_plan", "apply_patch": "apply_patch"},
     )
-    builder.add_edge("stage_plan", END)
+    builder.add_edge("stage_plan", "evidence")
     builder.add_edge("apply_patch", "test")
     builder.add_conditional_edges(
         "test",

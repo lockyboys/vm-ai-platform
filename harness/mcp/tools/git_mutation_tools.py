@@ -12,6 +12,8 @@
 # 주의: 관련 없는 파일이 섞이면 커밋하지 않으며, 원격 저장소로 push하지 않습니다.
 from __future__ import annotations
 
+import hashlib
+import re
 import subprocess
 from pathlib import Path
 
@@ -19,6 +21,18 @@ from pathlib import Path
 PROJECT_ROOT = Path("/data/vm_project")
 MAX_PATHS = 100
 MAX_COMMIT_MESSAGE_LENGTH = 200
+MAX_CACHED_PATCH_BYTES = 1024 * 1024
+MAX_STAGED_DIFF_PREVIEW = 12000
+FORBIDDEN_CACHED_PATCH_MARKERS = (
+    "GIT " + "binary patch",
+    "Binary " + "files ",
+    "deleted " + "file mode ",
+    "new " + "file mode ",
+    "rename " + "from ",
+    "rename " + "to ",
+    "old " + "mode ",
+    "new " + "mode ",
+)
 EXCLUDED_DIRECTORY_NAMES = {
     ".git",
     "venv",
@@ -113,6 +127,110 @@ def git_add(paths: list[str], dry_run: bool = True) -> dict:
         "requested_paths": normalized_paths,
         "staged_paths": _staged_paths(),
         "git_output": result.stdout.splitlines(),
+    }
+
+
+def _extract_cached_patch_paths(patch_text: str) -> list[str]:
+    """Unified Diff 헤더에서 동일한 기존 파일 경로만 추출한다."""
+    old_paths = re.findall(r"^--- a/(.+)$", patch_text, flags=re.MULTILINE)
+    new_paths = re.findall(r"^\+\+\+ b/(.+)$", patch_text, flags=re.MULTILINE)
+    if not old_paths or len(old_paths) != len(new_paths):
+        raise ValueError("Patch must contain matching --- a/ and +++ b/ paths.")
+    paths: list[str] = []
+    for old_path, new_path in zip(old_paths, new_paths):
+        if old_path != new_path:
+            raise ValueError("Cached patch cannot create, delete, or rename files.")
+        normalized = Path(old_path).as_posix()
+        if normalized not in paths:
+            paths.append(normalized)
+    return paths
+
+
+def _run_cached_patch(patch_text: str, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    """작업 파일을 수정하지 않고 patch를 검사하거나 Git index에 적용한다."""
+    return subprocess.run(
+        ["git", "apply", "--unidiff-zero", "--whitespace=error-all", *arguments, "-"],
+        cwd=PROJECT_ROOT,
+        input=patch_text,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def git_apply_cached_patch(
+    patch_text: str,
+    expected_paths: list[str],
+    dry_run: bool = True,
+) -> dict:
+    """검증된 Unified Diff의 선택 hunk만 Git index에 반영한다.
+
+    작업 트리 파일은 절대 다시 쓰지 않는다. 먼저 patch가 현재 작업 트리에 실제로
+    존재하는 변경인지 reverse-check하고, 현재 index에 적용 가능한지 cached-check한다.
+    두 검사가 모두 통과한 경우에만 dry_run=False에서 index를 갱신한다.
+    """
+    if not isinstance(patch_text, str) or not patch_text.strip():
+        raise ValueError("patch_text must be non-empty text.")
+    patch_bytes = patch_text.encode("utf-8")
+    if len(patch_bytes) > MAX_CACHED_PATCH_BYTES:
+        raise ValueError(f"Patch exceeds the {MAX_CACHED_PATCH_BYTES}-byte limit.")
+    for marker in FORBIDDEN_CACHED_PATCH_MARKERS:
+        if marker in patch_text:
+            raise ValueError(f"Forbidden cached patch operation: {marker.strip()}")
+    if ("--- " + "/dev/null") in patch_text or ("+++ " + "/dev/null") in patch_text:
+        raise ValueError("Cached patch cannot create or delete files.")
+
+    patch_paths = _extract_cached_patch_paths(patch_text)
+    requested_paths = [
+        Path(path.strip().replace("\\", "/")).as_posix()
+        for path in expected_paths
+        if isinstance(path, str) and path.strip()
+    ]
+    if sorted(set(patch_paths)) != sorted(set(requested_paths)):
+        raise ValueError(
+            "Patch paths must exactly match expected_paths. "
+            f"patch={sorted(set(patch_paths))}, expected={sorted(set(requested_paths))}")
+    normalized_paths = _validate_paths(requested_paths)
+
+    # reverse-check는 선택 patch의 변경 내용이 현재 worktree에 실제로 존재하는지
+    # 확인하여 모델이 작업 파일에 없는 코드를 index에 꾸며 넣는 것을 차단한다.
+    worktree_check = _run_cached_patch(patch_text, ["--reverse", "--check"])
+    if worktree_check.returncode != 0:
+        detail = worktree_check.stderr.strip()
+        raise ValueError(
+            "Patch does not describe changes present in the working tree"
+            + (f": {detail}" if detail else "."))
+    index_check = _run_cached_patch(patch_text, ["--cached", "--check"])
+    if index_check.returncode != 0:
+        raise ValueError(index_check.stderr.strip() or "Cached patch check failed.")
+
+    patch_sha256 = hashlib.sha256(patch_bytes).hexdigest()
+    if dry_run:
+        return {
+            "dry_run": True,
+            "applicable": True,
+            "paths": normalized_paths,
+            "patch_sha256": patch_sha256,
+            "staged_paths": _staged_paths(),
+        }
+
+    applied = _run_cached_patch(patch_text, ["--cached"])
+    if applied.returncode != 0:
+        raise RuntimeError(applied.stderr.strip() or "Cached patch apply failed.")
+    staged = _run_git(["diff", "--cached", "--", *normalized_paths])
+    if staged.returncode != 0:
+        raise RuntimeError(staged.stderr.strip() or "Unable to verify staged patch.")
+    if not staged.stdout.strip():
+        raise RuntimeError("Cached patch applied but staged diff is empty.")
+    return {
+        "dry_run": False,
+        "staged": True,
+        "paths": normalized_paths,
+        "patch_sha256": patch_sha256,
+        "staged_paths": _staged_paths(),
+        "staged_diff": staged.stdout[:MAX_STAGED_DIFF_PREVIEW],
+        "staged_diff_truncated": len(staged.stdout) > MAX_STAGED_DIFF_PREVIEW,
+        "staged_diff_sha256": hashlib.sha256(staged.stdout.encode("utf-8")).hexdigest(),
     }
 
 

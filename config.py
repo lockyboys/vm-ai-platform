@@ -568,7 +568,16 @@ MULTI_PERSONA_REVIEW_OUTPUT_CHARS = 12000
 # Shared transient workers use the account and protected files supplied by the operator.
 SPS_MCP_WORKER_USER = "jeaje"
 SPS_MCP_WORKER_SECRETS_FILE = "/etc/sps-harness/secrets.env"
+# PARTNER는 하나의 LangGraph 구현을 유지하고 이 설정으로 Gemini/Ollama만 선택합니다.
+SPS_SOURCE_PARTNER_MODEL_PROVIDER = os.getenv(
+    "SPS_SOURCE_PARTNER_MODEL_PROVIDER", "gemini").strip().lower()
 SPS_MAIN_ORCHESTRATOR_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+SPS_SOURCE_PARTNER_OLLAMA_MODEL = os.getenv(
+    "SPS_SOURCE_PARTNER_OLLAMA_MODEL", os.getenv("OLLAMA_MODEL", "gemma4:e4b")).strip()
+SPS_SOURCE_PARTNER_OLLAMA_BASE_URL = os.getenv(
+    "SPS_SOURCE_PARTNER_OLLAMA_BASE_URL", os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")).strip()
+SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS = float(os.getenv(
+    "SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT", "300")))
 SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS = 120
 
 

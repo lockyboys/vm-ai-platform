@@ -26,6 +26,58 @@ def test_empty_task_is_rejected_before_model_creation(monkeypatch):
     assert called == []
 
 
+def test_invalid_partner_model_provider_is_rejected(monkeypatch):
+    """지원하지 않는 제공자는 외부 모델을 만들기 전에 명확히 거부해야 한다."""
+    monkeypatch.setattr(
+        source_partner_agent.project_config,
+        "SPS_SOURCE_PARTNER_MODEL_PROVIDER",
+        "unknown",
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="provider"):
+        source_partner_agent._build_model()
+
+
+def test_partner_uses_ollama_from_shared_config(monkeypatch):
+    """같은 PARTNER 그래프가 루트 설정에 따라 Ollama 모델을 선택해야 한다."""
+    captured = {}
+
+    class FakeOllama:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        source_partner_agent.project_config,
+        "SPS_SOURCE_PARTNER_MODEL_PROVIDER",
+        "ollama",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        source_partner_agent.project_config,
+        "SPS_SOURCE_PARTNER_OLLAMA_MODEL",
+        "gemma4:e4b",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        source_partner_agent.project_config,
+        "SPS_SOURCE_PARTNER_OLLAMA_BASE_URL",
+        "http://127.0.0.1:11434",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        source_partner_agent.project_config,
+        "SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS",
+        300,
+        raising=False,
+    )
+    monkeypatch.setattr(source_partner_agent, "ChatOllama", FakeOllama, raising=False)
+
+    assert isinstance(source_partner_agent._build_model(), FakeOllama)
+    assert captured["model"] == "gemma4:e4b"
+    assert captured["base_url"] == "http://127.0.0.1:11434"
+
+
 def test_change_set_tool_forces_trusted_approval_values(monkeypatch):
     """LLM이 승인 필드를 위조해도 호출자가 전달한 승인 값만 실행기에 들어가야 한다."""
     captured = []
