@@ -51,6 +51,10 @@ def mcp_codex_apps_run_python_source(
     dry_run: bool = True,
     timeout_seconds: int = 120,
     execute_confirmed: bool = False,
+    ssh_target: str = "",
+    ssh_operation: str = "hash",
+    argv: list[str] | None = None,
+    job_id: str = "",
 ) -> dict[str, Any]:
     """
     Plan or execute one approved project-relative Python source file.
@@ -58,6 +62,16 @@ def mcp_codex_apps_run_python_source(
     dry_run=True never starts Python or an LLM. Execution also requires
     execute_confirmed=True, which the caller may set only after explicit user approval.
     """
+    # SSH 접속은 중앙 설정의 대상만 허용하고 haness 구현에 위임합니다.
+    if ssh_target:
+        from haness.mcp.tools.ssh_execution_tools import run_remote
+        return run_remote(
+            path=path, ssh_target=ssh_target, ssh_operation=ssh_operation,
+            argv=argv, job_id=job_id, dry_run=dry_run,
+            execute_confirmed=execute_confirmed, timeout_seconds=timeout_seconds,
+        )
+    if argv or job_id or ssh_operation != "hash":
+        raise ValueError("SSH arguments require ssh_target")
     source_path = _resolve_source_path(path)
     timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
     command = [sys.executable, str(source_path)]

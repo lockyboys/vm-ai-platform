@@ -589,6 +589,22 @@ SPS_DOCUMENT_DOWNLOAD_DIR = BASE_DIR / "downloaded_docs"
 # 긴 Python 소스 리뷰의 요청별 입력/출력 예산. GPU 메모리와 함께 실측합니다.
 MULTI_PERSONA_OLLAMA_CONTEXT = 65536
 MULTI_PERSONA_OLLAMA_OUTPUT = 32768
+
+# SSH 대상은 중앙 설정으로 관리하고 비밀키는 경로로만 참조합니다.
+SPS_SSH_TARGETS = {
+    "gpu": {
+        "host": os.getenv("SPS_GPU_SSH_HOST", "34.64.134.46"),
+        "user": os.getenv("SPS_GPU_SSH_USER", "jeajea_park"),
+        "port": int(os.getenv("SPS_GPU_SSH_PORT", "22")),
+        "identity_file": os.getenv("SPS_GPU_SSH_IDENTITY_FILE", "/home/jeaje/.ssh/google_compute_engine"),
+        "known_hosts": os.getenv("SPS_GPU_SSH_KNOWN_HOSTS", "/home/jeaje/.ssh/known_hosts"),
+        "root": os.getenv("SPS_GPU_PROJECT_ROOT", "/data/vm_project"),
+        "python": os.getenv("SPS_GPU_PYTHON", "/data/vm_project/venv/bin/python"),
+    },
+}
+# 개별 SSH는 150초 이내 응답하며 장기 모델 작업은 원격에서 별도로 실행합니다.
+SPS_SSH_JOB_TIMEOUT_SECONDS = 3000
+SPS_SSH_REQUEST_TIMEOUT_SECONDS = 120
 # 공개 문서 카탈로그 수집기(FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py) 공통 설정.
 # - 2026-10-25 사용자 지침 4: 수집기 안에 박혀 있던 상한·기준값을 루트 config로 옮김.
 # - max_time_limit_seconds: 워커 1회 실행 최대 시간(LuckyBoys 승인 30,000초).
