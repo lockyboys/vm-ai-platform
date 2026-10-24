@@ -1,9 +1,0 @@
-F UI Runtime 진행 상태 — 2026-10-06
-- SPS MCP로만 소스·DB를 조회/변경했고 Git 조회/commit은 기능 범위 확인용으로만 수행함.
-- 소스: `spds/ui/ui_runtime.py`, `spds/ui/main_window.py`, `spds/app/main.py`, `web/app.py`, UI/보안 회귀 테스트 2종 수정. UI runtime은 SP_UI Object/code, active member, direct MEMBER grants 및 `cm_member_role -> cm_role -> cm_role_rule -> rl_rule`을 status/deleted 조건으로 해석. 클릭 시 권한을 재조회하고 active/certified Verified SQL과 action CRUD가 일치할 때만 dispatch. SQL parameter placeholder 존재 시 입력 UI/type contract가 없어 fail-closed.
-- #21 package entrypoint import 고침. #22 `/api/permissions` signed token plan만 사용, duplicate `/api/admin/set-plan` one 403 fail-closed route. 테스트 24 passed, 0 failed.
-- DB schema: `ui_menu.ui_screen_id` nullable column + unique index 추가. 사전 `ui_menu` logical backup applied/verified (1 row, hash `6b8d3ca535293c9a89df708431c670cd7b608d98577de497b084efef318b8316`). DDL preview → apply → table_schema/table_data 확인 완료. 기존 `health_report` row는 screen id/type/menu type 모두 NULL, UI permission table은 0 rows; 데이터는 임의 생성/변경하지 않음.
-- Rule relationship: live FK와 table/column comments로 cm_member_role → cm_role → cm_role_rule → rl_rule 확인, 단 실제 사용자별 연결 데이터는 미조회. identifier_generate dry-run 실패: active SP_UI_SCREEN metadata가 `object_name=UI Screen`, `target_identifier_field=menu_code`; schema-qualified physical object_name 및 ui_screen_id target 계약과 불일치. Object metadata 수정/ID 생성은 미실행.
-- 입력 폼: 실제 네 개 Verified SQL의 placeholder 확인(예: patient_id, health_report_id); 등록된 UI typed parameter schema 없음. 입력 폼은 미완료이며 실행은 fail-closed.
-- 서비스: `sps-harness.service` ActiveState=active/running; `spds.service`는 진단 도구 allowlist에 없고 SPDS는 standalone desktop entrypoint라 restart 미실행.
-- Git 상태 확인됨: F 경로만 stage/commit 예정이며 기타 harness 변경 및 두 개 RAG 신규 파일은 제외. DB migration source file은 변경하지 않음.
