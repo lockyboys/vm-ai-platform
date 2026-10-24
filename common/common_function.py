@@ -581,3 +581,83 @@ def read_file_auto(path: str, sheet_name=0):
         raise ValueError(f"TSV 읽기 실패: {path}")
     else:
         return read_csv_safe(path)
+
+
+# =============================================================================
+# 공개 문서 수집 공통 기능 (2026-10-25, 사용자 지침 4)
+# - public_document_catalog_collector.py 안에 있던 함수를 공통 모듈로 옮겼다.
+# - 다른 수집기(AIA·현대해상 등)도 같은 검증 규칙을 쓰도록 한 곳에 둔다.
+# =============================================================================
+from datetime import timedelta as _timedelta, timezone as _timezone  # 상단 import 구역을 건드리지 않기 위해 여기서 가져옴
+
+_KST = _timezone(_timedelta(hours=9))  # 한국 표준시(UTC+9)
+
+
+def now_kst_iso() -> str:
+    """현재 시각을 KST ISO 문자열(초 단위, +09:00)로 돌려준다.
+
+    용도: 실행 증빙·상태 파일의 시각 기록(로그·저장 타임스탬프는 KST 사용 규칙).
+    주의: 기존 get_timestamp()는 서버 로컬시간·사람용 형식이라 증빙용으로 이 함수를 쓴다.
+    """
+    return datetime.now(_KST).isoformat(timespec="seconds")
+
+
+def write_json_atomic(path: Any, value: Any) -> None:
+    """JSON을 임시 파일에 쓴 뒤 교체해, 상태 파일이 반쯤 쓰인 채 남지 않게 한다.
+
+    입력: path(대상 파일 경로), value(JSON 직렬화 가능한 값, 한글은 그대로 저장)
+    주의: 같은 폴더에 pid·시각이 붙은 임시 파일을 만들고 os.replace로 원자적으로 바꾼다.
+          실패하면 임시 파일을 지우고 예외를 그대로 올린다.
+    """
+    from pathlib import Path
+    import time as _time
+
+    target = Path(path)
+    temp = target.with_name(f"{target.name}.{os.getpid()}_{_time.time_ns()}.tmp")
+    try:
+        temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp, target)
+    except Exception:
+        temp.unlink(missing_ok=True)
+        raise
+
+
+def validate_safe_pdf_filename(name: Any) -> str:
+    """서버가 준 파일명을 로컬 저장명으로 쓰기 전에 경로 이탈·비PDF를 거부한다.
+
+    거부: 문자열이 아님, 빈 값, 200자 초과, '/', '\\', NUL, '..' 포함, '.'로 시작, .pdf가 아님.
+    반환: 검증을 통과한 원래 파일명(변형하지 않음).
+    """
+    if not isinstance(name, str) or not name or len(name) > 200:
+        raise ValueError("empty or invalid file name")
+    if "/" in name or "\\" in name or "\x00" in name or ".." in name or name.startswith("."):
+        raise ValueError("unsafe file name")
+    if not name.lower().endswith(".pdf"):
+        raise ValueError("only PDF files are collected")
+    return name
+
+
+def inspect_pdf_file(path: Any) -> dict[str, Any]:
+    """PDF 헤더(%PDF-)·끝 표시(%%EOF)·크기·SHA256을 확인한다.
+
+    목적: 차단 HTML이나 잘린 파일을 다운로드 성공으로 세지 않기 위함.
+    반환: {"bytes": 파일 크기, "sha256": 16진 해시}
+    주의: 내용(약관 문장)의 의미 검증은 하지 않는다. 16바이트 미만은 PDF로 보지 않는다.
+    """
+    from pathlib import Path
+
+    target = Path(path)
+    size = target.stat().st_size
+    if size < 16:
+        raise ValueError("file too small to be a PDF")
+    digest = hashlib.sha256()
+    with target.open("rb") as stream:
+        head = stream.read(1024)
+        digest.update(head)
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+        stream.seek(max(0, size - 4096))
+        tail = stream.read()
+    if not head.startswith(b"%PDF-") or b"%%EOF" not in tail:
+        raise ValueError("not a complete PDF (header/EOF)")
+    return {"bytes": size, "sha256": digest.hexdigest()}

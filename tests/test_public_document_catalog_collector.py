@@ -176,3 +176,40 @@ def test_deadline_stops_loop(mod):
 def test_bad_options_rejected(mod, options):
     with pytest.raises(ValueError):
         mod.parse_options(options)
+
+
+# 2026-10-25: start는 MCP 서비스 cgroup이 아니라 systemd-run 별도 유닛으로 띄워야 한다.
+# (MCP 재시작 때 워커가 같이 꺼져 17시간 방치된 문제 재발 방지)
+def test_start_launches_separate_systemd_unit(mod, monkeypatch, tmp_path):
+    calls = []
+
+    class Done:
+        returncode = 0
+        stdout = "Running as unit: x.service"
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return Done()
+
+    monkeypatch.setattr(mod, "output_dir", lambda profile: tmp_path)
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    result = mod.start(copy.deepcopy(FAKE_PROFILE), 30000)
+    command = calls[0]
+    assert command[:3] == ["sudo", "-n", "systemd-run"]
+    assert "--unit=sps-collector-fake-site" in command
+    assert command[-3:] == ["--worker", "fake_site", "30000"]
+    assert result["unit"] == "sps-collector-fake-site" and result["started"] is True
+
+
+def test_start_reports_systemd_failure(mod, monkeypatch, tmp_path):
+    class Failed:
+        returncode = 1
+        stdout = ""
+        stderr = "sudo: a password is required"
+
+    monkeypatch.setattr(mod, "output_dir", lambda profile: tmp_path)
+    monkeypatch.setattr(mod.subprocess, "run", lambda command, **kwargs: Failed())
+    # 기동 실패를 성공으로 보고하지 않는다.
+    with pytest.raises(RuntimeError):
+        mod.start(copy.deepcopy(FAKE_PROFILE), 30000)

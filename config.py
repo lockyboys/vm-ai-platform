@@ -568,7 +568,6 @@ MULTI_PERSONA_REVIEW_OUTPUT_CHARS = 12000
 # Shared transient workers use the account and protected files supplied by the operator.
 SPS_MCP_WORKER_USER = "jeaje"
 SPS_MCP_WORKER_SECRETS_FILE = "/etc/sps-harness/secrets.env"
-# Preserve the existing model default while honoring the configured Gemini model.
 SPS_MAIN_ORCHESTRATOR_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS = 120
 
@@ -585,6 +584,24 @@ SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS = 5
 SPS_SOURCE_REPAIR_AUDIT_DIR = "harness/memory/source_repairs"
 # 보험사뿐 아니라 공사/정부/복지관 등 공개 문서 수집에 같은 저장 설정을 사용합니다.
 SPS_DOCUMENT_DOWNLOAD_DIR = BASE_DIR / "downloaded_docs"
+# 공개 문서 카탈로그 수집기(FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py) 공통 설정.
+# - 2026-10-25 사용자 지침 4: 수집기 안에 박혀 있던 상한·기준값을 루트 config로 옮김.
+# - max_time_limit_seconds: 워커 1회 실행 최대 시간(LuckyBoys 승인 30,000초).
+# - max_pdf_bytes / min_free_disk_bytes: 비정상 대용량 응답 차단 / 서버 디스크 고갈 방지 기준.
+# - profile_dir: 사이트별 수집 프로파일(JSON) 폴더. 엔진은 사이트를 모르고 이 데이터만 해석한다.
+# - output_subdir: config.OUTPUT_PATH 아래 결과 폴더 이름.
+# - systemd_run_command / service_user: start 모드가 MCP 서비스와 분리된 유닛으로 워커를 띄울 때 사용.
+#   (MCP 재시작 시 워커가 같이 꺼져 방치되던 문제 방지. sudo -n이라 비밀번호를 묻지 않고 실패하면 즉시 오류)
+PUBLIC_DOCUMENT_COLLECTOR = {
+    "max_time_limit_seconds": 30000,
+    "max_pdf_bytes": 512 * 1024 ** 2,
+    "min_free_disk_bytes": 1024 ** 3,
+    "profile_dir": BASE_DIR / "FastAPI/LangGraph/Agent_Import_PFDs/profiles",
+    "output_subdir": "insurance_docs",
+    "systemd_run_command": ["sudo", "-n", "systemd-run", "--collect", "--quiet"],
+    "service_user": os.getenv("SPS_COLLECTOR_SERVICE_USER", "jeaje"),
+    "unit_prefix": "sps-collector-",
+}
 
 # 로컬 8003 API의 터미널 검증 설정. 비밀키 값은 저장하지 않고 보호 파일 경로만 지정한다.
 AGENT_CLI = {

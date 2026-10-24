@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import fcntl
-import hashlib
 import json
 import os
 import re
@@ -37,7 +36,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -46,11 +44,22 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
-KST = timezone(timedelta(hours=9))
-MAX_TIME_LIMIT_SECONDS = 30000          # 사용자 승인 상한(2026-10-23 LuckyBoys 승인)
-MAX_PDF_BYTES = 512 * 1024 ** 2         # 비정상 대용량 응답 차단
-MIN_FREE_DISK_BYTES = 1024 ** 3         # 서버 디스크 고갈 방지(1GiB 미만이면 중단)
+import config  # noqa: E402 - 루트 경로를 sys.path에 넣은 뒤 가져와야 한다(사용자 지침 4: 공통 설정)
+# 공통 기능은 common/common_function.py에서 가져온다(사용자 지침 4). 기존 함수 이름은 별칭으로 유지해
+# 엔진 내부 호출과 기존 테스트가 그대로 동작하게 한다.
+from common.common_function import (  # noqa: E402
+    inspect_pdf_file as inspect_pdf,
+    now_kst_iso as now,
+    validate_safe_pdf_filename as safe_pdf_name,
+    write_json_atomic as atomic_json,
+)
+
+# 상한·기준값은 루트 config.PUBLIC_DOCUMENT_COLLECTOR에서 읽는다(소스에 박지 않음).
+_SETTINGS = config.PUBLIC_DOCUMENT_COLLECTOR
+PROFILE_DIR = Path(_SETTINGS["profile_dir"])
+MAX_TIME_LIMIT_SECONDS = int(_SETTINGS["max_time_limit_seconds"])  # LuckyBoys 승인 30,000초
+MAX_PDF_BYTES = int(_SETTINGS["max_pdf_bytes"])                    # 비정상 대용량 응답 차단
+MIN_FREE_DISK_BYTES = int(_SETTINGS["min_free_disk_bytes"])        # 서버 디스크 고갈 방지
 NAME_PATTERN = re.compile(r"^[a-z0-9_]{1,64}$")
 VAR_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)(\|q)?\}")
 
@@ -62,22 +71,6 @@ class TimeLimitReached(Exception):
 # ---------------------------------------------------------------------------
 # 공통 유틸
 # ---------------------------------------------------------------------------
-def now() -> str:
-    """모든 증빙 시각은 한국시간(KST)으로 기록한다."""
-    return datetime.now(KST).isoformat(timespec="seconds")
-
-
-def atomic_json(path: Path, value: Any) -> None:
-    """임시 파일에 쓴 뒤 교체해 상태 파일이 반쯤 쓰인 채 남지 않게 한다."""
-    temp = path.with_name(f"{path.name}.{os.getpid()}_{time.time_ns()}.tmp")
-    try:
-        temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(temp, path)
-    except Exception:
-        temp.unlink(missing_ok=True)
-        raise
-
-
 def validate_time_limit(value: Any) -> int:
     """시간 제한은 1~30000초 정수만 허용한다(bool/문자/None 거부)."""
     if isinstance(value, bool) or not isinstance(value, int):
@@ -223,17 +216,6 @@ def walk_steps(steps: list[dict], ctx: dict, fetch: Callable[[str, Any], Any],
         yield from walk_steps(steps[1:], child, fetch, deadline)
 
 
-def safe_pdf_name(name: Any) -> str:
-    """서버가 준 파일명을 로컬 저장명으로 쓰기 전에 경로 이탈·비PDF를 차단한다."""
-    if not isinstance(name, str) or not name or len(name) > 200:
-        raise ValueError("empty or invalid file name")
-    if "/" in name or "\\" in name or "\x00" in name or ".." in name or name.startswith("."):
-        raise ValueError("unsafe file name")
-    if not name.lower().endswith(".pdf"):
-        raise ValueError("only PDF files are collected")
-    return name
-
-
 def build_targets(rows: list[dict], file_var: str, subdir_var: str | None) -> tuple[list[dict], int]:
     """파일명 기준으로 중복을 제거하고 모든 출처 참조를 보존한다. 파일 없음/불안전 이름은 missing."""
     targets: dict[str, dict] = {}
@@ -248,24 +230,6 @@ def build_targets(rows: list[dict], file_var: str, subdir_var: str | None) -> tu
         target = targets.setdefault(name, {"file": name, "subdir": subdir, "references": []})
         target["references"].append(row)
     return list(targets.values()), missing
-
-
-def inspect_pdf(path: Path) -> dict:
-    """PDF 헤더·EOF·크기·SHA256 확인. 차단 HTML이나 잘린 파일을 성공으로 세지 않는다."""
-    size = path.stat().st_size
-    if size < 16:
-        raise ValueError("file too small to be a PDF")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        head = stream.read(1024)
-        digest.update(head)
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-        stream.seek(max(0, size - 4096))
-        tail = stream.read()
-    if not head.startswith(b"%PDF-") or b"%%EOF" not in tail:
-        raise ValueError("not a complete PDF (header/EOF)")
-    return {"bytes": size, "sha256": digest.hexdigest()}
 
 
 def parse_options(options: Any) -> dict:
@@ -371,10 +335,9 @@ class SiteClient:
 # ---------------------------------------------------------------------------
 def output_dir(profile: dict) -> Path:
     """루트 config.OUTPUT_PATH 아래 프로파일별 폴더(공통 설정 지침 4번)."""
-    import config
     from common.common_function import normalize_required_text
     base = Path(normalize_required_text(str(config.OUTPUT_PATH), "OUTPUT_PATH")).resolve()
-    out = base / "insurance_docs" / profile["name"]
+    out = base / str(_SETTINGS["output_subdir"]) / profile["name"]
     out.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -517,7 +480,15 @@ def worker(profile: dict, time_limit: int) -> None:
 
 
 def start(profile: dict, time_limit: int) -> dict:
-    """분리 워커를 띄우고 바로 반환한다(MCP 120초 상한 회피, AIA 수집기 방식)."""
+    """워커를 MCP 서비스와 분리된 systemd 유닛으로 띄우고 바로 반환한다(2026-10-25 변경).
+
+    이유: 기존 start_new_session 자식 프로세스는 sps-harness.service cgroup에 남아,
+          MCP를 재시작하면 같이 꺼졌다(1차 워커 17시간 방치). systemd-run 유닛은 MCP 재시작과
+          무관하게 끝까지 실행되므로, 이후에는 status로 가끔 확인만 하면 된다.
+    명령: config.PUBLIC_DOCUMENT_COLLECTOR의 systemd_run_command(sudo -n systemd-run --collect --quiet),
+          유닛 이름 = unit_prefix + 프로파일 이름(_→-). 로그는 journalctl -u <유닛>.
+    실패: systemd-run이 0이 아닌 코드로 끝나면 RuntimeError(기동 실패를 성공으로 보고하지 않음).
+    """
     out = output_dir(profile)
     with (out / "worker.lock").open("a") as lock:
         try:
@@ -525,12 +496,21 @@ def start(profile: dict, time_limit: int) -> dict:
         except BlockingIOError:
             raise ValueError("collector worker already running")
         fcntl.flock(lock, fcntl.LOCK_UN)
-    with (out / "worker.log").open("ab") as log:
-        child = subprocess.Popen(
-            [sys.executable, str(Path(__file__).resolve()), "--worker", profile["name"], str(time_limit)],
-            cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-    return {"started": True, "pid": child.pid, "profile": profile["name"],
-            "time_limit_seconds": time_limit, "output_dir": str(out), "started_kst": now()}
+    unit = f"{_SETTINGS['unit_prefix']}{profile['name'].replace('_', '-')}"
+    command = [
+        *_SETTINGS["systemd_run_command"],
+        f"--unit={unit}",
+        "-p", f"User={_SETTINGS['service_user']}",
+        "-p", f"WorkingDirectory={ROOT}",
+        sys.executable, str(Path(__file__).resolve()),
+        "--worker", profile["name"], str(time_limit),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"systemd-run failed: rc={completed.returncode} {completed.stderr.strip()[:300]}")
+    return {"started": True, "unit": unit, "profile": profile["name"],
+            "time_limit_seconds": time_limit, "output_dir": str(out), "started_kst": now(),
+            "check": f"journalctl -u {unit}  /  mode=status"}
 
 
 def status(profile: dict) -> dict:
