@@ -579,6 +579,11 @@ SPS_SOURCE_PARTNER_OLLAMA_BASE_URL = os.getenv(
 SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS = float(os.getenv(
     "SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT", "300")))
 SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS = 120
+# /api/gemini/chat 인증용 공유 비밀키. 비어 있으면 서버가 모든 요청을 거부한다(기본값 거부).
+SPS_MAIN_ORCHESTRATOR_API_KEY = os.getenv("SPS_MAIN_ORCHESTRATOR_API_KEY", "")
+SPS_MAIN_ORCHESTRATOR_HOST = os.getenv("SPS_MAIN_ORCHESTRATOR_HOST", "127.0.0.1")
+# 8080은 nginx(sps-mcp-router.conf)가 이미 점유 중이라 충돌한다. 비어 있는 내부 포트를 기본값으로 둔다.
+SPS_MAIN_ORCHESTRATOR_PORT = int(os.getenv("SPS_MAIN_ORCHESTRATOR_PORT", "8081"))
 
 
 # 자율 소스 수정: 기존 LangGraph 도구가 아래 두 파일만 수정할 수 있습니다.

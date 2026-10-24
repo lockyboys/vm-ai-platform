@@ -21,14 +21,20 @@
 #  │
 #  └── insurance_docs/                          # PDF 저장소
 # 
-# curl -X POST http://127.0.0.1:8080/api/gemini/chat \
+# 주의: 8080은 nginx(sps-mcp-router.conf)가 이미 점유 중이므로 이 서버는 내부 포트(기본 8081)에 바인딩한다.
+# 외부/게이트웨이 노출이 필요하면 nginx에 /api/gemini/chat -> 127.0.0.1:8081 location을 별도로 추가한다.
+# curl -X POST http://127.0.0.1:8081/api/gemini/chat \
+#   -H "Authorization: Bearer $SPS_MAIN_ORCHESTRATOR_API_KEY" \
 #   -H "Content-Type: application/json" \
 #   -d '{"query": "AXA 약관 PDF 모두 끌어 줘!!"}'
 # FastAPI/LangGraph/sps_main_orchestrator.py
 import sys
 import os
 import uvicorn
-from fastapi import FastAPI, HTTPException
+import ipaddress
+import socket
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 
 # [핵심 수정] 루트 폴더(/data/vm_project)를 경로에 추가하여 기존 config.py를 로드합니다.
@@ -41,7 +47,7 @@ import config  # 루트에 있는 config.py 적용 (4번 지침 준수)
 # 크롤러와 이메일 에이전트는 도구 호출 시 지연 로드합니다.
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode
@@ -52,18 +58,85 @@ app = FastAPI(title="SPS haness MCP Orchestrator")
 class ChatRequest(BaseModel):
     query: str
 
+# ------------------------------------------------------------------------------
+# SSRF 방어: 모델이 선택한 target_url이 내부망·루프백·링크로컬·메타데이터 주소를
+# 가리키지 못하게 막습니다. DNS가 반환하는 모든 주소(IPv4/IPv6)를 검사해
+# 일부만 공개 주소로 보이는 우회(DNS 재바인딩 포함)를 줄입니다.
+# ------------------------------------------------------------------------------
+_BLOCKED_CRAWL_HOSTNAMES = {"localhost", "metadata.google.internal"}
+
+
+def _is_crawl_target_safe(target_url: str) -> bool:
+    """target_url이 가리키는 모든 IP가 공인(퍼블릭) 주소인지 확인한다.
+
+    입력: target_url(사전에 scheme이 http/https로 확인된 URL)
+    출력: 해석된 모든 주소가 공인 주소이면 True, 그 외는 False
+    주의: 해석 실패나 사설/루프백/링크로컬/예약/멀티캐스트/비공인 주소가
+    하나라도 있으면 안전하지 않다고 판단해 차단한다.
+    """
+    from urllib.parse import urlparse as _urlparse
+
+    hostname = (_urlparse(target_url).hostname or "").lower()
+    if not hostname or hostname in _BLOCKED_CRAWL_HOSTNAMES:
+        return False
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return False
+    for entry in resolved:
+        ip_text = entry[4][0]
+        try:
+            ip_obj = ipaddress.ip_address(ip_text)
+        except ValueError:
+            return False
+        if (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_reserved
+            or ip_obj.is_multicast
+            or ip_obj.is_unspecified
+        ):
+            return False
+    return True
+
 # --- 자연어 도구(Tool) ---
+_SNIFFER_MODULE_NAME = "FastAPI.LangGraph.Agent_Import_PFDs.LangGraph_Network_Sniffer"
+
+
+def _load_latest_explore_unknown_site():
+    """크롤러 함수를 디스크의 최신 소스로 가져온다(워커 재시작 없이 핫스왑).
+
+    입력: 없음
+    출력: 방금 reload된 모듈의 explore_unknown_site 함수 객체
+    주의: 자율 수정(source_patch)이 파일을 바꿔도 이미 import된 모듈 객체는 그대로이므로,
+    매 호출마다 importlib.reload로 모듈을 다시 실행해 최신 함수로 교체한다.
+    reload가 실패하면(예: 패치가 깨진 경우) 이전에 import된 모듈은 sys.modules에
+    그대로 남아 있을 수 있어, 그 경우에는 예외를 그대로 올려 호출자가 알게 한다.
+    """
+    import importlib
+    module = sys.modules.get(_SNIFFER_MODULE_NAME)
+    if module is not None:
+        module = importlib.reload(module)
+    else:
+        module = importlib.import_module(_SNIFFER_MODULE_NAME)
+    return module.explore_unknown_site
+
+
 @tool
 async def run_crawler_tool(company_name: str, target_url: str = "") -> str:
     """보험사·공사·정부·복지관 등 기관의 공개 문서를 수집합니다. target_url을 지정하세요."""
-    # Package-qualified lazy import also supports the haness MCP worker entry point.
-    from FastAPI.LangGraph.Agent_Import_PFDs.LangGraph_Network_Sniffer import explore_unknown_site
+    # 매 호출마다 reload하여, 자율 수정이 적용된 직후에도 재시작 없이 최신 코드를 씁니다.
+    explore_unknown_site = _load_latest_explore_unknown_site()
     from common.common_function import normalize_required_text
     from urllib.parse import urlparse
     target_url = normalize_required_text(target_url, "target_url")
     parsed_url = urlparse(target_url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname or parsed_url.username or parsed_url.password:
         raise ValueError("target_url은 HTTP(S) 주소여야 합니다")
+    if not _is_crawl_target_safe(target_url):
+        # 내부망/루프백/메타데이터 주소를 가리키는 요청(SSRF)을 차단합니다.
+        raise ValueError("target_url이 허용되지 않는 내부 주소를 가리킵니다")
     print(f"🛠️ [Tool 실행] {company_name} 크롤러 가동 (URL: {target_url})")
     selector = await explore_unknown_site(target_url)
     return f"[{company_name}] {selector}"
@@ -129,6 +202,10 @@ def create_agent_graph():
         return "verifier"
 
     async def verifier_node(state: MessagesState):
+        # 도구를 호출하지 않은 정상 답변은 그대로 보존한다. ToolMessage가 없는
+        # 대화를 도구 결과 요약 프롬프트로 다시 보내면 사용자 지시가 덮어써진다.
+        if not any(isinstance(message, ToolMessage) for message in state["messages"]):
+            return {"messages": []}
         prompt = "도구 호출 결과를 친절히 요약 보고해. 지어내기 금지."
         return {"messages": [await model.ainvoke([*state["messages"], HumanMessage(content=prompt)])]}
 
@@ -144,8 +221,25 @@ def create_agent_graph():
 
 sps_graph = create_agent_graph()
 
+def _require_valid_api_key(authorization: Optional[str]) -> None:
+    """Authorization 헤더의 Bearer 토큰을 검증해 미인증 호출을 막는다.
+
+    입력: authorization(요청 헤더 원문, 'Bearer <key>' 형식 기대)
+    출력: 없음(검증 실패 시 HTTPException 발생)
+    주의: 운영 편의를 위해 검증을 생략하지 않는다. SPS_MAIN_ORCHESTRATOR_API_KEY가
+    비어 있으면 '기본값 거부(fail-closed)'로 모든 요청을 503으로 막는다.
+    """
+    expected_key = getattr(config, "SPS_MAIN_ORCHESTRATOR_API_KEY", "")
+    if not expected_key:
+        raise HTTPException(status_code=503, detail="SPS_MAIN_ORCHESTRATOR_API_KEY가 설정되지 않았습니다.")
+    provided_key = (authorization or "").removeprefix("Bearer ").strip()
+    if not provided_key or provided_key != expected_key:
+        raise HTTPException(status_code=401, detail="인증되지 않은 요청입니다.")
+
+
 @app.post("/api/gemini/chat")
-async def api_chat_orchestrator(req: ChatRequest):
+async def api_chat_orchestrator(req: ChatRequest, authorization: Optional[str] = Header(None)):
+    _require_valid_api_key(authorization)
     try:
         state = await sps_graph.ainvoke({"messages": [HumanMessage(content=req.query)]})
         return {"success": True, "response": state["messages"][-1].content}
@@ -156,5 +250,10 @@ async def api_chat_orchestrator(req: ChatRequest):
 
 if __name__ == "__main__":
     # 실행 시 경로는 리눅스 기준에 맞춥니다.
-    print("🚀 SPS haness MCP 구동 완료 - http://0.0.0.0:8080")
-    uvicorn.run("sps_main_orchestrator:app", host="0.0.0.0", port=8080, reload=True)
+    # 기본 바인딩을 127.0.0.1로 좁혀 외부에서 직접 접근하지 못하게 합니다.
+    # 8080은 nginx(sps-mcp-router.conf)가 이미 점유 중이므로 기본 포트를 8081로 둡니다.
+    # 외부 공개가 필요하면 nginx에 이 포트로 가는 location을 별도로 추가합니다.
+    bind_host = config.SPS_MAIN_ORCHESTRATOR_HOST
+    bind_port = config.SPS_MAIN_ORCHESTRATOR_PORT
+    print(f"🚀 SPS haness MCP 구동 완료 - http://{bind_host}:{bind_port}")
+    uvicorn.run("sps_main_orchestrator:app", host=bind_host, port=bind_port, reload=True)

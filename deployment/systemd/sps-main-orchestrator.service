@@ -1,0 +1,22 @@
+[Unit]
+Description=SPS Main Orchestrator API
+After=network-online.target sps-harness.service
+Wants=network-online.target sps-harness.service
+
+[Service]
+Type=simple
+User=jeaje
+Group=jeaje
+WorkingDirectory=/data/vm_project/FastAPI/LangGraph
+# Load non-secret application settings first; the protected file supplies the rotated keys.
+EnvironmentFile=/data/vm_project/.env
+EnvironmentFile=/etc/sps-harness/secrets.env
+UMask=0077
+# 127.0.0.1로만 바인딩합니다: 외부 접근은 nginx(sps-mcp-router.conf)가 이 포트로 넘겨줄 때만 허용합니다.
+ExecStart=/data/vm_project/venv/bin/python -m uvicorn sps_main_orchestrator:app --host 127.0.0.1 --port 8081
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
