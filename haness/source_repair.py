@@ -53,6 +53,50 @@ def _git_checkpoint(target: Path) -> dict:
     return {"ready": True, "commit": head.stdout.decode("ascii").strip()}
 
 
+def _auto_commit(target: Path, message: str, agent_run_id: str) -> dict:
+    """검증을 통과해 적용된 자율 수정을 사람의 git add/commit 없이 자동으로 커밋한다.
+
+    입력: target(커밋할 파일의 절대경로), message(커밋 메시지, 한글, 태그·백업 경로·테스트
+    통과 수 포함), agent_run_id(이번 실행을 식별하는 ID — 백업·감사 로그 파일명과 같은 값을
+    재사용해 셋을 서로 추적 가능하게 한다)
+    출력: {"committed": bool, "commit": <새 HEAD sha, 실패 시 None>, "error": <실패 사유, 성공 시 없음>}
+    주의: 이미 디스크에 적용된 패치를 롤백하지 않기 위해 예외를 던지지 않는다.
+    커밋이 실패하면 워킹트리가 깨끗하지 않은 상태로 남아, 다음 수정 시도는 기존과 동일하게
+    _git_checkpoint의 PreCommitRequired로 막힌다(기존 안전장치 유지).
+    author/committer를 SPS ORCHESTRATOR의 PARTNER 페르소나(코드 구현·제출 담당) 이름으로
+    지정해, git log 작성자 칼럼만 보고도 사람 커밋과 AI 자동 커밋이 구분되고 어느 페르소나가
+    했는지도 드러나게 한다. 이메일 local-part에 agent_run_id를 넣어 실행 단위까지 구분한다.
+    """
+    root = _root()
+    relative = str(target.relative_to(root))
+    bot_name = "SPS PARTNER"
+    bot_email = f"sps.partner+{agent_run_id}@sps.local"
+    bot_identity = f"{bot_name} <{bot_email}>"
+    git_env = {**os.environ,
+               "GIT_AUTHOR_NAME": bot_name,
+               "GIT_AUTHOR_EMAIL": bot_email,
+               "GIT_COMMITTER_NAME": bot_name,
+               "GIT_COMMITTER_EMAIL": bot_email}
+    try:
+        add = subprocess.run(["git", "add", "--", relative], cwd=root, capture_output=True,
+                              timeout=config.SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS)
+        if add.returncode:
+            return {"committed": False, "commit": None, "error": "git add 실패"}
+        commit = subprocess.run(
+            ["git", "commit", "--author", bot_identity, "-m", message, "--", relative],
+            cwd=root, capture_output=True, env=git_env,
+            timeout=config.SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS,
+        )
+        if commit.returncode:
+            return {"committed": False, "commit": None, "error": "git commit 실패"}
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
+                              timeout=config.SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS)
+        return {"committed": True,
+                "commit": sha.stdout.decode("ascii").strip() if sha.returncode == 0 else None}
+    except (subprocess.TimeoutExpired, OSError) as error:
+        return {"committed": False, "commit": None, "error": type(error).__name__}
+
+
 def _root() -> Path:
     return Path(config.BASE_DIR).resolve()
 
@@ -144,7 +188,8 @@ def repair_source(file_path: str, old_code: str, new_code: str,
     """수정 전 재현 실패/후보 통과를 확인하고 백업 후 한 파일에만 적용한다.
 
     dry_run=True도 후보의 회귀 테스트를 실행하지만 원본은 쓰지 않는다.
-    실행 직후 재검증이 실패하면 원본 바이트로 복구한다. Git 커밋은 하지 않는다.
+    실행 직후 재검증이 실패하면 원본 바이트로 복구한다. 검증을 통과해 적용되면
+    사람의 git add/commit 없이 바로 커밋한다(사전 승인 없는 사후 보고 방식).
     소스 교체는 이미 로드된 Python 객체를 바꾸지 않으므로 새 워커가 필요하다.
     """
     target = _target(file_path)
@@ -220,6 +265,16 @@ def repair_source(file_path: str, old_code: str, new_code: str,
                     raise RuntimeError("적용 후 해시 검증 실패")
                 report.update(applied=True, state="APPLIED", post_checks=post,
                               restart_required=True)
+                audit.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+                # 사람의 git add/commit을 기다리지 않고 바로 커밋한다(사후 보고 방식).
+                # 메시지는 한글로, 작성자는 PARTNER 페르소나로 남겨 git log/revert로 나중에 검토할 수 있게 한다.
+                commit_message = (
+                    f"[SPS 자동수정] {file_path} 패치 적용\n\n"
+                    f"백업 파일: {report['backup']}\n"
+                    f"통과한 회귀 테스트 수: {post[-1].get('tests', 0)}\n"
+                    f"에이전트 실행 ID: {stamp}"
+                )
+                report["git_commit"] = _auto_commit(target, commit_message, stamp)
                 audit.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             except BaseException:
                 _atomic_write(target, original, backup.stat().st_mode & 0o777)
