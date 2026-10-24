@@ -8,22 +8,57 @@ from time import monotonic
 
 import config as project_config
 from common.common_function import normalize_required_text
+from haness.mcp.agents.source_partner_agent import run_source_partner_agent as _run_source_partner_agent
+from haness.mcp.tools.change_set_graph import run_change_set as _run_change_set
 from haness.mcp.tools.multi_persona_tools import (
     PROJECT_ROOT, _mask_secrets, _stop_review, _systemd_command,
 )
 
 
 async def run_sps_orchestrator(query: str, dry_run: bool = True) -> dict:
-    """Run a requested task with the existing SPS main LangGraph orchestrator.
+    """Run a task with the SPS LangGraph orchestrator.
 
-    Its configured crawler can browse sites and download files. Default dry-run
-    returns the execution plan without starting Gemini or a crawler.
+    mode=source_agent runs the actual PARTNER LLM/tool loop, while
+    mode=change_set directly runs its deterministic source-change backend.
+    Source patches proceed after their dry-run check. source_write and git
+    commit receive only the explicit confirmation fields supplied at this MCP
+    boundary. Git staging runs inside the backend graph. Other queries keep
+    using the existing Gemini graph.
     """
     if not isinstance(query, str):
         raise ValueError("query must be text")
     query = normalize_required_text(query, "query")
     if len(query) > 20000:
         raise ValueError("query exceeds 20000 characters")
+    if query.lstrip().startswith("{"):
+        try:
+            payload = json.loads(query)
+        except json.JSONDecodeError as exc:
+            raise ValueError("JSON query is invalid") from exc
+        if isinstance(payload, dict):
+            if payload.get("mode") == "change_set":
+                # 파일·Git 작업은 동기 도구이므로 이벤트 루프를 막지 않게 별도 스레드에서 그래프를 실행한다.
+                return await asyncio.to_thread(_run_change_set, payload, bool(dry_run))
+            if payload.get("mode") == "source_agent":
+                source_write_confirmed = payload.get("source_write_confirmed", False)
+                if not isinstance(source_write_confirmed, bool):
+                    raise ValueError("source_write_confirmed must be boolean")
+                commit = payload.get("commit", {})
+                if not isinstance(commit, dict):
+                    raise ValueError("commit must be an object")
+                commit_confirmed = commit.get("confirmed", False)
+                if not isinstance(commit_confirmed, bool):
+                    raise ValueError("commit.confirmed must be boolean")
+                task = payload.get("task")
+                if not isinstance(task, str):
+                    raise ValueError("source_agent task must be text")
+                return await _run_source_partner_agent(
+                    task,
+                    dry_run=bool(dry_run),
+                    source_write_confirmed=source_write_confirmed,
+                    commit_confirmed=commit_confirmed,
+                )
+
     timeout = int(project_config.SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS)
     if not 1 <= timeout <= 120:
         raise ValueError("Orchestrator timeout must be between 1 and 120 seconds")

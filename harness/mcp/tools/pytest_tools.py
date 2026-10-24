@@ -16,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ElementTree
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -247,7 +247,9 @@ def run_pytest_verification(
     return {
         "exit_code": int(completed.returncode),
         "success": completed.returncode == 0,
-        "results": results,
+        # MCP의 구조화 응답 직렬화기는 mapping을 요구하므로 dataclass를 그대로 노출하지 않는다.
+        # PrettyOutput은 위에서 강타입 객체로 만든 뒤 외부 경계에서만 JSON 호환 dict로 변환한다.
+        "results": [asdict(result) for result in results],
         "pretty_output": pretty_output,
         "raw_stdout": completed.stdout,
         "raw_stderr": completed.stderr,

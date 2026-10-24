@@ -128,5 +128,7 @@ def test_pytest_verification_runs_in_fresh_subprocess(
     assert result["success"] is True
     assert result["exit_code"] == 0
     assert len(result["results"]) == 1
-    assert result["results"][0].status == "PASSED"
+    assert result["results"][0]["status"] == "PASSED"
+    assert result["results"][0]["node_id"].endswith(
+        "test_asyncio_run_isolated")
     assert "asyncio.run() cannot be called" not in result["raw_stdout"]
