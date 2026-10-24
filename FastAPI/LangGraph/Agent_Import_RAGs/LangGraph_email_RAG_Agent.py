@@ -530,6 +530,37 @@ def retrieve_internal_policy_documents(query: str, top_k: int | None = None) -> 
         client.close()
 
 
+def _load_mongodb_container_ids(repository) -> dict[str, str]:
+    """MongoDB 저장소 상위 계층 ID(MDB·MCO)를 Repository(sp_object)에서 해석한다.
+
+    Repository First / No Hardcoding 원칙에 따라 Object ID를 소스나 환경변수 기본값으로
+    두지 않는다. 문서 최상위 필드명(mongodb_database_id, mongodb_collection_id)은
+    각 Object의 target_identifier_field와 같다.
+
+    Args:
+        repository: fetch_one(sql, params)를 제공하는 STORY Repository 연결.
+
+    Returns:
+        {"mongodb_database_id": MDB object_id, "mongodb_collection_id": MCO object_id}
+
+    Raises:
+        RuntimeError: 활성 MDB 또는 MCO Object가 sp_object에 없을 때.
+    """
+    resolved: dict[str, str] = {}
+    # (Object 코드, 문서 필드명) 순서대로 조회한다. MDB가 상위(Level 1), MCO가 하위(Level 2).
+    for object_code, field_name in (("MDB", "mongodb_database_id"), ("MCO", "mongodb_collection_id")):
+        row = repository.fetch_one(
+            """SELECT object_id, object_code
+               FROM sp_object WHERE object_code=%s AND active_yn='Y'
+                 AND status_code='ACTIVE' AND deleted_dt IS NULL""",
+            (object_code,),
+        )
+        if row is None or not row.get("object_id"):
+            raise RuntimeError(f"Active {object_code} Object is required for insurance PDF storage.")
+        resolved[field_name] = row["object_id"]
+    return resolved
+
+
 def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
     """ 모든 보험 PDF를 읽고, 모든 청크를 임베드하며, 각 소스 파일에 저장된 행을 검증하세요.
         Read every insurance PDF, embed every chunk, and verify each source file's saved rows."""
@@ -571,6 +602,9 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
         )
         if mcm_class is None:
             raise RuntimeError("Active MCM class Object is required for insurance PDF storage.")
+        # 문서 최상위에 넣을 MongoDB 상위 계층 ID를 Repository에서 한 번만 해석한다.
+        # Object가 없으면 기본값으로 넘어가지 않고 helper가 RuntimeError로 중단한다.
+        container_ids = _load_mongodb_container_ids(repository)
         for source_name, _extracted_text, chunks in source_documents:
             # 제한된 배치 호출은 큰 PDF 하나당 과도한 요청을 피하면서 모든 청크를 처리합니다.
             embeddings = _create_embeddings_in_batches(chunks)
@@ -594,8 +628,8 @@ def ingest_insurance_pdfs(state: EmailAgentState) -> dict:
                     )
                 document = {
                     "object_id": os.getenv("MONGODB_DOCUMENT_MASTER_ID", "SP_RP_MDM_20261004_00001"),
-                    "mongodb_database_id": os.getenv("MONGODB_DATABASE_ID", "SP_RP_MDB_2026_00001"),
-                    "mongodb_collection_id": os.getenv("MONGODB_COLLECTION_ID", "SP_RP_MCO_202608_00001"),
+                    # MDB(Level 1)·MCO(Level 2) ID는 소스 고정값 대신 sp_object에서 해석한 값을 쓴다.
+                    **container_ids,
                     "mongodb_document_master_id": document_master_id,
                     "document_id": document_id,
                     "source_file": source_name,
