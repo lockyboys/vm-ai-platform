@@ -79,7 +79,9 @@ class _FakeDatabase:
         if "information_schema.columns" in sql:
             return [{"column_name": "id", "column_comment": "Identifier"}]
         assert "FROM sp_object" in sql
-        assert params == ("query_id",)
+        # Rule(RL_REGISTER_REPOSITORY_OBJECT) 계약의 table_identifier_metadata에서 얻은
+        # object_name 후보가 query_id 뒤에 IN 조건 파라미터로 함께 전달된다.
+        assert params == ("query_id", "te_common.cm_verified_sql_query")
         return [{"object_code": "TE_COMMON_CM_VERIFIED_SQL_QUERY"}]
 
 
@@ -118,6 +120,20 @@ class _FakeDatabase:
 
     def close(self) -> None:
         self.closed = True
+
+
+@pytest.fixture(autouse=True)
+def _stub_rule_contract_object_names(monkeypatch):
+    """Rule 계약 조회(COMMON DB)를 고정 object_name 목록으로 대체한다.
+
+    _FakeDatabase는 sp_object 조회만 흉내내므로, Rule 계약 로딩은 이 테스트 범위
+    밖으로 분리하고 별도 테스트(test_verified_sql_object_resolution_rule.py)에서 검증한다.
+    """
+    monkeypatch.setattr(
+        verified_sql_tools,
+        "_load_verified_sql_identifier_object_names",
+        lambda: ["te_common.cm_verified_sql_query"],
+    )
 
 
 class _FakeIdentifierCoordinator:
