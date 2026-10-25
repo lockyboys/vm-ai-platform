@@ -669,6 +669,23 @@ PUBLIC_DOCUMENT_COLLECTOR = {
     "service_user": os.getenv("SPS_COLLECTOR_SERVICE_USER", "jeaje"),
     "unit_prefix": "sps-collector-",
 }
+# 수집 프로파일 자동 탐색기(FastAPI/LangGraph/Agent_Import_PFDs/profile_autodiscover.py) 설정. 2026-10-25 추가.
+# - 브라우저(Playwright)로 시작 페이지를 클릭하며 요청을 기록 → 프로파일 추론 → PDF 1건 실검증.
+# - max_depth: 목록을 몇 단계까지 클릭해 내려갈지 / click_wait_ms: 클릭 후 다음 요청을 기다리는 시간
+# - max_elements: 한 화면에서 비교할 요소 수 상한 / max_attempts: 검증 실패 시 다른 항목으로 재탐색 횟수
+# - work_subdir: config.OUTPUT_PATH 아래 캡처·후보·증빙 저장 폴더
+PROFILE_AUTODISCOVER = {
+    "max_depth": 8,
+    "click_wait_ms": 10000,
+    "page_timeout_ms": 45000,
+    "max_elements": 3000,
+    "max_attempts": 3,
+    "validate_documents_per_seed": 3,   # 실검증 시 시작 페이지마다 시도할 문서 수(한 건 성공이면 통과)
+    "delay_seconds": 0.3,
+    "timeout_seconds": 45,
+    "user_agent": "Mozilla/5.0 (SPS public disclosure collector)",
+    "work_subdir": "insurance_docs/_autodiscover",
+}
 
 # 로컬 8003 API의 터미널 검증 설정. 비밀키 값은 저장하지 않고 보호 파일 경로만 지정한다.
 AGENT_CLI = {
