@@ -556,6 +556,31 @@ def discover(name: str, start_urls: list[dict], keyword: str, choice: int) -> di
     return candidate
 
 
+def classify_failure(error_text: str) -> str:
+    """실패를 retryable(다른 항목으로 재시도 가치 있음) / systematic(처음 보는 유형)으로 나눈다.
+
+    기준은 config.PROFILE_AUTODISCOVER['retryable_error_patterns']뿐이다. 목록에 없는 오류는
+    항목을 바꿔도 같은 결과가 나올 가능성이 높으므로(이번 세션 실측: 4종 모두 3회 동일 실패) systematic.
+    """
+    return "retryable" if any(re.search(p, error_text) for p in _SETTINGS["retryable_error_patterns"]) \
+        else "systematic"
+
+
+def failure_signature(error_text: str) -> str:
+    """같은 종류의 오류인지 비교하는 서명. 숫자·따옴표 값(파일명, 난수 등)은 지운다."""
+    return re.sub(r"'[^']*'|\"[^\"]*\"|\d+", "_", error_text)[:300]
+
+
+def _record_failure(name: str, attempt: dict, category: str) -> dict:
+    """새 유형 실패의 증빙(오류·시도·시각)을 파일로 남기고 요약을 돌려준다(수리 단계의 입력)."""
+    stamp = now_kst_iso().replace(":", "").replace("-", "")[:15]
+    path = _work_dir(name) / f"failure_{stamp}_choice{attempt['choice']}.json"
+    write_json_atomic(path, {"name": name, "category": category, "error": attempt["error"],
+                             "signature": failure_signature(attempt["error"]), "attempt": attempt,
+                             "recorded_kst": now_kst_iso()})
+    return {"category": category, "error": attempt["error"], "evidence": str(path)}
+
+
 def auto(request: dict) -> dict:
     """저장된 프로파일 검증 → 실패/없음이면 재탐색(choice 0,1,2…)→검증 → apply면 저장."""
     name = request["name"]
@@ -574,6 +599,12 @@ def auto(request: dict) -> dict:
             return report
         except Exception as error:  # noqa: BLE001 - 사이트가 바뀌었으면 재탐색으로 넘어간다
             report["existing_error"] = f"{type(error).__name__}: {str(error)[:300]}"
+    # 입력 오류(시작 URL 없음)는 사이트 실패가 아니므로 탐색·유형 분류 전에 걸러 FAILED로 보고한다.
+    if not start_urls:
+        report["attempts"].append({"choice": 0, "category": "input",
+                                   "error": "ValueError: start_urls is required (request or saved autodiscover)"})
+        report["result"] = "FAILED"
+        return report
     for choice in range(int(_SETTINGS["max_attempts"])):
         attempt: dict[str, Any] = {"choice": choice}
         try:
@@ -592,9 +623,21 @@ def auto(request: dict) -> dict:
             report["attempts"].append(attempt)
             report["result"] = "DISCOVERED_AND_VALID" + ("_SAVED" if request.get("apply") else "_NOT_SAVED")
             return report
-        except Exception as error:  # noqa: BLE001 - 다음 항목으로 재탐색
+        except Exception as error:  # noqa: BLE001 - 유형을 보고 재탐색 여부 결정
             attempt["error"] = f"{type(error).__name__}: {str(error)[:400]}"
+            attempt["category"] = classify_failure(attempt["error"])
             report["attempts"].append(attempt)
+            # 처음 보는 유형 → 재시도해도 같은 결과이므로 즉시 멈추고 증빙을 남긴다.
+            if attempt["category"] == "systematic":
+                report["failure"] = _record_failure(name, attempt, "systematic")
+                report["result"] = "NEEDS_NEW_RULE"
+                return report
+            # 재시도형이라도 직전과 같은 오류면 항목 문제가 아니다 → 즉시 멈춤.
+            previous = report["attempts"][-2] if len(report["attempts"]) > 1 else None
+            if previous and failure_signature(previous.get("error", "")) == failure_signature(attempt["error"]):
+                report["failure"] = _record_failure(name, attempt, "repeated")
+                report["result"] = "NEEDS_NEW_RULE"
+                return report
     report["result"] = "FAILED"
     return report
 

@@ -681,6 +681,12 @@ PROFILE_AUTODISCOVER = {
     "max_elements": 3000,
     "max_attempts": 3,
     "validate_documents_per_seed": 3,   # 실검증 시 시작 페이지마다 시도할 문서 수(한 건 성공이면 통과)
+    # 다른 항목으로 재탐색하면 풀릴 수 있는 오류(정규식). 여기에 없는 오류는 '처음 보는 유형'으로 보고
+    # 재시도 없이 즉시 NEEDS_NEW_RULE로 멈춘다(2026-10-25 LuckyBoys 지시: 헛된 3회 반복 금지).
+    "retryable_error_patterns": [
+        r"Timeout", r"timed out", r"Connection(Reset|Refused|Error)", r"URLError", r"RemoteDisconnected",
+        r"HTTP Error (429|5\d\d)", r"empty list at", r"no valid document for seed",
+    ],
     "delay_seconds": 0.3,
     "timeout_seconds": 45,
     "user_agent": "Mozilla/5.0 (SPS public disclosure collector)",
