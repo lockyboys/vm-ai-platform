@@ -24,6 +24,7 @@
 """
 from __future__ import annotations
 
+import codecs
 import concurrent.futures
 import fcntl
 import json
@@ -105,13 +106,18 @@ def validate_profile(profile: Any) -> dict:
     seeds = profile.get("seeds")
     if not isinstance(seeds, dict) or not isinstance(seeds.get("pages"), list) or not seeds["pages"]:
         raise ValueError("seeds.pages must be a non-empty list")
-    pattern = re.compile(str(seeds.get("pattern", "")))
-    groups = seeds.get("groups")
-    if not isinstance(groups, list) or pattern.groups != len(groups) or not groups:
-        raise ValueError("seeds.groups count must match pattern groups")
+    # 2026-10-25: pattern이 없으면 "패턴 없는 시드"(페이지 vars만 시드로 사용, 페이지 미조회).
+    # 자동 탐색기가 만든 프로파일은 첫 단계 API가 최상위 분류를 돌려주므로 HTML 정규식이 필요 없다.
+    if "pattern" in seeds or "groups" in seeds:
+        pattern = re.compile(str(seeds.get("pattern", "")))
+        groups = seeds.get("groups")
+        if not isinstance(groups, list) or pattern.groups != len(groups) or not groups:
+            raise ValueError("seeds.groups count must match pattern groups")
     for page in seeds["pages"]:
         if not isinstance(page, dict) or not str(page.get("url", "")).startswith("/"):
             raise ValueError("seed page url must be a site-relative path")
+        if not isinstance(page.get("vars", {}), dict):
+            raise ValueError("seed page vars must be an object")
     steps = profile.get("steps")
     if not isinstance(steps, list) or not steps:
         raise ValueError("steps must be a non-empty list")
@@ -125,8 +131,22 @@ def validate_profile(profile: Any) -> dict:
     document = profile.get("document")
     if not isinstance(document, dict) or not document.get("file_var") or not document.get("url_template"):
         raise ValueError("document.file_var and document.url_template are required")
-    if not str(document["url_template"]).startswith("/"):
-        raise ValueError("document url_template must be a site-relative path")
+    # 문서 주소: 사이트 상대경로, 또는 allowed_hosts에 있는 별도 문서 서버의 절대 URL(2026-10-25)
+    template = str(document["url_template"])
+    if not template.startswith("/"):
+        absolute = urllib.parse.urlsplit(template)
+        if absolute.scheme not in {"http", "https"} or absolute.hostname not in hosts:
+            raise ValueError("document url_template must be site-relative or on an allowed host")
+    # 폼 본문 문자셋(예: 국내 ASP 사이트 cp949). 알 수 없는 문자셋은 거부한다.
+    try:
+        codecs.lookup(str(document.get("body_charset", "utf-8")))
+    except LookupError:
+        raise ValueError("document.body_charset is not a known encoding") from None
+    # 2026-10-25: 다운로드가 폼 POST인 사이트 지원(method=POST + body 템플릿). 기본은 GET.
+    if str(document.get("method", "GET")).upper() not in {"GET", "POST"}:
+        raise ValueError("document.method must be GET or POST")
+    if "body" in document and not isinstance(document["body"], dict):
+        raise ValueError("document.body must be an object")
     validate_time_limit(profile.get("time_limit_seconds", MAX_TIME_LIMIT_SECONDS))
     return profile
 
@@ -232,6 +252,23 @@ def build_targets(rows: list[dict], file_var: str, subdir_var: str | None) -> tu
     return list(targets.values()), missing
 
 
+def encode_form(form: dict, charset: str = "utf-8") -> bytes:
+    """폼 본문을 지정 문자셋으로 URL 인코딩한다(cp949 사이트 지원)."""
+    return urllib.parse.urlencode(form, encoding=charset).encode("ascii")
+
+
+def document_request(document: dict, file_name: str) -> tuple[str, dict | None]:
+    """다운로드 요청(경로, 폼 본문)을 만든다. GET이면 본문은 None.
+
+    url_template과 body 모두 {file_var}/{file_var|q} 치환을 쓴다(사이트 정보는 프로파일 데이터).
+    """
+    ctx = {document["file_var"]: file_name}
+    url = render(document["url_template"], ctx)
+    if str(document.get("method", "GET")).upper() == "POST":
+        return url, render(document.get("body", {}), ctx)
+    return url, None
+
+
 def parse_options(options: Any) -> dict:
     """stdin 제어값 검증. 정해진 모드·프로파일 이름·시간 제한 외 입력은 거부한다."""
     if not isinstance(options, dict):
@@ -243,6 +280,11 @@ def parse_options(options: Any) -> dict:
     if not isinstance(profile, str) or not NAME_PATTERN.fullmatch(profile):
         raise ValueError("profile name required ([a-z0-9_])")
     result = {"mode": mode, "profile": profile}
+    # self_heal: probe 실패 시 profile_autodiscover로 재탐색·실검증·저장 후 재probe(2026-10-25)
+    if "self_heal" in options:
+        if not isinstance(options["self_heal"], bool):
+            raise ValueError("self_heal must be true or false")
+        result["self_heal"] = options["self_heal"]
     if "time_limit_seconds" in options:
         result["time_limit_seconds"] = validate_time_limit(options["time_limit_seconds"])
     return result
@@ -309,13 +351,24 @@ class SiteClient:
         except UnicodeDecodeError:
             return json.loads(raw.decode("cp949"))
 
-    def download(self, path: str, dest: Path) -> dict:
-        """.part에 받아 PDF 검증 후 원자적으로 설치한다. 실패 시 부분 파일 삭제."""
+    def download(self, path: str, dest: Path, form: dict | None = None, charset: str = "utf-8") -> dict:
+        """.part에 받아 PDF 검증 후 원자적으로 설치한다. 실패 시 부분 파일 삭제.
+
+        form이 있으면 폼 POST로 요청한다(2026-10-25, POST 다운로드 사이트 지원)."""
         if shutil.disk_usage(dest.parent).free < MIN_FREE_DISK_BYTES:
             raise OSError("less than 1 GiB free disk space")
         part = dest.with_name(dest.name + ".part")
+        headers = dict(self.headers)
+        data = None
+        if form is not None:
+            data = encode_form(form, charset)
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        # 별도 문서 서버의 절대 URL이면 그대로 쓴다(호스트는 _open에서 allowed_hosts로 재검사).
+        url = path if path.startswith(("http://", "https://")) else self.base + path
+        if urllib.parse.urlsplit(url).hostname not in self.hosts:
+            raise ValueError("document host is not in allowed_hosts")
         try:
-            with self._open(self.base + path, None, self.headers) as response, part.open("wb") as out:
+            with self._open(url, data, headers) as response, part.open("wb") as out:
                 total = 0
                 for chunk in iter(lambda: response.read(128 * 1024), b""):
                     total += len(chunk)
@@ -346,6 +399,10 @@ def collect_seeds(client: SiteClient, profile: dict) -> list[dict]:
     seeds_cfg = profile["seeds"]
     seeds: list[dict] = []
     for page in seeds_cfg["pages"]:
+        if "pattern" not in seeds_cfg:
+            # 패턴 없는 시드: 페이지를 읽지 않고 vars를 그대로 시드로 쓴다.
+            seeds.append(dict(page.get("vars", {})))
+            continue
         html = client.get_text(page["url"])
         seeds += extract_seeds(html, seeds_cfg["pattern"], seeds_cfg["groups"], dict(page.get("vars", {})))
     return seeds
@@ -369,6 +426,120 @@ def probe(profile: dict) -> dict:
             "files_written": 0, "checked_kst": now()}
 
 
+AUTODISCOVER_PATH = Path(__file__).resolve().with_name("profile_autodiscover.py")
+
+
+def self_heal_profile(name: str) -> dict:
+    """profile_autodiscover.auto(apply=True)를 호출해 프로파일을 재탐색·실검증·저장한다.
+
+    시작 URL·문서 키워드는 저장된 프로파일의 autodiscover 블록에서 읽으므로 사람 입력이 필요 없다.
+    엔진과 탐색기를 같은 사이트 비종속 원칙으로 분리하려고 경로로 직접 로드한다(순환 import 방지).
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("profile_autodiscover_heal", AUTODISCOVER_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.auto({"mode": "auto", "name": name, "apply": True})
+
+
+def run_probe(name: str, heal: bool, load: Callable[[str], dict] = None,
+              probe_fn: Callable[[dict], dict] = None, heal_fn: Callable[[str], dict] = None) -> dict:
+    """probe를 실행하고, 실패하면(heal=True일 때) 스스로 재탐색한 뒤 새 프로파일로 다시 probe한다.
+
+    - 성공: probe 결과 그대로 반환(재탐색 없음).
+    - 실패 + heal=False: 원래 예외를 그대로 올린다.
+    - 실패 + heal=True: 재탐색 결과가 FAILED면 RuntimeError(실패를 성공처럼 숨기지 않음),
+      성공이면 {"first_error", "self_heal", "probe"}를 반환한다.
+    """
+    load = load or load_profile
+    probe_fn = probe_fn or probe
+    heal_fn = heal_fn or self_heal_profile
+    try:
+        return probe_fn(load(name))
+    except Exception as error:  # noqa: BLE001 - 어떤 실패든 재탐색 대상
+        if not heal:
+            raise
+        first_error = f"{type(error).__name__}: {str(error)[:300]}"
+    report = heal_fn(name) or {}
+    if str(report.get("result", "FAILED")).startswith("FAILED"):
+        raise RuntimeError(f"self_heal failed after probe error ({first_error}): "
+                           f"{json.dumps(report, ensure_ascii=False, default=str)[:800]}")
+    return {"first_error": first_error, "self_heal": {k: v for k, v in report.items() if k != "attempts"},
+            "probe": probe_fn(load(name))}
+
+
+def ensure_healthy(profile: dict, probe_fn: Callable[[dict], dict] = None,
+                   heal_fn: Callable[[str], dict] = None,
+                   load: Callable[[str], dict] = None) -> tuple[dict, dict | None]:
+    """워커 시작 전 점검(P0, 2026-10-25). 실패하면 워커 안에서 스스로 재탐색해 새 프로파일을 돌려준다.
+
+    - 워커는 systemd 유닛에서 돌기 때문에 MCP 120초 제한 없이 브라우저 재탐색(약 100초)을 할 수 있다.
+    - autodiscover 블록(시작 URL·키워드)이 없는 수동 프로파일은 추측하지 않고 원래 오류를 올린다.
+    - 재탐색도 실패하면 RuntimeError로 워커를 FAILED 처리한다(실패를 성공처럼 남기지 않음).
+    반환: (사용할 프로파일, 재탐색 보고 또는 None)
+    """
+    probe_fn = probe_fn or probe
+    heal_fn = heal_fn or self_heal_profile
+    load = load or load_profile
+    try:
+        probe_fn(profile)
+        return profile, None
+    except Exception as error:  # noqa: BLE001 - 어떤 점검 실패든 재탐색 대상
+        if not profile.get("autodiscover"):
+            raise
+        first_error = f"{type(error).__name__}: {str(error)[:300]}"
+    report = heal_fn(profile["name"]) or {}
+    if str(report.get("result", "FAILED")).startswith("FAILED"):
+        raise RuntimeError(f"self_heal failed after check error ({first_error}): "
+                           f"{json.dumps(report, ensure_ascii=False, default=str)[:800]}")
+    summary = {k: v for k, v in report.items() if k != "attempts"}
+    summary["first_error"] = first_error
+    summary["healed_kst"] = now()
+    return load(profile["name"]), summary
+
+
+def should_heal_after_catalog(state: dict, already_healed: bool) -> bool:
+    """수집 중 모든 시드가 실패했으면 사이트 구조가 바뀐 것으로 보고 재탐색한다(한 워커에서 1회만).
+
+    일부만 실패한 경우는 일시 오류로 보고 다음 실행의 이어받기에 맡긴다(불필요한 재탐색 방지).
+    """
+    total = int(state.get("seeds_total", 0))
+    return not already_healed and total > 0 and int(state.get("seed_failures", 0)) >= total
+
+
+def run_catalog_round(seeds: list[dict], profile: dict, client: SiteClient, out: Path, done: set,
+                      done_path: Path, state: dict, seed_errors: list[dict], deadline: float) -> None:
+    """시드 목록 1회분 카탈로그 수집(기존 워커 루프를 재탐색 후 재사용할 수 있게 분리, 동작 동일).
+
+    끝까지 성공한 시드만 done에 넣고, 실패 시드는 state/seed_failures.json에 남겨 다음 실행에서 재시도한다.
+    """
+    with (out / "catalog_rows.jsonl").open("a", encoding="utf-8") as catalog:
+        for seed in seeds:
+            key = json.dumps(seed, ensure_ascii=False, sort_keys=True)
+            if key in done:
+                continue
+            check_deadline(deadline)
+            try:
+                rows = list(walk_steps(profile["steps"], seed, client.fetch_json, deadline))
+            except TimeLimitReached:
+                raise
+            except Exception as error:
+                state["seed_failures"] += 1
+                seed_errors.append({"seed": seed, "error_type": type(error).__name__,
+                                    "error": str(error)[:300], "checked_kst": now()})
+                atomic_json(out / "seed_failures.json", seed_errors)
+                continue
+            for row in rows:
+                catalog.write(json.dumps(row, ensure_ascii=False) + "\n")
+            catalog.flush()
+            done.add(key)
+            atomic_json(done_path, sorted(done))
+            state["seeds_done"] = len(done)
+            state["updated_kst"] = now()
+            atomic_json(out / "status.json", state)
+
+
 def worker(profile: dict, time_limit: int) -> None:
     """분리 워커: 카탈로그 수집(시드 단위 이어받기) -> PDF 다운로드(파일 단위 이어받기)."""
     out = output_dir(profile)
@@ -380,39 +551,37 @@ def worker(profile: dict, time_limit: int) -> None:
                  "seeds_total": 0, "seeds_done": 0, "seed_failures": 0, "catalog_rows": 0,
                  "targets": 0, "missing_file_rows": 0, "finished": 0, "success": 0, "failed": 0}
         atomic_json(out / "status.json", state)
-        client = SiteClient(profile)
+        healed = False
         try:
-            # 1) 카탈로그: 시드별로 끝까지 탐색이 성공해야 done 처리(중간 실패 시드는 다음 실행에서 재시도)
-            seeds = collect_seeds(client, profile)
-            atomic_json(out / "seeds.json", seeds)
+            # 0) 시작 전 점검 → 실패 시 워커 안에서 스스로 재탐색(P0 자가 복구)
+            profile, heal_report = ensure_healthy(profile)
+            if heal_report:
+                healed = True
+                state["self_heal"] = heal_report
+                atomic_json(out / "status.json", state)
+            client = SiteClient(profile)
             done_path = out / "seeds_done.json"
             done = set(json.loads(done_path.read_text(encoding="utf-8"))) if done_path.exists() else set()
-            state["seeds_total"] = len(seeds)
-            seed_errors = []
-            with (out / "catalog_rows.jsonl").open("a", encoding="utf-8") as catalog:
-                for seed in seeds:
-                    key = json.dumps(seed, ensure_ascii=False, sort_keys=True)
-                    if key in done:
-                        continue
-                    check_deadline(deadline)
-                    try:
-                        rows = list(walk_steps(profile["steps"], seed, client.fetch_json, deadline))
-                    except TimeLimitReached:
-                        raise
-                    except Exception as error:
-                        state["seed_failures"] += 1
-                        seed_errors.append({"seed": seed, "error_type": type(error).__name__,
-                                            "error": str(error)[:300], "checked_kst": now()})
-                        atomic_json(out / "seed_failures.json", seed_errors)
-                        continue
-                    for row in rows:
-                        catalog.write(json.dumps(row, ensure_ascii=False) + "\n")
-                    catalog.flush()
-                    done.add(key)
-                    atomic_json(done_path, sorted(done))
-                    state["seeds_done"] = len(done)
-                    state["updated_kst"] = now()
-                    atomic_json(out / "status.json", state)
+            seed_errors: list[dict] = []
+            # 1) 카탈로그: 시드별로 끝까지 탐색이 성공해야 done 처리(중간 실패 시드는 다음 실행에서 재시도)
+            #    모든 시드가 실패하면 구조 변경으로 보고 1회 재탐색 후 새 프로파일로 다시 수집한다.
+            for _round in range(2):
+                seeds = collect_seeds(client, profile)
+                atomic_json(out / "seeds.json", seeds)
+                state["seeds_total"] = len(seeds)
+                state["seed_failures"] = 0
+                seed_errors.clear()
+                run_catalog_round(seeds, profile, client, out, done, done_path, state, seed_errors, deadline)
+                if not should_heal_after_catalog(state, healed):
+                    break
+                report = self_heal_profile(profile["name"]) or {}
+                if str(report.get("result", "FAILED")).startswith("FAILED"):
+                    state["self_heal"] = {"result": "FAILED", "checked_kst": now()}
+                    break
+                healed = True
+                state["self_heal"] = {k: v for k, v in report.items() if k != "attempts"} | {"healed_kst": now()}
+                profile = load_profile(profile["name"])
+                client = SiteClient(profile)
             state["seeds_done"] = len(done)
 
             # 2) 다운로드: 저장된 카탈로그 전체 기준, 기존 검증 파일은 재사용
@@ -436,8 +605,9 @@ def worker(profile: dict, time_limit: int) -> None:
                         return {"file": target["file"], "status": "existing_verified", **inspect_pdf(dest)}
                     except ValueError:
                         dest.unlink(missing_ok=True)   # 손상 잔존 파일은 다시 받는다
-                url = render(document["url_template"], {document["file_var"]: target["file"]})
-                return {"file": target["file"], "status": "downloaded_verified", **client.download(url, dest)}
+                url, form = document_request(document, target["file"])
+                return {"file": target["file"], "status": "downloaded_verified",
+                        **client.download(url, dest, form, document.get("body_charset", "utf-8"))}
 
             hit_limit = False
             with (out / "manifest.jsonl").open("a", encoding="utf-8") as manifest:
@@ -538,7 +708,7 @@ def main() -> None:
     profile = load_profile(options["profile"])
     limit = options.get("time_limit_seconds", profile.get("time_limit_seconds", MAX_TIME_LIMIT_SECONDS))
     if options["mode"] == "probe":
-        result = probe(profile)
+        result = run_probe(options["profile"], options.get("self_heal", False))
     elif options["mode"] == "start":
         result = start(profile, validate_time_limit(limit))
     else:
