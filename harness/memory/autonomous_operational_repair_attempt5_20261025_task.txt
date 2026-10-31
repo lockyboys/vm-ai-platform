@@ -1,0 +1,7 @@
+실제 운영에서 read_source에 존재하지 않거나 허용되지 않는 경로가 들어오면 ValueError로 PARTNER 그래프 전체가 종료되는 버그가 관측됐다. 수정할 실제 운영소스는 haness/mcp/agents/source_partner_agent.py, 기존 테스트는 tests/harness/mcp/test_source_partner_agent.py다. 이 두 파일을 직접 읽고 원인을 확인하고 최소 패치를 직접 작성하라. 위치와 수정코드는 제공하지 않는다.
+이번 진단 실행기는 도구오류로 모델 자체가 죽어 수리를 못하는 문제를 피하려고 ToolNode 예외를 도구오류 메시지로 돌려주는 임시 어댑터만 갖고 있다. 원본 운영소스는 아직 그대로이며 새 pytest 프로세스는 이 어댑터를 상속하지 않는다. 따라서 네가 원본 소스를 고치기 전에는 회귀테스트가 실패해야 한다.
+1 get_git_status 후 위 두 기존파일만 read_source로 전체읽기. 범위 밖 파일/메모리/설정/.gitignore/trace 읽기 금지. 없는 파일 조회 자체로 재현하려 하지 말고 pytest로 재현할 것.
+2 신규 tests/harness/mcp/test_autonomous_source_partner_regression.py에 진짜 build_partner_tools/read_source 또는 운영 그래프를 호출하는 최소 재현테스트를 작성. 허용 파일 정상조회도 함께 검증. 범위이탈/불허확장자 차단을 완화하지 않는다. execute_change_set으로 신규테스트만 writes, stage_groups.source=[신규테스트], tests/docs/operations=[]; test_paths=[신규테스트]; change_set_id=autonomous-reader-repro5-20261025. 실제 기존소스에서 assertion실패를 확인하고 롤백 증빙보존. 수집실패는 버그재현으로 간주하지 않는다.
+3 실제 source_partner_agent.py 최소 unifieddiff를 직접 작성하고 같은 테스트와 함께 execute_change_set. stage_groups.source=[운영소스],tests=[신규테스트],docs/operations=[]; test_paths=[신규테스트,기존test_source_partner_agent.py]. change_set_id=autonomous-reader-fix5-20261025. 신규파일만writes, 기존파일은patch_text. commit.requested=false, activation action=NONE(허용 계약 필요 시 현재 prompt에 따름). 테스트 실패나 패치충돌은 결과에 따라 직접고쳐재시도.
+4 get_git_diff로 최종확인. 실제 failure→patch→pass 증빙과 남은미확인만보고.
+새버그심기, 테스트완화, 가짜모델/가짜성공, DB/SOURCE_AUDIT/서비스/config 변경, commit/push/reload 금지. 승인된source_write_confirmed=true. 핵심 진단·패치는 네가 수행한다.

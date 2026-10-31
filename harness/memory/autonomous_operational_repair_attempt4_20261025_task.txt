@@ -1,0 +1,8 @@
+실제 운영 실패 수정 요청: 이번 source_agent 실실행에서 read_source가 없는 파일 또는 허용되지 않는 확장자 경로를 받으면 ValueError가 그래프 밖으로 전파되어, 모델이 오류 응답을 받아 경로를 고칠 기회 없이 전체 작업이 종료됐다. 이 실제 관측 증상만 제공한다. 해결 패치는 제공하지 않는다. 운영 소스를 직접 읽고 원인을 확인하고 재현 테스트 후 최소 수정하라.
+수정 허용 파일: haness/mcp/agents/source_partner_agent.py, tests/harness/mcp/test_source_partner_agent.py, 신규 tests/harness/mcp/test_autonomous_source_partner_regression.py뿐이다. 기존 파일을 먼저 read_source로 읽어라. 관련 조회 도구의 내부 경로 검증은 유지해야 한다. 없는 파일을 생성하거나 허용 경로/확장자를 넓혀 통과시키는 방식 금지. 안전하게 실패를 모델에 알려 다시 조사할 수 있게 해야 한다. 인증·설정·DB·SOURCE_AUDIT·서비스 변경·commit/push/reload 금지. 기존 변경 보존.
+도구 절차:
+1. get_git_status; search_source(query="def build_partner_tools",path_prefix="haness/mcp/agents"); 위 운영소스와 기존 테스트를 read_source로 읽는다. AGENTS.md는 부재 확인되어 읽지 않는다. 작업 런처/메모리/trace/jsonl/다른 소스를 읽지 마라.
+2. 신규 테스트 파일에 실제 운영 함수를 호출하는 재현 테스트를 작성하라. 재현 테스트 기대는 실패 경로가 도구 결과로 돌아오고 경로 보호는 유지되는 것이다. execute_change_set으로 이 신규 테스트만 writes하고 test_paths에는 신규 테스트, stage_groups.source에는 신규 테스트 단독 경로(동일경로 중복 금지), 다른그룹빈배열로 실행하여 기존 운영소스에서 실패·rollback 증빙을 남긴다. change_set_id="autonomous-reader-repro4-20261025". commit.requested=false.
+3. 실패가 수집오류가 아닌 실제 bug assertion인지 확인한 다음 운영소스 최소 unifieddiff와 동일 신규테스트를 execute_change_set으로 함께 적용한다. change_set_id="autonomous-reader-fix4-20261025". patch_text에는 기존 운영소스 diff만, 신규파일만 writes. test_paths에는 신규테스트와 기존 tests/harness/mcp/test_source_partner_agent.py. stage_groups.source에는 운영소스, tests에는 신규테스트. activation과commit 계약은 실제 source prompt를 따른다. source_write_confirmed는 외부승인true다.
+4. get_git_diff/read_source로 검토하고 재현 실패·수정후 통과·evidence_path·남은 미확인을 보고하라. 파일/원인을 확인하지 않고 완료라고 하지 마라.
+전체step상한64이며 실제테스트/수정까지 수행한다.

@@ -1,0 +1,1 @@
+{"job_id": "e44fa4157dbb43e3a792a1b793b41394", "state": "RUNNING", "events": 45, "last_event": {"kst": "2026-10-25T12:59:50+09:00", "role": "TESTER", "event": "tool_result", "name": "read_file"}}

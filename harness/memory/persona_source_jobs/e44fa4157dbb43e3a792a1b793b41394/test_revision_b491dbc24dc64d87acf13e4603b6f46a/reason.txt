@@ -1,0 +1,1 @@
+Correct cross-realm VM prototype mismatch in assert.deepStrictEqual via JSON serialization comparison, and align move(dx, dy = 0) invalid input test with engine contract where dy defaults to 0 when undefined.

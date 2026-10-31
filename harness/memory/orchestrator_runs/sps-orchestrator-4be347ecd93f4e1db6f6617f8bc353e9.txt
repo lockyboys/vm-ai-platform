@@ -1,0 +1,1 @@
+{"job_id": "e44fa4157dbb43e3a792a1b793b41394", "state": "RUNNING", "events": 23, "last_event": {"kst": "2026-10-25T12:56:51+09:00", "role": "BUG_HUNTER", "event": "role_completed"}}

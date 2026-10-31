@@ -1,0 +1,62 @@
+🛠️ [Tool 실행] 삼성화재 크롤러 가동 (URL: https://www.samsungfire.com/vh/page/VH.HPIF0103.do)
+🌐 [Robust Crawler Engine] 대상 URL 진입: https://www.samsungfire.com/vh/page/VH.HPIF0103.do
+
+🔄 [Agent Turn 1] 수집 에이전트 구동 중...
+   🤖 [JS 스크립트 실행] DOM 내 PDF 링크 강제 추출 중...
+
+🔄 [Agent Turn 2] 수집 에이전트 구동 중...
+   🤖 [JS 스크립트 실행] DOM 내 PDF 링크 강제 추출 중...
+
+🔄 [Agent Turn 3] 수집 에이전트 구동 중...
+
+🔄 [Agent Turn 4] 수집 에이전트 구동 중...
+
+🔄 [Agent Turn 5] 수집 에이전트 구동 중...
+   🤖 [JS 스크립트 실행] DOM 내 PDF 링크 강제 추출 중...
+   📥 파일 다운로드 시도: doc_1.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_1.pdf
+   📥 파일 다운로드 시도: doc_2.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_2.pdf
+   📥 파일 다운로드 시도: doc_3.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_3.pdf
+   📥 파일 다운로드 시도: doc_4.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_4.pdf
+   📥 파일 다운로드 시도: doc_5.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_5.pdf
+   📥 파일 다운로드 시도: doc_6.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_6.pdf
+   📥 파일 다운로드 시도: doc_7.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_7.pdf
+   📥 파일 다운로드 시도: doc_8.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_8.pdf
+   📥 파일 다운로드 시도: doc_9.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_9.pdf
+   📥 파일 다운로드 시도: doc_10.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_10.pdf
+   📥 파일 다운로드 시도: doc_11.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_11.pdf
+   📥 파일 다운로드 시도: doc_12.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_12.pdf
+   📥 파일 다운로드 시도: doc_13.pdf
+   ✅ 저장 완료: /data/vm_project/downloaded_docs/www.samsungfire.com/doc_13.pdf
+
+🔄 [Agent Turn 6] 수집 에이전트 구동 중...
+{"success": true, "response": [{"type": "text", "text": "실제 실행된 도구 호출 결과와 세부 내용을 사실 그대로 요약해 드립니다.\n\n---\n\n### 1. 웹 검색 도구 (`search_public_documents`) 결과\n\n* **검색어**: `삼성화재 보험상품공시실 상품약관 공시`\n* **확인된 주요 공식 URL 및 내용**:\n  * `https://www.samsungfire.com/vh/page/VH.HPIF0103.do`: 삼성화재 공식 보험상품공시실 페이지 확인\n    * 판매상품(`onSaleList`) 및 판매중지상품(`comSaleList`) 구분\n    * 상품 카테고리: 자동차보험, 장기보험, 일반보험, 퇴직연금, 퇴직보험\n    * 사업방법서, 상품요약서, 보험약관 다운로드 구성 확인\n  * `https://www.samsungfire.com/v2/html/publication/03/J_030_010_001.html`: 상품공시 안내 페이지\n\n---\n\n### 2. 수집 크롤러 도구 (`run_crawler_tool`) 결과\n\n* **입력 파라미터**:\n  * `company_name`: `삼성화재`\n  * `target_url`: `https://www.samsungfire.com/vh/page/VH.HPIF0103.do`\n* **도구 반환 결과**:\n  * `[삼성화재] ✅ 에이전트 최종 보고: 공개 문서 수집을 완료하여 총 13개의 PDF 문서를 다운로드 폴더에 정상 저장했습니다.`\n* **실제 수집 건수**: **13건** (PDF 문서 정상 다운로드 저장 완료)", "extras": {"signature": "EqcJCqQJAWkUfRO8YC+ZvtEh+3SxWO2TIZlJNFALLxFlgVkjxZhgWisBdqIwgqh29jY/Q5uMYZTyX85YTZAQtxi/Hlb3MlTdGMluXfJKVHrqa77c/g/Oz4N5fLt6AHM9Rq/JCb7cUwgVmqzlihgBc1miWwMZXSkDpGxmVsoy8Oz06wwAWqqD5eVrjr241dnqNC7yaQlXyGzy+Kmujoq3xbwpfm7FETw+ChMm0zHF6xupD3WGrEJ5ryha3iP5pzUFBWfdMBorHRKE6wIeSjMFYLg38U1RMKMuLqrCjbNFEL5UT46WabSBxGBFqGprn5ehbsIhgDTE7aduUYzB4FAigdWkg7PowIle0QdMi7bnp3tt/O6yJh+a1o2Y6G+cjy0CfnFH3aKlWQQuIzkG9zpnAuBicE2YwiUTi6aZEyfcYOQXiVAy7lUEvOe5mN5FlXCYxEjdD9TVM28KHqM2g5LLwckZXu5EmKIxvPKzif14G3oISKyZnR5p5Cyizp6obHH4r8vuVwwHdMvas/F2OYrNFPG+2ZOyRqKgfb0792VhoUnMZhXwA+DVxjenyELRQVHlD+05Cl4DBshDs4yk75649phKrW1DU4w091iXxfGYQKTf7X6wAFRg33B5qWjYEbgFgClYNC9P2GVraRzwfa/ltKoWzgSx/aPbrOo73KWYnFYVVOeIq3W/ORBof4Q+YPdOchcDFzl4AZPeq6506rRux9ek4dMVJpP3UdOinIp0gtwWjo72klxSVTx7x7rEMh8oC9x5i0b6KgJr2liQXKxW57RocsbTuihise4afCqdj2KQU7Y4SQAU1RNh696iTJegKe6383+A5cCpOB8srciCSszHlvy1+voTZmW8QMKG2X9PyfPxlcFG3zz9Kelj522sT83/fvko+2yd11oaDnK08gFCvBAx4m+COXYBjLVQ5bBN2X4yj5ABaMh7bWK8+PKMCTau6DCqDiTEDn+dWZKfMCV3okIuOeH2UYGpGGfDeslxE/q8bmzec5YcOYzUV9rVNcm5Rs0wqg6jFgrt9EFmpUQA1LHJ7trCSO31dikAqToZ5/Dg8H2zQbIHaDkxopMn+tl5G+GdTNbx4HROeh2znf7pA3IkKJnnx0RHv/AI1lj9LFr0nfnBTuPW0ntQr8DYsyZQ42S+5bVF5mhsAM/Fywg0o6qeaXfIg7jEn3ZTNEoHs2xerWQ6pXi6PnQ6myXbD5jZIASk0gmw4giIZee1N2qBhPir/b8uXu4J1JAS8LpGyofmscHCrKH0UhngWk9VNvrMmrLDe2WxAtJ/41WMsAm81irLrs/xp1wSyF3fGJIFladJsOYXC0nZPAqZCcX0a5ximv1PVGlVU+gdjiBW9E1PJY6KoE+cyLf1DGU73LKcihboO0MOrJi5SlYTmaP2HLEdKCkMd5iBQVzsqMjtPNN+GbqIsIpCJO1zNdt7SnKY6lbERxpp0WkeoZSjAM5G3rDQqrLiI6vH0le88R2S4Gt4idNWBGEadZ6e159U8YYUFXifHEyelJQoHZhY40yyeQcxbhgcK6kHq9JqfDhS5wK5NPOCbQ68ZsuqeepKCpvSK+Eng69bxTCO"}}]}
+/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py:150: LangChainDeprecationWarning: The class `TavilySearchResults` was deprecated in LangChain 0.3.25 and will be removed in 1.0. An updated version of the class exists in the `langchain-tavily package and should be used instead. To use it run `pip install -U `langchain-tavily` and import as `from `langchain_tavily import TavilySearch``.
+  return await TavilySearchResults(max_results=5).ainvoke({"query": query})
+[2026-10-29 16:52:58] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMYCV0093.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:58] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMYCV0433.do "HTTP/1.1 302 302"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMYCV0431.do?rUrl=/FWMYCV0433.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMAIV1534.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMYCV0093.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMAIV1534.do# "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMAIV1534.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMAIV1534.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMAIV1534.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMAIV1534.do "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/FWMAIV1534.do# "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/pc/bizxpress/gid/FWMAIV1613.shtm "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/pc/bizxpress/gid/FWMAIV1612.shtm "HTTP/1.1 200 200"
+[2026-10-29 16:52:59] [INFO] [_client.py:1740] HTTP Request: GET https://www.idbins.com/pc/bizxpress/gid/FWMAIV6362.shtm "HTTP/1.1 200 200"
+[2026-10-29 16:53:29] [INFO] [models.py:8418] AFC is enabled with max remote calls: 10.
+[2026-10-29 16:53:29] [WARNING] [models.py:8422] Direct use of automatic function calling (AFC) in AsyncModels.generate_content is not recommended. Instead, we recommend to use AFC in AsyncChat.send_message. Similarly, direct use of AFC in AsyncModels.generate_content_stream is not recommended. Instead, we recommend to use AFC in AsyncChat.send_message_stream.

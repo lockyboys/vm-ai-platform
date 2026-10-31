@@ -1,0 +1,279 @@
+🛠️ [Tool 실행] 삼성화재 크롤러 가동 (URL: https://www.samsungfire.com/vh/page/VH.HPIF0103.do)
+🌐 [Robust Crawler Engine] 대상 URL 진입: https://www.samsungfire.com/vh/page/VH.HPIF0103.do
+
+🔄 [Agent Turn 1] 수집 에이전트 구동 중...
+/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py:150: LangChainDeprecationWarning: The class `TavilySearchResults` was deprecated in LangChain 0.3.25 and will be removed in 1.0. An updated version of the class exists in the `langchain-tavily package and should be used instead. To use it run `pip install -U `langchain-tavily` and import as `from `langchain_tavily import TavilySearch``.
+  return await TavilySearchResults(max_results=5).ainvoke({"query": query})
+Traceback (most recent call last):
+  File "/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py", line 244, in api_chat_orchestrator
+    state = await sps_graph.ainvoke({"messages": [HumanMessage(content=req.query)]})
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 4090, in ainvoke
+    async for chunk in self.astream(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 3440, in astream
+    async for _ in runner.atick(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_runner.py", line 396, in atick
+    await arun_with_retry(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_retry.py", line 744, in arun_with_retry
+    return await task.proc.ainvoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 756, in ainvoke
+    input = await asyncio.create_task(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 522, in ainvoke
+    ret = await self.afunc(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 858, in _afunc
+    outputs = await asyncio.gather(*coros)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1193, in _arun_one
+    return await self._execute_tool_async(tool_request, input_type, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1153, in _execute_tool_async
+    content = _handle_tool_error(e, flag=self._handle_tool_errors)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 434, in _handle_tool_error
+    content = flag(e)  # type: ignore [assignment, call-arg]
+              ^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 391, in _default_handle_tool_errors
+    raise e
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1105, in _execute_tool_async
+    response = await tool.ainvoke(call_args, config)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 125, in ainvoke
+    return await super().ainvoke(input, config, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 774, in ainvoke
+    return await self.arun(tool_input, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1262, in arun
+    raise error_to_raise
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1228, in arun
+    response = await coro_with_context(coro, context)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 179, in _arun
+    return await self.coroutine(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py", line 141, in run_crawler_tool
+    selector = await explore_unknown_site(target_url)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py", line 240, in explore_unknown_site
+    final_state = await graph.ainvoke(
+                  ^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 4090, in ainvoke
+    async for chunk in self.astream(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 3440, in astream
+    async for _ in runner.atick(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_runner.py", line 396, in atick
+    await arun_with_retry(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_retry.py", line 744, in arun_with_retry
+    return await task.proc.ainvoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 756, in ainvoke
+    input = await asyncio.create_task(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 522, in ainvoke
+    ret = await self.afunc(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 858, in _afunc
+    outputs = await asyncio.gather(*coros)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1193, in _arun_one
+    return await self._execute_tool_async(tool_request, input_type, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1153, in _execute_tool_async
+    content = _handle_tool_error(e, flag=self._handle_tool_errors)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 434, in _handle_tool_error
+    content = flag(e)  # type: ignore [assignment, call-arg]
+              ^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 391, in _default_handle_tool_errors
+    raise e
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1105, in _execute_tool_async
+    response = await tool.ainvoke(call_args, config)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 123, in ainvoke
+    return await run_in_executor(config, self.invoke, input, config, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/runnables/config.py", line 707, in run_in_executor
+    return await asyncio.get_running_loop().run_in_executor(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/runnables/config.py", line 698, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 764, in invoke
+    return self.run(tool_input, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1132, in run
+    raise error_to_raise
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1098, in run
+    response = context.run(self._run, *tool_args, **tool_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 152, in _run
+    return self.func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py", line 139, in read_repair_source
+    return read_source(file_path)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/haness/source_repair.py", line 110, in read_repair_source
+    target = _target(file_path)
+             ^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/haness/source_repair.py", line 93, in _target
+    value = normalize_required_text(file_path, "file_path")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/common/common_function.py", line 204, in normalize_required_text
+    raise ValueError(f"{field_name} is required.")
+ValueError: file_path is required.
+During task with name 'tools' and id '5250a79e-dd3d-e8b3-59c6-87b0b2eb6dd6'
+During task with name 'tools' and id '3da81489-b3fc-0bd9-e2f6-dc09972a73fe'
+Traceback (most recent call last):
+  File "/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py", line 244, in api_chat_orchestrator
+    state = await sps_graph.ainvoke({"messages": [HumanMessage(content=req.query)]})
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 4090, in ainvoke
+    async for chunk in self.astream(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 3440, in astream
+    async for _ in runner.atick(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_runner.py", line 396, in atick
+    await arun_with_retry(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_retry.py", line 744, in arun_with_retry
+    return await task.proc.ainvoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 756, in ainvoke
+    input = await asyncio.create_task(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 522, in ainvoke
+    ret = await self.afunc(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 858, in _afunc
+    outputs = await asyncio.gather(*coros)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1193, in _arun_one
+    return await self._execute_tool_async(tool_request, input_type, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1153, in _execute_tool_async
+    content = _handle_tool_error(e, flag=self._handle_tool_errors)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 434, in _handle_tool_error
+    content = flag(e)  # type: ignore [assignment, call-arg]
+              ^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 391, in _default_handle_tool_errors
+    raise e
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1105, in _execute_tool_async
+    response = await tool.ainvoke(call_args, config)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 125, in ainvoke
+    return await super().ainvoke(input, config, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 774, in ainvoke
+    return await self.arun(tool_input, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1262, in arun
+    raise error_to_raise
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1228, in arun
+    response = await coro_with_context(coro, context)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 179, in _arun
+    return await self.coroutine(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py", line 141, in run_crawler_tool
+    selector = await explore_unknown_site(target_url)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py", line 240, in explore_unknown_site
+    final_state = await graph.ainvoke(
+                  ^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 4090, in ainvoke
+    async for chunk in self.astream(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 3440, in astream
+    async for _ in runner.atick(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_runner.py", line 396, in atick
+    await arun_with_retry(
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/pregel/_retry.py", line 744, in arun_with_retry
+    return await task.proc.ainvoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 756, in ainvoke
+    input = await asyncio.create_task(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/_internal/_runnable.py", line 522, in ainvoke
+    ret = await self.afunc(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 858, in _afunc
+    outputs = await asyncio.gather(*coros)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1193, in _arun_one
+    return await self._execute_tool_async(tool_request, input_type, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1153, in _execute_tool_async
+    content = _handle_tool_error(e, flag=self._handle_tool_errors)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 434, in _handle_tool_error
+    content = flag(e)  # type: ignore [assignment, call-arg]
+              ^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 391, in _default_handle_tool_errors
+    raise e
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langgraph/prebuilt/tool_node.py", line 1105, in _execute_tool_async
+    response = await tool.ainvoke(call_args, config)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 123, in ainvoke
+    return await run_in_executor(config, self.invoke, input, config, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/runnables/config.py", line 707, in run_in_executor
+    return await asyncio.get_running_loop().run_in_executor(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/runnables/config.py", line 698, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 764, in invoke
+    return self.run(tool_input, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1132, in run
+    raise error_to_raise
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/base.py", line 1098, in run
+    response = context.run(self._run, *tool_args, **tool_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/venv/lib/python3.11/site-packages/langchain_core/tools/structured.py", line 152, in _run
+    return self.func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py", line 139, in read_repair_source
+    return read_source(file_path)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/haness/source_repair.py", line 110, in read_repair_source
+    target = _target(file_path)
+             ^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/haness/source_repair.py", line 93, in _target
+    value = normalize_required_text(file_path, "file_path")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/common/common_function.py", line 204, in normalize_required_text
+    raise ValueError(f"{field_name} is required.")
+ValueError: file_path is required.
+During task with name 'tools' and id '5250a79e-dd3d-e8b3-59c6-87b0b2eb6dd6'
+During task with name 'tools' and id '3da81489-b3fc-0bd9-e2f6-dc09972a73fe'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/data/vm_project/haness/mcp/tools/orchestrator_tools.py", line 131, in <module>
+    asyncio.run(_worker())
+  File "/usr/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 653, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/data/vm_project/haness/mcp/tools/orchestrator_tools.py", line 125, in _worker
+    result = await api_chat_orchestrator(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vm_project/FastAPI/LangGraph/sps_main_orchestrator.py", line 249, in api_chat_orchestrator
+    raise HTTPException(status_code=500, detail=str(e))
+fastapi.exceptions.HTTPException: 500: file_path is required.

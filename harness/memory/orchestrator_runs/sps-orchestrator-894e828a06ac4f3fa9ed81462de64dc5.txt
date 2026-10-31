@@ -1,0 +1,1 @@
+{"job_id": "9361ab74f87f44fabd224b8822035d3a", "state": "COMPLETED", "verified": false, "plans": [["BUG_HUNTER", "TESTER", "PARTNER", "TESTER"]], "roles_completed": [], "check_runs": 1, "last_exit_code": 0, "applied_patches": 0, "errors": [{"type": "RuntimeError", "message": "BUG_HUNTER tool loop budget reached"}], "autonomous_repair_proven": false}

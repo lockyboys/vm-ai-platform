@@ -1,0 +1,1 @@
+{"job_id": "b70fa1c5f54c4c9983f1411d3d2d3e6f", "state": "COMPLETED", "verified": true, "plans": [["BUG_HUNTER", "TESTER", "PARTNER", "TESTER"]], "roles_completed": ["BUG_HUNTER", "TESTER", "PARTNER", "TESTER"], "check_runs": 4, "last_exit_code": 0, "applied_patches": 0, "errors": [], "autonomous_repair_proven": false}

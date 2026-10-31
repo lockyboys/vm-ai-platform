@@ -1,0 +1,7 @@
+운영 소스 자율 오류 수정 검증. 사용자가 실제 운영 소스를 스스로 조사해 버그를 찾아 고치는 테스트를 승인했다. 수정 대상은 기존 운영 구성요소 haness/mcp/tools/change_set_graph.py 한 파일과 tests/harness/mcp/test_sps_change_set_tool.py 및 필요 시 새 tests/harness/mcp/test_autonomous_change_set_regression.py로 제한한다. 버그 위치·해결 패치는 주어지지 않았다. get_git_status로 상태 확인, read_source로 이 파일들과 관련 테스트를 직접 읽고 실제 재현 가능한 기존 버그 1건을 선택하라. 버그를 새로 심거나, 문자열/주석만 바꾸거나, 테스트를 완화해서 통과시키지 마라. 범위 밖 파일·설정·인증·DB·SOURCE_AUDIT·서비스는 수정 금지. 기존 변경과 stage는 보존하고 commit/push/reload는 하지 마라. AGENTS.md가 존재하면 읽고 적용하라.
+실행 절차:
+1) 소스/테스트 조사와 실제 입력→오류 설명.
+2) execute_change_set으로 먼저 재현 테스트만 추가하고 해당 테스트를 실행해서 기존 소스에서 실패 증빙을 남긴다. source 그룹에는 새 테스트 경로만 둘 수 있다(동일 경로를 두 그룹에 중복 금지). 실패 시 그래프가 테스트를 롤백해도 된다. change_set_id autonomous-repro-20261025. commit requested=false. 실패 상태와 evidence_path를 보존한다.
+3) 위 실패가 실제 기대한 assertion인지 확인한 뒤 운영 소스 최소 unified diff와 재현 테스트를 함께 execute_change_set으로 적용한다. 기존파일 덮어쓰기 대신 patch_text, 신규 테스트만 writes. change_set_id autonomous-fix-20261025. test_paths에는 새 재현 테스트와 기존 test_sps_change_set_tool.py를 함께 포함한다. stage_groups.source에는 운영소스, tests에는 재현테스트만 명시. 주석으로 목적·원인을 설명. commit requested=false, activation decision=HOLD. 정확한 계약 구조는 현재 prompt/source에서 확인.
+4) read_source/get_git_diff로 최종 변경 검토. 모델이 실제로 찾은 원인, 재현 실패 테스트, 패치, 통과 결과, 증빙 경로와 남은 미확인을 최종 보고하라. 재현 실패를 만들 수 없다면 수정을 억지로 하지 말고 미발견으로 보고.
+도구 호출을 실제로 수행하라. 추측한 완료 선언 금지.

@@ -1,0 +1,1 @@
+{"job_id": "e44fa4157dbb43e3a792a1b793b41394", "state": "RUNNING", "events": 33, "last_event": {"kst": "2026-10-25T12:58:24+09:00", "role": "PARTNER", "event": "role_completed"}}

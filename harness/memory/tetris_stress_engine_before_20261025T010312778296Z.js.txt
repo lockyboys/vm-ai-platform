@@ -1,0 +1,193 @@
+const SHAPES = Object.freeze({
+  I: [[1, 1, 1, 1]],
+  O: [[1, 1], [1, 1]],
+  T: [[0, 1, 0], [1, 1, 1]],
+  S: [[0, 1, 1], [1, 1, 0]],
+  Z: [[1, 1, 0], [0, 1, 1]],
+  J: [[1, 0, 0], [1, 1, 1]],
+  L: [[0, 0, 1], [1, 1, 1]]
+});
+
+class Tetris {
+  constructor({ random = Math.random } = {}) {
+    this.rows = 20;
+    this.cols = 10;
+    this.random = random;
+    this.bag = [];
+    this.reset();
+  }
+
+  // Draw piece type using 7-bag Fisher-Yates shuffle
+  draw() {
+    if (this.bag.length === 0) {
+      this.bag = Object.keys(SHAPES);
+      for (let i = this.bag.length - 1; i > 0; i--) {
+        const j = Math.floor(this.random() * (i + 1));
+        [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
+      }
+    }
+    return this.bag.pop();
+  }
+
+  // Reset engine state and board to initial conditions
+  reset() {
+    this.board = Array.from({ length: this.rows }, () => Array(this.cols).fill(0));
+    this.score = 0;
+    this.lines = 0;
+    this.level = 1;
+    this.paused = false;
+    this.gameOver = false;
+    this.bag = [];
+    this.nextType = this.draw();
+    this.spawn();
+  }
+
+  // Introduce next piece, centering horizontally at row 0
+  spawn() {
+    const type = this.nextType;
+    this.nextType = this.draw();
+    const shape = SHAPES[type].map(row => [...row]);
+    const x = Math.floor((this.cols - shape[0].length) / 2);
+    const y = 0;
+    this.active = { type, shape, x, y };
+    if (this.collides(shape, x, y)) {
+      this.gameOver = true;
+    }
+  }
+
+  // Detect collision against board bounds or occupied cells; y < 0 is allowed
+  collides(shape, x, y) {
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (!shape[r][c]) continue;
+        const nx = x + c;
+        const ny = y + r;
+        if (nx < 0 || nx >= this.cols || ny >= this.rows) return true;
+        if (ny >= 0 && this.board[ny][nx]) return true;
+      }
+    }
+    return false;
+  }
+
+  // Translate active piece without locking or scoring
+  move(dx, dy = 0) {
+    if (this.paused || this.gameOver) return false;
+    if (this.collides(this.active.shape, this.active.x + dx, this.active.y + dy)) return false;
+    this.active.x += dx;
+    this.active.y += dy;
+    return true;
+  }
+
+  // Clockwise rotation with horizontal wall/block kicks
+  rotate() {
+    if (this.paused || this.gameOver) return false;
+    const prev = this.active.shape;
+    const rotated = prev[0].map((_, c) => prev.map(r => r[c]).reverse());
+    for (const kick of [0, -1, 1, -2, 2]) {
+      if (!this.collides(rotated, this.active.x + kick, this.active.y)) {
+        this.active.shape = rotated;
+        this.active.x += kick;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Simultaneously remove full rows and fill top with zeroes
+  clearLines() {
+    const remaining = this.board.filter(row => row.some(cell => !cell));
+    const cleared = this.rows - remaining.length;
+    while (remaining.length < this.rows) {
+      remaining.unshift(Array(this.cols).fill(0));
+    }
+    this.board = remaining;
+    return cleared;
+  }
+
+  // Stamp active piece into board, calculate score, clear lines, and spawn next
+  lock() {
+    if (this.paused || this.gameOver) return;
+    const { shape, type, x, y } = this.active;
+
+    // Out-of-bounds top lock-out check: do not write partially
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (shape[r][c] && y + r < 0) {
+          this.gameOver = true;
+          return;
+        }
+      }
+    }
+
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (shape[r][c]) {
+          this.board[y + r][x + c] = type;
+        }
+      }
+    }
+
+    const cleared = this.clearLines();
+    const scores = [0, 100, 300, 500, 800];
+    this.score += scores[cleared] * this.level;
+    this.lines += cleared;
+    this.level = Math.floor(this.lines / 10) + 1;
+    this.spawn();
+  }
+
+  // Progress falling piece down by 1; lock on ground collision
+  tick() {
+    if (this.paused || this.gameOver) return;
+    if (!this.move(0, 1)) this.lock();
+  }
+
+  // Soft drop 1 cell with +1 score bonus on success
+  softDrop() {
+    if (this.paused || this.gameOver) return false;
+    if (this.move(0, 1)) {
+      this.score += 1;
+      return true;
+    }
+    this.lock();
+    return false;
+  }
+
+  // Drop directly to floor, award 2 pts/cell, lock immediately
+  hardDrop() {
+    if (this.paused || this.gameOver) return 0;
+    let dist = 0;
+    while (this.move(0, 1)) {
+      dist++;
+      if (dist > this.rows) break; // Avoid unbounded loop in corrupt state
+    }
+    this.score += dist * 2;
+    this.lock();
+    return dist;
+  }
+
+  // Projected landing position non-mutating clone
+  ghost() {
+    let gy = this.active.y;
+    while (!this.collides(this.active.shape, this.active.x, gy + 1)) {
+      gy++;
+    }
+    return {
+      type: this.active.type,
+      shape: this.active.shape.map(r => [...r]),
+      x: this.active.x,
+      y: gy
+    };
+  }
+
+  togglePause() {
+    if (!this.gameOver) this.paused = !this.paused;
+  }
+}
+
+const TetrisCore = { Tetris, SHAPES };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = TetrisCore;
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.TetrisCore = TetrisCore;
+}
