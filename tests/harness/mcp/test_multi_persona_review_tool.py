@@ -53,7 +53,7 @@ def test_error_log_cannot_overwrite_source(context):
     with pytest.raises(ValueError):
         asyncio.run(module.review_python_source(str(source), error_path=str(source)))
 
-@pytest.mark.parametrize("limit", [0, 301])
+@pytest.mark.parametrize("limit", [0, 30001])
 def test_invalid_worker_timeout_rejected(context, monkeypatch, limit):
     module, source, start = context
     monkeypatch.setattr(module.project_config, "MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS", limit)

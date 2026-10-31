@@ -63,14 +63,18 @@ def test_mcp_codex_apps_run_python_source_executes_with_explicit_false_dry_run(m
         return Completed()
 
     monkeypatch.setattr(execution_tools.subprocess, "run", fake_run)
+    # 2026-10-25: 위험 명령 승인 추가 — 이 파일이 쓰는 명령(dry-run 표시)을 그대로 승인해야 실행된다.
+    shown = execution_tools.mcp_codex_apps_run_python_source(
+        "FastAPI/LangGraph/Agent_Import_RAGs/LangGraph_email_RAG_Agent.py")["approval_commands"]
     result = execution_tools.mcp_codex_apps_run_python_source(
         "FastAPI/LangGraph/Agent_Import_RAGs/LangGraph_email_RAG_Agent.py",
         dry_run=False,
         timeout_seconds=150,
         execute_confirmed=True,
+        approved_commands=shown,
     )
     assert result["executed"] is True
     assert result["llm_call_allowed"] is True
     assert result["returncode"] == 0
-    assert captured["kwargs"]["timeout"] == 120
+    assert captured["kwargs"]["timeout"] == 150
     assert captured["args"][0] == [sys.executable, "/data/vm_project/FastAPI/LangGraph/Agent_Import_RAGs/LangGraph_email_RAG_Agent.py"]

@@ -108,7 +108,7 @@ def _relative(path, operation):
     return str(part)
 
 def run_remote(*, path, ssh_target, ssh_operation="hash", argv=None, job_id="",
-               dry_run=True, execute_confirmed=False, timeout_seconds=120):
+               dry_run=True, execute_confirmed=False, timeout_seconds=None):
     """승인된 대상만 연결합니다. run은 원격 작업 ID를 반환하고 status로 결과를 조회합니다."""
     profile = settings.SPS_SSH_TARGETS.get(ssh_target)
     if not isinstance(profile, dict):
@@ -131,7 +131,11 @@ def run_remote(*, path, ssh_target, ssh_operation="hash", argv=None, job_id="",
         raise ValueError("Invalid job_id")
     if ssh_operation == "run":
         job_id = uuid.uuid4().hex
-    seconds = max(1, min(int(timeout_seconds), settings.SPS_SSH_JOB_TIMEOUT_SECONDS))
+    if timeout_seconds is None:
+        timeout_seconds = settings.SPS_SSH_JOB_TIMEOUT_SECONDS
+    if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= settings.SPS_SSH_JOB_TIMEOUT_SECONDS:
+        raise ValueError("timeout_seconds must be an integer within the configured job budget")
+    seconds = timeout_seconds
     remote = shlex.join([profile["python"], "-c", REMOTE_HELPER, profile["root"],
                          ssh_operation, relative, job_id, str(seconds), __import__("json").dumps(args)])
     command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
