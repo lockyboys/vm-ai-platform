@@ -96,6 +96,17 @@ LOG_RETENTION_DAYS = 7
 # 로그 출력 형식 (날짜/시간/레벨/파일명:줄번호 순)
 LOG_FORMAT = "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+# Ollama 공통 실행 설정
+OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT", "http://127.0.0.1:11435")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:latest")
+OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "24"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_NUM_BATCH = int(os.getenv("OLLAMA_NUM_BATCH", "32"))
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "4096"))
+OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0"))
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+OLLAMA_WORKERS = int(os.getenv("OLLAMA_WORKERS", "4"))
+OLLAMA_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "29900"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -558,10 +569,14 @@ SPS_IDENTIFIER_PROGRAM_ID = "IdentifierEngine"
 # Direct Gemini commands use the deployed Gateway API; the signing key stays in service settings.
 SPS_AGENT_GATEWAY_URL = os.getenv("SPS_AGENT_GATEWAY_URL", "https://sps-mcp-gateway-5v4kufkk.an.gateway.dev")
 SPS_AGENT_GATEWAY_SUBJECT_ID = os.getenv("SPS_AGENT_GATEWAY_SUBJECT_ID", "jeaje")
-SPS_AGENT_GATEWAY_TIMEOUT_SECONDS = 120
+SPS_AGENT_GATEWAY_TIMEOUT_SECONDS = 3600
 
 # Review work runs independently; MCP request liveness is a separate 150-second rule.
-MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS = 300
+# 승인 정책: 장기 실행 두 도구와 일반 작업 유닛의 수명을 분리한다.
+SPS_SOURCE_EXECUTION_TIMEOUT_SECONDS = 3600
+SPS_GENERAL_UNIT_RUNTIME_SECONDS = 3600
+SPS_WORKER_RESULT_GRACE_SECONDS = 10
+MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS = 3600
 # Preserve the full report on disk and return a bounded preview through MCP.
 MULTI_PERSONA_REVIEW_OUTPUT_CHARS = 12000
 
@@ -574,10 +589,18 @@ SPS_SOURCE_PARTNER_MODEL_PROVIDER = os.getenv(
 SPS_MAIN_ORCHESTRATOR_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 SPS_SOURCE_PARTNER_OLLAMA_MODEL = os.getenv(
     "SPS_SOURCE_PARTNER_OLLAMA_MODEL", os.getenv("OLLAMA_MODEL", "gemma4:e4b")).strip()
+# 2026-11-01 LuckyBoys: 빈 값이면 아래 SPS_SOURCE_PARTNER_OLLAMA_CANDIDATES에서 자동 선택한다.
+# 값을 지정하면(환경변수) 자동 선택 없이 그 주소만 쓴다(수동 고정). 예전 기본값(127.0.0.1:11434 고정)은
+# 개발 서버 CPU Ollama로만 붙어 GPU 0%·로딩 18~30초였다(harness/memory/ollama_latency_diagnose_20261101_c.json).
 SPS_SOURCE_PARTNER_OLLAMA_BASE_URL = os.getenv(
-    "SPS_SOURCE_PARTNER_OLLAMA_BASE_URL", os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")).strip()
+    "SPS_SOURCE_PARTNER_OLLAMA_BASE_URL", os.getenv("OLLAMA_BASE_URL", "")).strip()
 SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS = float(os.getenv(
     "SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT", "300")))
+# 2026-11-01 LuckyBoys: Gemini 대기 시간을 Ollama와 분리한다. 환경변수로 바꿀 수 있고 기본값은 기존과 같은 300초.
+# 이유: 프로브가 Gemini에도 Ollama 값을 써서, Ollama 값을 늘리면 Gemini 장애 감지도 같이 늦어졌다(Gemini 실측 9초).
+# 사용처: haness/scripts/probe_partner_providers_20261025.py의 _provider_timeout()
+SPS_SOURCE_PARTNER_GEMINI_TIMEOUT_SECONDS = float(os.getenv(
+    "SPS_SOURCE_PARTNER_GEMINI_TIMEOUT_SECONDS", "300"))
 SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS = 120
 # /api/gemini/chat 인증용 공유 비밀키. 비어 있으면 서버가 모든 요청을 거부한다(기본값 거부).
 SPS_MAIN_ORCHESTRATOR_API_KEY = os.getenv("SPS_MAIN_ORCHESTRATOR_API_KEY", "")
@@ -586,16 +609,29 @@ SPS_MAIN_ORCHESTRATOR_HOST = os.getenv("SPS_MAIN_ORCHESTRATOR_HOST", "127.0.0.1"
 SPS_MAIN_ORCHESTRATOR_PORT = int(os.getenv("SPS_MAIN_ORCHESTRATOR_PORT", "8081"))
 
 
-# 자율 소스 수정: 기존 LangGraph 도구가 아래 두 파일만 수정할 수 있습니다.
-# 설정/인증/검증기/테스트는 수정 대상에 넣지 않으며 자동 커밋하지 않습니다.
+# 자율 소스 수정(haness/source_repair.py 하나로 통일): 아래 파일만 수정할 수 있습니다.
+# 설정/인증/검증기/테스트는 수정 대상에 넣지 않으며, 검증 통과 시 git add까지만 하고 커밋하지 않습니다.
+# 2026-10-25: 공개 문서 수집 자율 수리(AUTODISCOVER_SELF_REPAIR.allowed_paths)도 같은 엔진을 쓰도록 두 파일 추가.
 SPS_SOURCE_REPAIR_ALLOWED_PATHS = (
     "FastAPI/LangGraph/sps_main_orchestrator.py",
     "FastAPI/LangGraph/Agent_Import_PFDs/LangGraph_Network_Sniffer.py",
+    "FastAPI/LangGraph/Agent_Import_PFDs/profile_autodiscover.py",
+    "FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py",
 )
 SPS_SOURCE_REPAIR_MAX_BYTES = 200000
 # 회귀 테스트 한 회의 제한. 수정 전/후와 dry-run 검증에 각각 적용합니다.
 SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS = 5
 SPS_SOURCE_REPAIR_AUDIT_DIR = "harness/memory/source_repairs"
+# Tavily 웹 검색 공통 설정(common.common_function.web_search).
+# 20261025 | 요청: LuckyBoys | 작성: Claude | 수집 온보딩(공시실 URL 탐색)과 페르소나 체인 도구가 함께 쓴다.
+# 키 값은 소스·설정에 두지 않는다. 아래는 환경변수 '이름'일 뿐이며 값은 langchain_tavily가 직접 읽는다.
+SPS_WEB_SEARCH = {
+    "api_key_env": "TAVILY_API_KEY",          # 키를 담은 환경변수 이름(값 아님)
+    "max_results": 5,                         # 기본 결과 수
+    "max_results_cap": 10,                    # 호출자가 더 달라고 해도 넘지 않는 상한(비용·토큰 억제)
+    "max_query_chars": 500,                   # 검색어 길이 상한(잘못된 입력 차단)
+    "onboard_query": "{company} {keyword} 공시실",   # 온보딩 검색어 틀(특정 사이트 이름 하드코딩 없음)
+}
 # 보험사뿐 아니라 공사/정부/복지관 등 공개 문서 수집에 같은 저장 설정을 사용합니다.
 SPS_DOCUMENT_DOWNLOAD_DIR = BASE_DIR / "downloaded_docs"
 
@@ -616,8 +652,20 @@ SPS_SSH_TARGETS = {
         "python": os.getenv("SPS_GPU_PYTHON", "/data/vm_project/venv/bin/python"),
     },
 }
+# 2026-11-01 LuckyBoys: PARTNER Ollama 주소 자동 선택 후보(앞에서부터 /api/version 확인, 처음 응답하는 곳 사용).
+# 1) GPU 서버: 켤 때마다 IP가 바뀌므로 SPS_GPU_SSH_HOST 하나만 바꾸면 ssh 접속과 Ollama 주소가 함께 바뀐다.
+# 2) 노트북 RTX 3060 6GB: 노트북에서 ssh -N -R 11435:127.0.0.1:11434 로 연 역방향 터널 포트.
+# 3) 개발 서버 자체 Ollama(CPU 전용): 마지막 대안.
+# 환경변수 SPS_SOURCE_PARTNER_OLLAMA_CANDIDATES(쉼표 구분)로 목록 전체를 바꿀 수 있다. 사용처: common_function.resolve_ollama_base_url
+SPS_SOURCE_PARTNER_OLLAMA_CANDIDATES = tuple(url.strip() for url in os.getenv(
+    "SPS_SOURCE_PARTNER_OLLAMA_CANDIDATES",
+    f"http://{SPS_SSH_TARGETS['gpu']['host']}:11434,http://127.0.0.1:11435,http://127.0.0.1:11434",
+).split(",") if url.strip())
+# 후보 하나를 확인할 때 기다리는 시간(초). 꺼진 GPU 서버에서 오래 멈추지 않도록 짧게 둔다.
+SPS_SOURCE_PARTNER_OLLAMA_PROBE_TIMEOUT_SECONDS = float(os.getenv(
+    "SPS_SOURCE_PARTNER_OLLAMA_PROBE_TIMEOUT_SECONDS", "3"))
 # 개별 SSH는 150초 이내 응답하며 장기 모델 작업은 원격에서 별도로 실행합니다.
-SPS_SSH_JOB_TIMEOUT_SECONDS = 3000
+SPS_SSH_JOB_TIMEOUT_SECONDS = SPS_SOURCE_EXECUTION_TIMEOUT_SECONDS
 SPS_SSH_REQUEST_TIMEOUT_SECONDS = 120
 # 종목 선별 공통 설정: 비밀값은 기존 서비스 환경변수에서만 읽고 출력하지 않습니다.
 STOCK_ANALYSIS = {
@@ -665,7 +713,12 @@ PUBLIC_DOCUMENT_COLLECTOR = {
     "min_free_disk_bytes": 1024 ** 3,
     "profile_dir": BASE_DIR / "FastAPI/LangGraph/Agent_Import_PFDs/profiles",
     "output_subdir": "insurance_docs",
-    "systemd_run_command": ["sudo", "-n", "systemd-run", "--collect", "--quiet"],
+    # 20261030 | 요청: LuckyBoys | 작성: Claude — 별도 작업에 키 파일 2개를 넘긴다(값은 소스에서 읽지 않음).
+    # 이유: 없으면 자기 수리(Gemini)·웹 검색(Tavily)이 "API key required"로 즉시 실패(10/25·10/29 삼성화재 재현).
+    # 형식은 프로젝트 기존 실행 예시(multi_persona_agent_gemini.py 상단 주석)와 같다.
+    "systemd_run_command": ["sudo", "-n", "systemd-run", "--collect", "--quiet",
+                            "-p", f"EnvironmentFile={BASE_DIR / '.env'}",
+                            "-p", "EnvironmentFile=/etc/sps-harness/secrets.env"],
     "service_user": os.getenv("SPS_COLLECTOR_SERVICE_USER", "jeaje"),
     "unit_prefix": "sps-collector-",
 }
@@ -692,6 +745,71 @@ PROFILE_AUTODISCOVER = {
     "user_agent": "Mozilla/5.0 (SPS public disclosure collector)",
     "work_subdir": "insurance_docs/_autodiscover",
 }
+# 실행 도구(mcp_codex_apps_run_python_source) 위험 명령 승인 설정(haness/mcp/tools/command_approval.py). 2026-10-25 추가.
+# LuckyBoys: "승인 기능을 붙이고 무슨 명령어를 쓰는지 반드시 표시". 실행할 파일과 그 파일이 import하는 프로젝트 모듈에서
+# 아래 명령·모듈을 찾으면 결과에 표시하고, approved_commands로 '찾은 이름 전체'를 넘겨야만 실행한다.
+# - shell_commands: 따옴표 문자열의 첫 단어로 쓰인 명령(subprocess 인자 등) / python_modules: 네트워크·원격 접속 모듈
+# - max_import_depth: 따라가며 읽는 import 깊이(연결 파일 → haness/scripts 실제 소스까지 보려고 3)
+SPS_EXECUTION_APPROVAL = {
+    "shell_commands": [
+        "sudo", "su", "ssh", "scp", "sftp", "rsync", "curl", "wget", "nc", "ncat", "telnet",
+        "systemctl", "systemd-run", "kill", "pkill", "killall", "reboot", "shutdown", "docker", "crontab",
+    ],
+    "python_modules": [
+        "requests", "httpx", "aiohttp", "urllib.request", "http.client", "paramiko", "fabric",
+        "socket", "smtplib", "ftplib",
+    ],
+    "max_import_depth": 3,
+}
+# SPS 13개 페르소나 원문 프롬프트 위치(common/persona_source.py PersonaSource 기본값). 2026-10-25 추가.
+# 스킬 references 원문과 sha256 동일(haness/scripts/sync_persona_prompts.py로 복사·검증). 모든 페르소나 런타임이 공유.
+SPS_PERSONA_PROMPTS = {
+    "persona_dir": BASE_DIR / "haness/personas/references",
+}
+# 자동 탐색 자기 수리 루프(haness/mcp/agents/autodiscover_self_repair.py — Harness 소스라 haness에 둠, 수집기는 경로로 연결). 2026-10-25 추가.
+# auto 결과가 NEEDS_NEW_RULE(처음 보는 실패)이면 PARTNER 에이전트(haness/mcp/agents/source_partner_agent.py)에
+# 증빙을 넘겨 코드를 고치게 하고, 테스트가 통과한 변경만 적용·git add 한다(커밋 안 함: LuckyBoys "자동 적용 + add만").
+# - enabled: false면 수리 없이 NEEDS_NEW_RULE 그대로 보고 / max_repair_rounds: 한 번 실행에서 수리 시도 횟수
+# - agent_timeout_seconds / agent_recursion_limit: 에이전트 1회 실행 시간·도구 왕복 상한
+# - allowed_paths: 에이전트가 patch할 수 있는 유일한 소스. 그 밖 파일 patch·기존 테스트 수정은 적용 '전에' 거부된다
+#   (source_partner_agent의 allowed_source_paths). haness/tests/ 아래는 '새 파일 추가'만 허용
+# - report_dir: 수리 증빙(repair_<시각>.json) 저장 위치. Harness 산출물이라 haness/reports 아래(일반 지침 10)
+# - autodiscover_script: 수리 전후 새 프로세스로 실행할 탐색기 경로(FastAPI 쪽 원래 위치 그대로 연결)
+# - regression_tests: 수리 뒤 반드시 통과해야 하는 기존 테스트(실패하면 원복하고 REPAIR_FAILED)
+# - auto_timeout_seconds: 수리 전후 auto를 새 프로세스로 돌릴 때 시간 상한(고친 코드를 새로 읽기 위해 별도 프로세스)
+AUTODISCOVER_SELF_REPAIR = {
+    "enabled": True,
+    "max_repair_rounds": 2,   # 1라운드 고정 순서 체인, 2라운드 ORCHESTRATOR 자율 계획(LuckyBoys 2026-10-25)
+    "agent_timeout_seconds": 900,
+    "agent_recursion_limit": 64,
+    "autodiscover_script": BASE_DIR / "FastAPI/LangGraph/Agent_Import_PFDs/profile_autodiscover.py",
+    "allowed_paths": [
+        "FastAPI/LangGraph/Agent_Import_PFDs/profile_autodiscover.py",
+        "FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py",
+    ],
+    "regression_tests": [
+        "haness/tests/test_public_document_catalog_collector.py",
+        "haness/tests/test_collector_seedless_post_download.py",
+        "haness/tests/test_collector_self_heal.py",
+        "haness/tests/test_collector_worker_self_heal.py",
+        "haness/tests/test_profile_autodiscover_inference.py",
+        "haness/tests/test_autodiscover_failure_classification.py",
+        "haness/tests/test_autodiscover_self_repair.py",
+    ],
+    "report_dir": BASE_DIR / "haness/reports/autodiscover_repair",
+    # 페르소나 체인(2026-10-25 LuckyBoys 승인): SPS ORCHESTRATOR 스킬 실행 방식 그대로, 원문 프롬프트를 시스템 프롬프트로 쓴다.
+    # persona_dir의 <이름>.md는 스킬 references 원문과 sha256 동일(haness/scripts/sync_persona_prompts.py로 복사·검증).
+    # LuckyBoys 2026-10-25: "고정 순서 체인은 처음 한 번만, 두 번째는 ORCHESTRATOR 자율, 마지막만 지정".
+    # - first_round_plan: 1라운드 고정 순서(뒤에 PARTNER 통합 자동). autonomous_from_round 이상은 ORCHESTRATOR가
+    #   persona_dir의 13개 원문 중 필요한 페르소나와 순서를 직접 정한다. 프로그램이 지정하는 것은 마지막 PARTNER뿐.
+    # - max_personas: ORCHESTRATOR 제외 호출 상한(마지막 PARTNER 포함, 스킬 기본 5). 회귀 테스트는 항상 프로그램이 실행.
+    "persona_dir": SPS_PERSONA_PROMPTS["persona_dir"],   # 공통 위치를 그대로 쓴다(중복 경로 금지)
+    "first_round_plan": ["BUG_HUNTER", "PARTNER", "REVIEWER", "TESTER"],
+    "autonomous_from_round": 2,
+    "max_personas": 5,
+    "regression_timeout_seconds": 600,
+    "auto_timeout_seconds": 1800,
+}
 
 # 로컬 8003 API의 터미널 검증 설정. 비밀키 값은 저장하지 않고 보호 파일 경로만 지정한다.
 AGENT_CLI = {
@@ -700,4 +818,19 @@ AGENT_CLI = {
     "auth_env_file": "/etc/sps-harness/secrets.env",
     "token_lifetime_seconds": 180,
     "max_query_length": 12000,
+}
+
+# Executable persona routing budgets. Plans are selected by the orchestrator,
+# not by this configuration; long workers are polled without holding MCP open.
+SPS_PERSONA_SOURCE = {
+    "max_personas": 5,
+    "max_role_calls": 10,
+    "max_llm_calls": 45,
+    "check_timeout_seconds": 25,
+    "model_timeout_seconds": 90,
+    "job_timeout_seconds": 600,
+    "graph_recursion_limit": 160,
+    "max_file_bytes": 24000,
+    "max_output_tokens": 4096,
+    "max_plan_rounds": 2,
 }

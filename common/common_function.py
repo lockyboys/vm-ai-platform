@@ -661,3 +661,193 @@ def inspect_pdf_file(path: Any) -> dict[str, Any]:
     if not head.startswith(b"%PDF-") or b"%%EOF" not in tail:
         raise ValueError("not a complete PDF (header/EOF)")
     return {"bytes": size, "sha256": digest.hexdigest()}
+
+
+# =============================================================================
+# Tavily 웹 검색 공통 함수
+# 20261025 | 요청: LuckyBoys | 작성: Claude | "Tavily 툴로 웹 검색", "공통 함수로 만드세요"
+#   사용처: 수집 온보딩(공시실 시작 URL 탐색), 페르소나 수리 체인의 web_search 도구.
+#   설정: 루트 config.SPS_WEB_SEARCH (일반 지침 4). 키 값은 읽거나 출력하지 않는다(환경변수 존재만 확인).
+# =============================================================================
+class WebSearchUnavailable(RuntimeError):
+    """웹 검색을 쓸 수 없음(키 없음·패키지 없음·호출 실패). 호출자는 실패로 보고하고 추측 URL을 만들지 않는다."""
+
+
+def _tavily_search(query: str, max_results: int) -> Any:
+    """Tavily 실제 호출. langchain_tavily.TavilySearch가 환경변수에서 키를 직접 읽는다.
+
+    입력: 검사가 끝난 검색어, 결과 수 / 출력: Tavily 원 응답({"results": [...]} 형태)
+    주의: 예외 메시지에는 키가 섞일 수 있으므로 예외 '종류 이름'만 남긴다.
+    """
+    import config  # 지연 import: 테스트가 search_fn을 주입할 때는 실제 설정·패키지가 필요 없다
+
+    env_name = config.SPS_WEB_SEARCH["api_key_env"]
+    if not os.getenv(env_name):
+        raise WebSearchUnavailable(f"{env_name} 환경변수가 없습니다")
+    try:
+        from langchain_tavily import TavilySearch
+    except ImportError as error:
+        raise WebSearchUnavailable("langchain_tavily 패키지가 설치되어 있지 않습니다") from error
+    try:
+        return TavilySearch(max_results=max_results).invoke({"query": query})
+    except Exception as error:  # noqa: BLE001 - 네트워크·인증 실패를 '검색 불가'로 통일(숨기지 않고 종류는 남김)
+        raise WebSearchUnavailable(f"Tavily 호출 실패: {type(error).__name__}") from error
+
+
+def web_search(query: Any, max_results: int | None = None, search_fn: Any = None) -> list[dict[str, str]]:
+    """웹을 검색해 [{"title", "url", "content"}] 목록을 돌려준다(Tavily).
+
+    입력: query(검색어), max_results(없으면 config 기본값, config 상한을 넘지 않음),
+          search_fn(테스트용 대역: (query, max_results) → 원 응답. 없으면 Tavily 실제 호출)
+    출력: http(s) 주소만, 같은 URL은 한 번만, 상한까지 자른 목록(검색 순서 유지)
+    예외: ValueError(잘못된 검색어·결과 수), WebSearchUnavailable(키·패키지·호출 문제)
+    """
+    import config
+    from urllib.parse import urlsplit
+
+    settings = config.SPS_WEB_SEARCH
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must be non-empty text")
+    if len(query) > int(settings["max_query_chars"]):
+        raise ValueError(f"query must be at most {settings['max_query_chars']} chars")
+    limit = int(settings["max_results"]) if max_results is None else max_results
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("max_results must be a positive integer")
+    limit = min(limit, int(settings["max_results_cap"]))
+
+    raw = (search_fn or _tavily_search)(query.strip(), limit)
+    if isinstance(raw, str):              # 일부 Tavily 래퍼는 JSON 문자열을 돌려준다
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = []
+    items = raw.get("results") if isinstance(raw, dict) else raw
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or url in seen:
+            continue
+        parts = urlsplit(url)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            continue                      # javascript:·상대 주소 등은 버린다
+        seen.add(url)
+        results.append({"title": str(item.get("title") or ""), "url": url,
+                        "content": str(item.get("content") or "")[:1000]})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def resolve_project_source_file(
+    project_root: Any,
+    path: Any,
+    *,
+    allowed_paths: Any = None,
+    allowed_suffixes: Any = None,
+):
+    """프로젝트 안의 기존 소스 파일 하나를 안전하게 해석한다.
+
+    목적: PARTNER의 검색·읽기 도구가 절대 경로, 경로 이탈, 심볼릭 링크를
+    따라 프로젝트 밖 파일을 읽지 않도록 공통 경계 검사를 제공한다.
+    입력: 프로젝트 루트, 프로젝트 상대 경로, 선택적 정확 경로 허용 목록과 확장자 목록.
+    출력: (정규화된 프로젝트 상대 POSIX 경로, 해석된 Path).
+    주의: 이 함수는 파일을 쓰지 않으며, 허용 목록은 쓰기 승인이나 패치 검증을 대신하지 않는다.
+    """
+    from pathlib import Path, PurePosixPath
+
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("path must be a non-empty project-relative file path")
+    normalized = path.strip().replace("\\", "/")
+    relative = PurePosixPath(normalized)
+    if relative.is_absolute() or ".." in relative.parts or not normalized:
+        raise ValueError("path must stay inside the project")
+    normalized = relative.as_posix()
+
+    if allowed_paths is not None:
+        if not isinstance(allowed_paths, (list, tuple, set, frozenset)):
+            raise ValueError("allowed_paths must be a collection of project-relative paths")
+        allowed = {
+            PurePosixPath(item.strip().replace("\\", "/")).as_posix()
+            for item in allowed_paths
+            if isinstance(item, str) and item.strip()
+        }
+        if normalized not in allowed:
+            raise ValueError("path is outside the exact source allowlist")
+
+    root = Path(project_root).resolve()
+    candidate = root.joinpath(*relative.parts)
+    resolved = candidate.resolve()
+    if candidate.is_symlink() or resolved != candidate or root not in resolved.parents:
+        raise ValueError("path must not escape the project or pass through a symlink")
+    if not resolved.is_file():
+        raise ValueError("path must identify an existing project file")
+    if allowed_suffixes is not None:
+        suffixes = {str(item).lower() for item in allowed_suffixes}
+        if resolved.suffix.lower() not in suffixes:
+            raise ValueError("path suffix is not allowed")
+    return normalized, resolved
+
+
+def _validate_ollama_url(url: Any) -> str:
+    """Ollama 주소 형식 검사: http(s)://호스트[:포트] 만 허용하고 끝의 '/'를 없앤다."""
+    from urllib.parse import urlsplit
+
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError(f"ollama url must be non-empty text, got {url!r}")
+    parts = urlsplit(url.strip())
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        raise ValueError(f"ollama url must look like http://host:port, got {url!r}")
+    return url.strip().rstrip("/")
+
+
+def _probe_ollama_version(url: str, timeout: float) -> None:
+    """GET <url>/api/version 이 200과 version 필드를 돌려주면 정상. 아니면 예외를 올린다(읽기 전용)."""
+    import urllib.request
+
+    with urllib.request.urlopen(url + "/api/version", timeout=timeout) as response:
+        if response.status != 200 or "version" not in json.loads(response.read().decode("utf-8")):
+            raise ConnectionError(f"unexpected /api/version response from {url}")
+
+
+def resolve_ollama_base_url(pinned: Any, candidates: Any, timeout_seconds: Any,
+                            probe_fn: Any = None) -> dict[str, Any]:
+    """PARTNER가 붙을 Ollama 주소를 정한다(2026-11-01 LuckyBoys 선택 ①: 자동 선택).
+
+    입력:
+      pinned          : 수동 고정 주소. 빈 문자열이면 자동 선택(config.SPS_SOURCE_PARTNER_OLLAMA_BASE_URL)
+      candidates      : 자동 선택 후보(앞쪽 우선, config.SPS_SOURCE_PARTNER_OLLAMA_CANDIDATES)
+      timeout_seconds : 후보 하나 확인 대기 시간(초, config.SPS_SOURCE_PARTNER_OLLAMA_PROBE_TIMEOUT_SECONDS)
+      probe_fn        : 테스트용 대역 (url, timeout) → 실패 시 예외. 없으면 /api/version 실제 호출
+    출력: {"base_url": 선택 주소, "mode": "pinned"|"auto", "tried": [{"url","ok","error"}...]}
+    예외: ValueError(입력 형식 오류 — 네트워크를 건드리기 전에 거부), RuntimeError(후보 전부 응답 없음, 시도 내역 포함)
+    주의: 꺼진 GPU 서버에서 오래 멈추지 않도록 timeout을 짧게 둔다. 확인은 읽기 전용 GET 한 번뿐이다.
+    """
+    import math
+
+    # 수동 고정: 형식만 확인하고 그대로 쓴다(확인 호출 없음 — 사용자가 고른 주소를 존중).
+    if not (isinstance(pinned, str) and not pinned.strip()):
+        return {"base_url": _validate_ollama_url(pinned), "mode": "pinned", "tried": []}
+
+    # 문자열 하나를 후보 목록으로 착각하지 않도록 list/tuple만 받는다.
+    if not isinstance(candidates, (list, tuple)) or not candidates:
+        raise ValueError("candidates must be a non-empty list of ollama urls")
+    urls = [_validate_ollama_url(item) for item in candidates]
+    # bool은 int의 하위형이라 따로 막는다. 문자열 숫자도 받지 않는다(설정 오타 조기 발견).
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) \
+            or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError(f"timeout_seconds must be a finite number > 0, got {timeout_seconds!r}")
+
+    probe = probe_fn or _probe_ollama_version
+    tried: list[dict[str, Any]] = []
+    for url in urls:
+        try:
+            probe(url, float(timeout_seconds))
+        except Exception as error:  # noqa: BLE001 - 연결 거부·시간 초과·응답 이상을 모두 '이 후보 불가'로 처리
+            tried.append({"url": url, "ok": False, "error": f"{type(error).__name__}: {str(error)[:200]}"})
+            continue
+        tried.append({"url": url, "ok": True, "error": ""})
+        return {"base_url": url, "mode": "auto", "tried": tried}
+    raise RuntimeError("no ollama candidate responded: " + json.dumps(tried, ensure_ascii=False))

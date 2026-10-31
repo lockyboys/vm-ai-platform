@@ -18,6 +18,8 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from common.auth import CommonAuth
+# 2026-11-01: PARTNER Ollama 주소 자동 선택(GPU 서버 → 노트북 터널 → 개발 서버 CPU)
+from common.common_function import resolve_ollama_base_url
 from haness.mcp.tools.change_set_graph import run_change_set
 from haness.mcp.tools.multi_persona_tools import PROJECT_ROOT
 from harness.mcp.tools.git_tools import git_diff, git_status
@@ -337,9 +339,16 @@ def _build_model() -> Any:
             temperature=0,
         )
     if provider == "ollama":
+        # 2026-11-01 LuckyBoys 선택 ①: 주소를 직접 지정하지 않았으면 후보 중 처음 응답하는 Ollama를 쓴다.
+        # 후보가 모두 꺼져 있으면 RuntimeError(시도 내역 포함)로 바로 알린다(모델 대기 300초를 낭비하지 않음).
+        selected = resolve_ollama_base_url(
+            project_config.SPS_SOURCE_PARTNER_OLLAMA_BASE_URL,
+            project_config.SPS_SOURCE_PARTNER_OLLAMA_CANDIDATES,
+            project_config.SPS_SOURCE_PARTNER_OLLAMA_PROBE_TIMEOUT_SECONDS,
+        )
         return ChatOllama(
             model=project_config.SPS_SOURCE_PARTNER_OLLAMA_MODEL,
-            base_url=project_config.SPS_SOURCE_PARTNER_OLLAMA_BASE_URL,
+            base_url=selected["base_url"],
             temperature=0,
             client_kwargs={
                 "timeout": project_config.SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS,
