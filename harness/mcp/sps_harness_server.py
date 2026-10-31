@@ -124,6 +124,9 @@ from haness.mcp.tools.orchestrator_tools import run_sps_orchestrator
 from harness.mcp.tools.pytest_tools import (
     run_pytest_verification,
 )
+from haness.mcp.tools.pytest_jobs import submit as submit_pytest_job, status as pytest_job_status
+from haness.mcp.tools.blind_review_jobs_v2 import submit as submit_blind_review, status as blind_review_status
+from haness.mcp.tools.source_edit_guard import status as source_edit_guard_status
 from harness.mcp.tools.execution_tools import (
     mcp_codex_apps_run_python_source,
 )
@@ -447,6 +450,11 @@ mcp.tool()(source_patch)
 mcp.tool()(source_delete)
 mcp.tool()(source_rename)
 mcp.tool()(run_pytest_verification)
+mcp.tool(name="submit_pytest_job")(submit_pytest_job)
+mcp.tool(name="pytest_job_status")(pytest_job_status)
+mcp.tool(name="submit_blind_review")(submit_blind_review)
+mcp.tool(name="blind_review_status")(blind_review_status)
+mcp.tool(name="source_edit_guard_status")(source_edit_guard_status)
 # Reuse Multi-Persona CLI without embedding it into the general Gemini chat server.
 mcp.tool()(review_python_source)
 mcp.tool()(run_sps_orchestrator)
@@ -497,12 +505,6 @@ mcp.tool()(git_commit)
 mcp.tool()(operational_service_diagnostics)
 # Agent commands are exposed by the existing /agent/chat HTTP API only.
 
-
-# ==============================================================================
-# /agent/chat -> 8012번 LangGraph 에이전트 투명 ASGI 프록시
-# 목적: 게이트웨이에서 8000번으로 들어온 요청을 8012번 에이전트로 패스스루
-# ==============================================================================
-import httpx
 
 class _CombinedMcpHttpApp:
     """Serve Streamable HTTP and the legacy SSE session transport together."""

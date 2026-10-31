@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from haness.mcp.tools.source_edit_guard import validate_python, require_entrypoint
 
 
 PROJECT_ROOT = Path("/data/vm_project").resolve()
@@ -76,6 +77,9 @@ def source_write(
 
     existing_yn = target_path.exists()
 
+    if existing_yn and overwrite:
+        raise ValueError("Existing files must be changed with source_patch; source_write overwrite is blocked by the source-edit guard.")
+
     if existing_yn and not overwrite:
         raise FileExistsError(
             f"File already exists: {path}"
@@ -93,6 +97,10 @@ def source_write(
         )
 
     encoded_content = content.encode("utf-8")
+    if target_path.suffix == ".py":
+        validate_python(content, path=str(target_path))
+        if "harness/mcp" in str(target_path) and "sps_harness_server.py" in str(target_path):
+            require_entrypoint(content)
     if len(encoded_content) > MAX_WRITE_BYTES:
         raise ValueError(
             f"content exceeds the {MAX_WRITE_BYTES}-byte write limit."

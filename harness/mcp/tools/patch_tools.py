@@ -16,6 +16,7 @@ import hashlib
 import re
 import subprocess
 from pathlib import Path
+from haness.mcp.tools.source_edit_guard import validate_python, require_entrypoint
 
 
 PROJECT_ROOT = Path("/data/vm_project")
@@ -137,6 +138,14 @@ def source_patch(patch_text: str, dry_run: bool = True) -> dict:
     apply_result = _run_git_apply(patch_text, check_only=False)
     if apply_result.returncode != 0:
         raise RuntimeError(apply_result.stderr.strip() or "Patch apply failed.")
+
+    for path in paths:
+        target = PROJECT_ROOT / path
+        if target.suffix == ".py":
+            text = target.read_text(encoding="utf-8")
+            validate_python(text, path=path)
+            if path == "harness/mcp/sps_harness_server.py":
+                require_entrypoint(text)
 
     return {
         "dry_run": False,
