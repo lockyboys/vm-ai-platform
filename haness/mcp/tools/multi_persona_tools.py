@@ -32,14 +32,19 @@ def _project_path(value: str, field_name: str) -> Path:
 
 def _systemd_command(arguments: list[str], timeout: int, purpose: str) -> tuple[str, list[str]]:
     """Build a fixed-account transient worker without reading secret file contents."""
+    # 요청 작업 시간에 결과 저장 여유를 더한 값을 systemd 상한으로 유지한다.
     unit = "sps-" + purpose + "-" + uuid4().hex
+    # 2026-10-31 회귀 수정: 유닛 수명은 config.SPS_GENERAL_UNIT_RUNTIME_SECONDS(현재 3600)를
+    # 넘지 않는다. 호출자가 더 큰 값(예: 30010, 3600+grace)을 넘겨도 RuntimeMaxSec는 상한으로 고정한다.
+    # 상한값은 하드코딩하지 않고 루트 config.py에서 읽는다(Repository/Metadata 우선 원칙).
+    runtime_max = min(int(timeout), int(project_config.SPS_GENERAL_UNIT_RUNTIME_SECONDS))
     command = ["sudo", "-n", "systemd-run", "--wait", "--collect", "--pipe",
                "--quiet", "--unit=" + unit,
                "-p", "User=" + project_config.SPS_MCP_WORKER_USER,
                "-p", "WorkingDirectory=" + str(PROJECT_ROOT),
                "-p", "EnvironmentFile=" + str(PROJECT_ROOT / ".env"),
                "-p", "EnvironmentFile=" + project_config.SPS_MCP_WORKER_SECRETS_FILE,
-               "-p", f"RuntimeMaxSec={timeout}", "-p", "TimeoutStopSec=2",
+               "-p", f"RuntimeMaxSec={runtime_max}", "-p", "TimeoutStopSec=2",
                str(PROJECT_ROOT / "venv/bin/python"), "-u", *arguments]
     return unit, command
 
@@ -120,12 +125,12 @@ async def review_python_source(
     dry_run: bool = True,
     job_id: str | None = None,
 ) -> dict:
-    """Review Python source with a durable Multi-Persona Gemini job (maximum 300s).
+    """Review Python source with a durable Multi-Persona Gemini job under the configured timeout.
 
     Default dry-run validates paths without starting Python or an LLM.
     Set dry_run=False to start a review and receive a job_id immediately.
     Call again with the same source_path and job_id to read status/results.
-    MCP responses stay short; a disconnect does not cancel the 300-second job.
+    MCP responses stay short; a disconnect does not cancel the configured job.
     Generated corrections are proposals only; target source/tests are never executed.
     """
     source = _project_path(source_path, "source_path")
@@ -138,8 +143,9 @@ async def review_python_source(
     if not REVIEW_SOURCE.is_file():
         raise FileNotFoundError("The configured Multi-Persona review CLI is missing")
     timeout = int(project_config.MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS)
-    if not 1 <= timeout <= 300:
-        raise ValueError("Review timeout must be between 1 and 300 seconds")
+    # 워커의 실행 한도보다 큰 값은 제출 단계에서 거부해 비동기 실패를 막는다.
+    if not 1 <= timeout <= project_config.SPS_SOURCE_EXECUTION_TIMEOUT_SECONDS:
+        raise ValueError("Review timeout exceeds the configured source execution limit")
     output_limit = int(project_config.MULTI_PERSONA_REVIEW_OUTPUT_CHARS)
     if output_limit < 1:
         raise ValueError("Review output limit must be positive")
@@ -156,7 +162,7 @@ async def review_python_source(
     # The supervisor has ten seconds to persist results after its CLI reaches its own limit.
     unit, command = _systemd_command(
         ["-m", "haness.mcp.tools.multi_persona_tools", "--worker", identifier],
-        timeout + 10, "source-review")
+        timeout + project_config.SPS_WORKER_RESULT_GRACE_SECONDS, "source-review")
     command = [argument for argument in command if argument not in {"--wait", "--pipe"}]
     plan = {"dry_run": bool(dry_run), "executed": False, "job_id": identifier,
             "source_path": str(source.relative_to(PROJECT_ROOT)),
@@ -210,7 +216,7 @@ def _run_review_job(job_id: str) -> None:
                 raise ValueError("Invalid review error path")
             command.extend(["--error-path", str(log)])
         timeout = int(request["timeout_seconds"])
-        if not 1 <= timeout <= 300:
+        if not 1 <= timeout <= project_config.SPS_SOURCE_EXECUTION_TIMEOUT_SECONDS:
             raise ValueError("Invalid review timeout")
         completed = subprocess.run(command, cwd=str(PROJECT_ROOT),
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,

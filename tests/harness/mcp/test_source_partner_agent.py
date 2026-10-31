@@ -98,7 +98,7 @@ def test_change_set_tool_forces_trusted_approval_values(monkeypatch):
         "source_write_confirmed": True,
         "writes": [{"path": "haness/new.py", "content": "VALUE = 1\n"}],
         "patch_text": "",
-        "test_paths": ["tests/harness/mcp/test_source_partner_agent.py"],
+        "test_paths": ["haness/tests/test_source_partner_agent.py"],
         "stage_groups": {"source": ["haness/new.py"], "tests": [], "docs": [], "operations": []},
         "commit": {"requested": True, "confirmed": True, "message": "feat: agent test"},
     }
@@ -127,8 +127,10 @@ def test_partner_tools_include_inspection_and_guarded_execution():
         "read_source",
         "get_git_status",
         "get_git_diff",
+        "run_chromium_check",
         "execute_change_set",
     }
+    assert "execute_change_set" in source_partner_agent._MCP_WRITE_TOOLS
 
 
 def test_graph_binds_tools_to_model():
@@ -168,6 +170,7 @@ def test_public_orchestrator_routes_source_agent_mode(monkeypatch):
         "mode": "source_agent",
         "task": "버그를 재현하고 수정하라",
         "source_write_confirmed": False,
+        "recursion_limit": 48,
         "commit": {"requested": True, "confirmed": False},
     }
 
@@ -184,4 +187,62 @@ def test_public_orchestrator_routes_source_agent_mode(monkeypatch):
         dry_run=True,
         source_write_confirmed=False,
         commit_confirmed=False,
+        recursion_limit=48,
+        allowed_source_paths=None,
     )
+
+
+@pytest.mark.parametrize("recursion_limit", [0, 257, True, "48"])
+def test_public_orchestrator_rejects_invalid_recursion_limit(recursion_limit):
+    """잘못된 재귀 한도는 작업자나 LLM을 시작하기 전에 차단한다."""
+    request = {
+        "mode": "source_agent",
+        "task": "도구 연결 확인",
+        "source_write_confirmed": False,
+        "recursion_limit": recursion_limit,
+    }
+
+    with pytest.raises(ValueError, match="recursion_limit"):
+        asyncio.run(
+            orchestrator_tools.run_sps_orchestrator(
+                json.dumps(request, ensure_ascii=False),
+                dry_run=True,
+            )
+        )
+
+
+def test_change_set_call_without_diff_proof_is_not_reported_as_success(monkeypatch):
+    """쓰기 그래프 호출 뒤 diff 검증이 없으면 PARTNER 성공 판정을 거부한다."""
+    class FakeMessage:
+        content = "계획이 완료됐습니다."
+        name = "execute_change_set"
+
+    class FakeGraph:
+        async def ainvoke(self, *_args, **_kwargs):
+            return {"messages": [FakeMessage()]}
+
+    async def no_mcp_tools(*, source_write_confirmed):
+        return []
+
+    monkeypatch.setattr(source_partner_agent, "build_partner_tools", lambda **_kwargs: [])
+    monkeypatch.setattr(source_partner_agent, "_load_sps_mcp_tools", no_mcp_tools)
+    monkeypatch.setattr(source_partner_agent, "_build_model", lambda: object())
+    monkeypatch.setattr(source_partner_agent, "build_source_partner_graph", lambda **_kwargs: FakeGraph())
+
+    result = asyncio.run(source_partner_agent.run_source_partner_agent("확인"))
+
+    assert result["called_tool_names"] == ["execute_change_set"]
+    assert result["mcp_write_called"] is True
+    assert result["git_diff_verified"] is False
+    assert result["success"] is False
+
+
+def test_partner_prompt_has_full_regression_and_staging_gate():
+    """PARTNER 프롬프트는 전체 회귀 전 staging을 금지하고 미확인을 숨기지 않는다."""
+    prompt = source_partner_agent._PARTNER_SYSTEM_PROMPT
+    assert "안전 절차" in prompt
+    assert "전체 회귀를 순서대로 실행" in prompt
+    assert "stage_groups는 모두 빈 배열" in prompt
+    assert "두 테스트가 통과한 뒤 정확한 경로만 git_add" in prompt
+    assert "미확인 항목" in prompt
+    assert "RELOAD" in prompt
