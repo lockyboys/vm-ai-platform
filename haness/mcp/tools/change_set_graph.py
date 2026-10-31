@@ -142,8 +142,9 @@ def _validate_request(payload: dict[str, Any], dry_run: bool) -> ChangeSetState:
     if not isinstance(raw_tests, list) or not raw_tests:
         raise ValueError("test_paths must contain at least one test")
     test_paths = [_clean_project_path(path, "test_paths") for path in raw_tests]
-    if any(not path.startswith("tests/") for path in test_paths):
-        raise ValueError("test_paths must stay under tests/")
+    # 2026-10-25 LuckyBoys: 테스트는 haness/tests 아래만 허용(일반 지침 10 — test 소스는 haness로).
+    if any(not path.startswith("haness/tests/") for path in test_paths):
+        raise ValueError("test_paths must stay under haness/tests/")
 
     raw_groups = payload.get("stage_groups")
     if not isinstance(raw_groups, dict):
