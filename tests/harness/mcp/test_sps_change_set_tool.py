@@ -23,7 +23,7 @@ def _work_order(*, confirmed=False):
             "-OLD = True\n"
             "+OLD = False\n"
         ),
-        "test_paths": ["tests/test_example.py"],
+        "test_paths": ["haness/tests/test_example.py"],
         "stage_groups": {
             "source": ["haness/example.py"],
             "tests": [],
@@ -557,3 +557,123 @@ def test_evidence_save_failure_prevents_source_mutation(monkeypatch):
     with pytest.raises(OSError, match="evidence disk unavailable"):
         module.run_change_set(_work_order(), dry_run=False)
     assert calls == [True]
+
+
+
+def test_real_patch_changes_source_then_stages_after_pytest(monkeypatch, tmp_path):
+    """실제 patch 적용과 실제 Git index 변경이 pytest 뒤에 오는지 임시 저장소로 검증한다."""
+    import subprocess
+    from harness.mcp.tools import git_mutation_tools, patch_tools
+
+    # 현재 작업 저장소를 건드리지 않도록 모든 실변경을 pytest 임시 저장소로 격리한다.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(patch_tools, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(git_mutation_tools, "PROJECT_ROOT", tmp_path)
+    source = tmp_path / "haness/example.py"
+    events = []
+
+    real_patch = module.source_patch
+    def apply_patch(patch_text, dry_run=True):
+        result = real_patch(patch_text, dry_run=dry_run)
+        events.append(("source_patch", dry_run))
+        return result
+
+    real_git_add = module.git_add
+    def stage(paths, dry_run=True):
+        # git add 요청은 실제 파일 적용과 pytest 성공 이후에만 허용한다.
+        assert "pytest" in events
+        assert source.read_text(encoding="utf-8") == "OLD = False\n"
+        events.append(("git_add", dry_run))
+        return real_git_add(paths, dry_run=dry_run)
+
+    def verify(paths, title=""):
+        assert source.read_text(encoding="utf-8") == "OLD = False\n"
+        cached = subprocess.run(
+            ["git", "-C", str(tmp_path), "diff", "--cached", "--name-only"],
+            check=True, capture_output=True, text=True,
+        ).stdout.splitlines()
+        assert cached == []
+        events.append("pytest")
+        return {"success": True, "exit_code": 0, "results": []}
+
+    monkeypatch.setattr(module, "source_patch", apply_patch)
+    monkeypatch.setattr(module, "git_add", stage)
+    monkeypatch.setattr(module, "run_pytest_verification", verify)
+
+    result = module.run_change_set(_work_order(), dry_run=False)
+
+    assert result["state"] == "STAGED"
+    assert source.read_text(encoding="utf-8") == "OLD = False\n"
+    assert events == [
+        ("source_patch", True), ("source_patch", False), "pytest",
+        ("git_add", True), ("git_add", False),
+    ]
+    cached = subprocess.run(
+        ["git", "-C", str(tmp_path), "diff", "--cached", "--name-only"],
+        check=True, capture_output=True, text=True,
+    ).stdout.splitlines()
+    assert cached == ["haness/example.py"]
+
+
+def test_real_source_write_changes_file_then_stages_after_pytest(monkeypatch, tmp_path):
+    """실제 승인 write와 실제 Git index 변경도 pytest 뒤 순서인지 임시 저장소로 검증한다."""
+    import subprocess
+    from harness.mcp.tools import git_mutation_tools, write_tools
+
+    # 새 파일·Git index는 tmp_path에만 생성해 실제 프로젝트 인덱스를 보호한다.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(write_tools, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(git_mutation_tools, "PROJECT_ROOT", tmp_path)
+    path = "haness/new_agent.py"
+    target = tmp_path / path
+    events = []
+    work_order = _work_order()
+    work_order["patch_text"] = ""
+    work_order["source_write_confirmed"] = True
+    work_order["writes"] = [
+        {"path": path, "content": "VALUE = 2\n", "overwrite": False, "create_parent": True}
+    ]
+    work_order["stage_groups"]["source"] = [path]
+
+    real_write = module.source_write
+    def write_source(**kwargs):
+        result = real_write(**kwargs)
+        events.append(("source_write", kwargs["path"]))
+        return result
+
+    real_git_add = module.git_add
+    def stage(paths, dry_run=True):
+        # 실제 index 변경은 source_write와 pytest 확인이 끝난 뒤에만 수행한다.
+        assert "pytest" in events
+        assert target.read_text(encoding="utf-8") == "VALUE = 2\n"
+        events.append(("git_add", dry_run))
+        return real_git_add(paths, dry_run=dry_run)
+
+    def verify(paths, title=""):
+        assert target.read_text(encoding="utf-8") == "VALUE = 2\n"
+        cached = subprocess.run(
+            ["git", "-C", str(tmp_path), "diff", "--cached", "--name-only"],
+            check=True, capture_output=True, text=True,
+        ).stdout.splitlines()
+        assert cached == []
+        events.append("pytest")
+        return {"success": True, "exit_code": 0, "results": []}
+
+    monkeypatch.setattr(module, "source_write", write_source)
+    monkeypatch.setattr(module, "git_add", stage)
+    monkeypatch.setattr(module, "run_pytest_verification", verify)
+
+    result = module.run_change_set(work_order, dry_run=False)
+
+    assert result["state"] == "STAGED"
+    assert target.read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert events == [
+        ("source_write", path), "pytest", ("git_add", True), ("git_add", False),
+    ]
+    cached = subprocess.run(
+        ["git", "-C", str(tmp_path), "diff", "--cached", "--name-only"],
+        check=True, capture_output=True, text=True,
+    ).stdout.splitlines()
+    assert cached == [path]

@@ -1,0 +1,17 @@
+{
+  "name": "sps-ulixee-hero-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --check src/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@ulixee/hero": "^2.0.0-alpha.34",
+    "@ulixee/hero-core": "^2.0.0-alpha.34",
+    "zod": "^4.1.12"
+  }
+}
