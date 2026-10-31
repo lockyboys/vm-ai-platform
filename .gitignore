@@ -76,6 +76,7 @@ video_frames/
 # ============================================
 .runtime/
 .npm-cache/
+node_modules/
 tmp/
 temp/
 *.tmp

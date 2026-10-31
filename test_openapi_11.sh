@@ -161,6 +161,3 @@ report "POST /agent/chat 무토큰 차단(에이전트 실행 없음)" 401
 
 echo "요약: PASS=$PASS INFO=$INFO FAIL=$FAIL"
 [[ "$FAIL" -eq 0 ]]
-
-# chmod +x ./test_openapi_11.sh
-# TMPDIR=/data/jeaje/tmp ./test_openapi_11.sh
