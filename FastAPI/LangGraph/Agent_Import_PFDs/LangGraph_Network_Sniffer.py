@@ -169,7 +169,8 @@ async def explore_unknown_site(start_url: str) -> str:
 
         tavily_tool = TavilySearchResults(max_results=3)
 
-        tools = [click_element, navigate_url, read_repair_source, source_patch, finish_task, tavily_tool]
+        # 수집 에이전트는 공개 문서 탐색·다운로드만 담당하며, 소스 수리 도구는 별도 체인에 둡니다.
+        tools = [click_element, navigate_url, finish_task, tavily_tool]
         llm = ChatGoogleGenerativeAI(model=config.SPS_MAIN_ORCHESTRATOR_MODEL, temperature=0).bind_tools(tools)
         tool_node = ToolNode(tools)
 

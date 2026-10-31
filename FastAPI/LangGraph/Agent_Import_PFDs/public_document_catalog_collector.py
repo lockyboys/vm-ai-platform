@@ -49,9 +49,11 @@ import config  # noqa: E402 - 루트 경로를 sys.path에 넣은 뒤 가져와�
 # 공통 기능은 common/common_function.py에서 가져온다(사용자 지침 4). 기존 함수 이름은 별칭으로 유지해
 # 엔진 내부 호출과 기존 테스트가 그대로 동작하게 한다.
 from common.common_function import (  # noqa: E402
+    WebSearchUnavailable,
     inspect_pdf_file as inspect_pdf,
     now_kst_iso as now,
     validate_safe_pdf_filename as safe_pdf_name,
+    web_search,
     write_json_atomic as atomic_json,
 )
 
@@ -427,6 +429,18 @@ def probe(profile: dict) -> dict:
 
 
 AUTODISCOVER_PATH = Path(__file__).resolve().with_name("profile_autodiscover.py")
+# 자기 수리 루프(2026-10-25): auto가 NEEDS_NEW_RULE이면 PARTNER로 코드를 고치고(적용+git add만) 다시 탐색한다.
+# 수리 루프는 Harness 소스라 haness/ 아래에 있고(일반 지침 10), 수집기는 경로로 연결만 한다.
+SELF_REPAIR_PATH = Path(str(config.BASE_DIR)) / "haness/mcp/agents/autodiscover_self_repair.py"
+
+
+def heal_succeeded(report: dict) -> bool:
+    """재탐색/수리 보고가 '고쳐짐'인지 판단한다.
+
+    2026-10-25 수정: 예전에는 결과가 FAILED로 시작할 때만 실패로 봐서 NEEDS_NEW_RULE·REPAIR_FAILED를
+    성공처럼 넘기고 같은 probe를 다시 돌렸다. 이제 DISCOVERED*/EXISTING_PROFILE_VALID만 성공이다.
+    """
+    return str((report or {}).get("result", "")).startswith(("DISCOVERED", "EXISTING_PROFILE_VALID"))
 
 
 def self_heal_profile(name: str) -> dict:
@@ -437,10 +451,11 @@ def self_heal_profile(name: str) -> dict:
     """
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("profile_autodiscover_heal", AUTODISCOVER_PATH)
+    # 2026-10-25: auto 직접 호출 → 자기 수리 루프 호출로 변경(auto는 루프 안에서 새 프로세스로 실행된다).
+    spec = importlib.util.spec_from_file_location("autodiscover_self_repair_heal", SELF_REPAIR_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.auto({"mode": "auto", "name": name, "apply": True})
+    return module.auto_with_repair({"name": name, "apply": True})
 
 
 def run_probe(name: str, heal: bool, load: Callable[[str], dict] = None,
@@ -462,7 +477,7 @@ def run_probe(name: str, heal: bool, load: Callable[[str], dict] = None,
             raise
         first_error = f"{type(error).__name__}: {str(error)[:300]}"
     report = heal_fn(name) or {}
-    if str(report.get("result", "FAILED")).startswith("FAILED"):
+    if not heal_succeeded(report):
         raise RuntimeError(f"self_heal failed after probe error ({first_error}): "
                            f"{json.dumps(report, ensure_ascii=False, default=str)[:800]}")
     return {"first_error": first_error, "self_heal": {k: v for k, v in report.items() if k != "attempts"},
@@ -490,7 +505,7 @@ def ensure_healthy(profile: dict, probe_fn: Callable[[dict], dict] = None,
             raise
         first_error = f"{type(error).__name__}: {str(error)[:300]}"
     report = heal_fn(profile["name"]) or {}
-    if str(report.get("result", "FAILED")).startswith("FAILED"):
+    if not heal_succeeded(report):
         raise RuntimeError(f"self_heal failed after check error ({first_error}): "
                            f"{json.dumps(report, ensure_ascii=False, default=str)[:800]}")
     summary = {k: v for k, v in report.items() if k != "attempts"}
@@ -575,7 +590,8 @@ def worker(profile: dict, time_limit: int) -> None:
                 if not should_heal_after_catalog(state, healed):
                     break
                 report = self_heal_profile(profile["name"]) or {}
-                if str(report.get("result", "FAILED")).startswith("FAILED"):
+                # 2026-10-25: NEEDS_NEW_RULE·REPAIR_*도 실패다(예전 FAILED 접두어 검사는 이를 성공으로 오인).
+                if not heal_succeeded(report):
                     state["self_heal"] = {"result": "FAILED", "checked_kst": now()}
                     break
                 healed = True
@@ -690,8 +706,177 @@ def status(profile: dict) -> dict:
             "status": json.loads(path.read_text(encoding="utf-8")) if path.exists() else "NOT_STARTED"}
 
 
+# ---------------------------------------------------------------------------
+# 새 보험사 온보딩 (2026-10-25 LuckyBoys: "보험사 정보 주면 프로그램이 알아서", MCP 응답 150초 안)
+#   onboard 모드: 입력 검증 → 요청 저장 → 별도 systemd 작업 기동 → 바로 반환(MCP 호출은 몇 초)
+#   --onboard 작업: 자동 탐색(+자기 수리, 시간 제한 없음) → 프로파일 저장 → 같은 작업에서 수집 워커
+#   진행은 기존 status 모드로 확인한다(phase: DISCOVER → CATALOG → DOWNLOAD).
+# ---------------------------------------------------------------------------
+MAX_ONBOARD_START_URLS = 10    # 시작 페이지(판매중/판매중지 등) 개수 상한
+MAX_KEYWORD_CHARS = 20         # 받을 문서 종류 키워드 길이 상한(예: 약관)
+MAX_COMPANY_CHARS = 40         # 회사(기관) 이름 길이 상한 — 웹 검색어에 들어간다
+
+
+def parse_onboard(options: Any) -> dict:
+    """온보딩 입력 검증. 보험사 정보는 이름·시작 URL(또는 회사 이름)·문서 키워드뿐이며, 그 밖은 받지 않는다.
+
+    - 시작 URL은 http(s) 절대 주소, 모두 같은 호스트(다른 사이트로 새는 요청 방지)
+    - 시작 URL 없이 company_name만 주면 통과: 별도 작업(--onboard)이 Tavily 웹 검색으로 공시실을 찾는다
+      (20261025 | 요청: LuckyBoys | 작성: Claude | "공시실 URL은 직접 찾아야지", "Tavily 툴로 웹 검색").
+      검색은 MCP 호출 안이 아니라 별도 작업에서 하므로 MCP 150초 제한과 무관하다.
+    - 이미 있는 프로파일은 덮어쓰지 않는다(원본 보존 — 기존 사이트는 start/probe 사용)
+    """
+    if not isinstance(options, dict):
+        raise ValueError("options must be an object")
+    name = options.get("profile")
+    if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name):
+        raise ValueError("profile name required ([a-z0-9_])")
+    if (PROFILE_DIR / f"{name}.json").exists():
+        raise ValueError(f"profile already exists: {name} (use mode=start or probe)")
+    company = options.get("company_name")
+    if company is not None and (not isinstance(company, str) or not 1 <= len(company.strip()) <= MAX_COMPANY_CHARS
+                                or any(ch in company for ch in "\r\n\t")):
+        raise ValueError(f"company_name must be 1..{MAX_COMPANY_CHARS} chars on one line")
+    urls = options.get("start_urls")
+    # 회사 이름이 있고 시작 URL이 없으면 검색으로 찾는다. 그 밖은 예전과 같은 시작 URL 검증(빈 목록 거부).
+    cleaned = [] if company is not None and not urls else _clean_start_urls(urls)
+    keyword = options.get("document_keyword", "약관")
+    if not isinstance(keyword, str) or not 1 <= len(keyword.strip()) <= MAX_KEYWORD_CHARS:
+        raise ValueError(f"document_keyword must be 1..{MAX_KEYWORD_CHARS} chars")
+    limit = validate_time_limit(options.get("time_limit_seconds", MAX_TIME_LIMIT_SECONDS))
+    request = {"name": name, "start_urls": cleaned, "document_keyword": keyword.strip(),
+               "time_limit_seconds": limit}
+    if company is not None:
+        request["company_name"] = company.strip()
+    return request
+
+
+def _clean_start_urls(urls: Any) -> list[dict]:
+    """시작 URL 목록 검증(예전 parse_onboard 본문 그대로 분리): 1..상한개, http(s) 절대 주소, vars 객체, 한 호스트."""
+    if not isinstance(urls, list) or not 1 <= len(urls) <= MAX_ONBOARD_START_URLS:
+        raise ValueError(f"start_urls must be a list of 1..{MAX_ONBOARD_START_URLS} items")
+    hosts, cleaned = set(), []
+    for item in urls:
+        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+            raise ValueError("each start_urls item needs url")
+        parts = urllib.parse.urlsplit(item["url"])
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            raise ValueError(f"start url must be absolute http(s): {item['url']}")
+        variables = item.get("vars", {})
+        if not isinstance(variables, dict) or any(not isinstance(k, str) for k in variables):
+            raise ValueError("start_urls vars must be an object")
+        hosts.add(parts.hostname)
+        cleaned.append({"url": item["url"], "vars": variables})
+    if len(hosts) != 1:
+        raise ValueError("all start_urls must be on one host")
+    return cleaned
+
+
+def search_start_urls(request: dict, search_fn: Callable[..., Any] = None) -> dict:
+    """회사 이름 + 문서 키워드로 웹을 검색해 공시실 시작 URL 후보를 고른다(공통 web_search = Tavily).
+
+    20261025 | 요청: LuckyBoys | 작성: Claude
+    규칙: 검색어 틀은 config.SPS_WEB_SEARCH['onboard_query'](사이트 이름 하드코딩 없음).
+          첫 결과의 호스트를 공식 사이트로 보고, 같은 호스트 URL만 남긴다(parse_onboard의 한 호스트 규칙과 같음).
+    출력: {"result": FOUND | WEB_SEARCH_NO_RESULT | WEB_SEARCH_UNAVAILABLE | WEB_SEARCH_NO_QUERY, "query", ...}
+    주의: 첫 결과가 공식 사이트가 아닐 수 있다 → 이후 자동 탐색(+자기 수리)이 실제 페이지로 다시 검증한다.
+    """
+    company = request.get("company_name")
+    if not company:
+        return {"result": "WEB_SEARCH_NO_QUERY", "error": "company_name과 start_urls가 모두 없습니다"}
+    query = config.SPS_WEB_SEARCH["onboard_query"].format(company=company, keyword=request["document_keyword"])
+    try:
+        results = web_search(query, search_fn=search_fn)
+    except WebSearchUnavailable as error:
+        return {"result": "WEB_SEARCH_UNAVAILABLE", "query": query, "error": str(error), "searched_kst": now()}
+    if not results:
+        return {"result": "WEB_SEARCH_NO_RESULT", "query": query, "searched_kst": now()}
+    host = urllib.parse.urlsplit(results[0]["url"]).hostname
+    same_host = [r for r in results if urllib.parse.urlsplit(r["url"]).hostname == host][:MAX_ONBOARD_START_URLS]
+    return {"result": "FOUND", "query": query, "host": host, "searched_kst": now(),
+            "start_urls": [{"url": r["url"], "vars": {}} for r in same_host], "results": results}
+
+
+def onboard_start(request: dict, run: Callable[..., Any] = None) -> dict:
+    """요청을 저장하고 별도 systemd 작업(--onboard)을 띄운 뒤 바로 돌아온다(MCP 150초 제한과 무관)."""
+    run = run or subprocess.run
+    out = output_dir({"name": request["name"]})
+    with (out / "worker.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("collector worker already running")
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    atomic_json(out / "onboard_request.json", request)
+    atomic_json(out / "status.json", {"state": "ONBOARDING", "phase": "DISCOVER", "profile": request["name"],
+                                     "started_kst": now()})
+    unit = f"{_SETTINGS['unit_prefix']}{request['name'].replace('_', '-')}"
+    command = [*_SETTINGS["systemd_run_command"], f"--unit={unit}",
+               "-p", f"User={_SETTINGS['service_user']}", "-p", f"WorkingDirectory={ROOT}",
+               sys.executable, str(Path(__file__).resolve()),
+               "--onboard", request["name"], str(request["time_limit_seconds"])]
+    completed = run(command, capture_output=True, text=True, timeout=60, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"systemd-run failed: rc={completed.returncode} {completed.stderr.strip()[:300]}")
+    return {"started": True, "unit": unit, "profile": request["name"], "output_dir": str(out),
+            "started_kst": now(), "check": "mode=status (phase DISCOVER → CATALOG → DOWNLOAD)"}
+
+
+def _self_repair_module():
+    """haness 자기 수리 루프 모듈을 경로로 연결한다(순환 import 방지)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("autodiscover_self_repair_onboard", SELF_REPAIR_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def onboard_worker(name: str, time_limit: int, heal_fn: Callable[[dict], dict] = None,
+                   load: Callable[[str], dict] = None, worker_fn: Callable[[dict, int], None] = None,
+                   search_fn: Callable[..., Any] = None) -> dict:
+    """별도 작업: (시작 URL이 없으면 웹 검색) → 저장된 온보딩 요청으로 탐색(+수리)·저장 → 성공이면 수집까지 한다.
+
+    search_fn: 테스트용 웹 검색 대역(없으면 공통 web_search가 Tavily를 실제 호출).
+    """
+    out = output_dir({"name": name})
+    request = json.loads((out / "onboard_request.json").read_text(encoding="utf-8"))
+    heal_fn = heal_fn or (lambda req: _self_repair_module().auto_with_repair(req))
+    load = load or load_profile
+    worker_fn = worker_fn or worker
+    start_urls = request["start_urls"]
+    if not start_urls:
+        # 20261025 | 요청: LuckyBoys | 작성: Claude — 시작 URL을 사람이 주지 않으면 프로그램이 웹 검색으로 찾는다.
+        found = search_start_urls(request, search_fn)
+        atomic_json(out / "onboard_search.json", found)          # 검색어·결과·고른 호스트 증빙
+        if found["result"] != "FOUND":
+            # 검색으로 못 찾으면 추측 URL로 탐색하지 않고 실패와 근거를 남긴다(성공처럼 숨기지 않음).
+            report = {"result": found["result"], "error": found.get("error"),
+                      "evidence": str(out / "onboard_search.json")}
+            atomic_json(out / "onboard_report.json", report)
+            atomic_json(out / "status.json", {"state": "FAILED", "phase": "SEARCH", "profile": name,
+                                             "result": found["result"], "evidence": report["evidence"],
+                                             "ended_kst": now()})
+            return report
+        start_urls = found["start_urls"]
+    report = heal_fn({"name": name, "apply": True, "start_urls": start_urls,
+                      "document_keyword": request["document_keyword"]}) or {}
+    atomic_json(out / "onboard_report.json", report)
+    if not heal_succeeded(report):
+        # 탐색·수리로도 못 만들면 수집을 시작하지 않고 실패와 근거를 남긴다(성공처럼 숨기지 않음).
+        atomic_json(out / "status.json", {"state": "FAILED", "phase": "DISCOVER", "profile": name,
+                                         "result": report.get("result", "FAILED"),
+                                         "evidence": report.get("evidence"), "ended_kst": now()})
+        return report
+    worker_fn(load(name), time_limit)
+    return report
+
+
 def main() -> None:
     """stdin JSON 제어만 받는다. 임의 URL/명령은 받지 않는다(사이트 정보는 프로파일 파일)."""
+    if len(sys.argv) == 4 and sys.argv[1] == "--onboard":
+        onboard_worker(sys.argv[2], validate_time_limit(int(sys.argv[3])))
+        return
     if len(sys.argv) == 4 and sys.argv[1] == "--worker":
         profile = load_profile(sys.argv[2])
         try:
@@ -704,7 +889,12 @@ def main() -> None:
                          "error": str(error)[:300], "ended_kst": now()})
             raise
         return
-    options = parse_options(json.loads(sys.stdin.read() or "{}"))
+    raw = json.loads(sys.stdin.read() or "{}")
+    if isinstance(raw, dict) and raw.get("mode") == "onboard":
+        # 새 보험사: 아직 프로파일이 없으므로 load_profile 전에 처리한다.
+        print(json.dumps(onboard_start(parse_onboard(raw)), ensure_ascii=False, default=str))
+        return
+    options = parse_options(raw)
     profile = load_profile(options["profile"])
     limit = options.get("time_limit_seconds", profile.get("time_limit_seconds", MAX_TIME_LIMIT_SECONDS))
     if options["mode"] == "probe":
