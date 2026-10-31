@@ -22,8 +22,10 @@
 # 방식은 올바릅니다.
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -509,6 +511,132 @@ class _CombinedMcpHttpApp:
         self._streamable_app = server.streamable_http_app()
         self._sse_app = server.sse_app()
 
+    @staticmethod
+    def _safe_log_text(value: object, limit: int = 160) -> str:
+        """Bound and sanitize protocol metadata so log lines cannot contain raw controls."""
+        text = str(value)
+        return "".join(
+            character if character.isprintable() and character not in "\r\n" else "?"
+            for character in text
+        )[:limit]
+
+    @classmethod
+    def _request_diagnostics(
+        cls,
+        scope,
+        body_prefix: bytes,
+        body_bytes: int,
+        body_hash: str,
+        body_complete: bool,
+        status: int,
+    ) -> dict[str, object]:
+        """Build safe 4xx evidence without logging authorization or JSON-RPC values."""
+        headers = {
+            name.decode("latin1").lower(): value.decode("latin1")
+            for name, value in scope.get("headers", [])
+        }
+        diagnostic: dict[str, object] = {
+            "request_id": uuid.uuid4().hex,
+            "status": status,
+            "method": cls._safe_log_text(scope.get("method", ""), 16),
+            "path": cls._safe_log_text(scope.get("path", ""), 120),
+            "client": cls._safe_log_text((scope.get("client") or ("unknown",))[0], 80),
+            "content_type": cls._safe_log_text(headers["content-type"], 120) if "content-type" in headers else None,
+            "accept": cls._safe_log_text(headers["accept"], 160) if "accept" in headers else None,
+            "mcp_protocol_version": cls._safe_log_text(headers["mcp-protocol-version"], 80)
+            if "mcp-protocol-version" in headers else None,
+            "has_mcp_session_id": "mcp-session-id" in headers,
+            "has_last_event_id": "last-event-id" in headers,
+            "has_authorization": "authorization" in headers,
+            "has_cookie": "cookie" in headers,
+            "body_bytes": body_bytes,
+            "body_complete": body_complete,
+            "body_sha256": body_hash,
+        }
+        if body_bytes == 0 and not body_complete:
+            diagnostic["body_parse"] = "not_read"
+            return diagnostic
+        if body_bytes > len(body_prefix):
+            diagnostic["body_parse"] = "over_metadata_limit"
+            return diagnostic
+        if not body_complete:
+            diagnostic["body_parse"] = "incomplete"
+            return diagnostic
+        if not body_prefix:
+            diagnostic["body_parse"] = "empty"
+            return diagnostic
+        try:
+            payload = json.loads(body_prefix.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            diagnostic["body_parse"] = "invalid_json"
+            return diagnostic
+        if not isinstance(payload, dict):
+            diagnostic["body_parse"] = "json_non_object"
+            return diagnostic
+
+        def field_names(value: object) -> list[str]:
+            if not isinstance(value, dict):
+                return []
+            return sorted({
+                cls._safe_log_text(key, 40)
+                for key in list(value)[:50]
+            })
+
+        params = payload.get("params")
+        diagnostic.update({
+            "body_parse": "json_object",
+            "rpc_version": cls._safe_log_text(payload["jsonrpc"], 20)
+            if isinstance(payload.get("jsonrpc"), str) else None,
+            "rpc_method": cls._safe_log_text(payload["method"], 120)
+            if isinstance(payload.get("method"), str) else None,
+            "rpc_id_type": type(payload["id"]).__name__ if "id" in payload else "missing",
+            "body_root_keys": field_names(payload),
+            "body_params_keys": field_names(params),
+        })
+        return diagnostic
+
+    async def _call_mcp_with_diagnostics(self, scope, receive, send) -> None:
+        """Capture a bounded JSON prefix and hash for /mcp 4xx diagnostics only."""
+        body_hash = hashlib.sha256()
+        body_prefix = bytearray()
+        body_bytes = 0
+        body_complete = False
+        metadata_limit = 65536
+
+        async def diagnostic_receive():
+            nonlocal body_bytes, body_complete
+            message = await receive()
+            if message.get("type") == "http.request":
+                chunk = message.get("body", b"")
+                body_bytes += len(chunk)
+                body_hash.update(chunk)
+                remaining = metadata_limit - len(body_prefix)
+                if remaining > 0:
+                    body_prefix.extend(chunk[:remaining])
+                if not message.get("more_body", False):
+                    body_complete = True
+            return message
+
+        async def diagnostic_send(message):
+            if message.get("type") == "http.response.start":
+                status = int(message.get("status", 0))
+                if 400 <= status < 500:
+                    details = self._request_diagnostics(
+                        scope,
+                        bytes(body_prefix),
+                        body_bytes,
+                        body_hash.hexdigest(),
+                        body_complete,
+                        status,
+                    )
+                    LOGGER.warning(
+                        "mcp_streamable_http_4xx diagnostics=%s",
+                        json.dumps(details, sort_keys=True),
+                    )
+            await send(message)
+
+        await self._streamable_app(scope, diagnostic_receive, diagnostic_send)
+
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] == "http":
             path = scope.get("path", "")
@@ -533,6 +661,9 @@ class _CombinedMcpHttpApp:
 
             if path == "/sse" or path == "/messages" or path.startswith("/messages/"):
                 await self._sse_app(scope, receive, send)
+                return
+            if path == "/mcp":
+                await self._call_mcp_with_diagnostics(scope, receive, send)
                 return
         await self._streamable_app(scope, receive, send)
 
