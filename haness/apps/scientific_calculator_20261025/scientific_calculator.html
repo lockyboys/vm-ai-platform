@@ -1,0 +1,189 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VECTOR / 공학용 계산기</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1418;--panel:#172127;--line:#314047;--ink:#f0f4ed;--muted:#9aaea9;--accent:#c5e8a5}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top left,#23342f 0,transparent 55%),var(--bg);color:var(--ink);font:15px system-ui,sans-serif;min-height:100vh}main{max-width:940px;margin:auto;padding:40px 25px}header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:30px}.brand{font-size:22px;font-weight:850;letter-spacing:4px}.brand span{color:var(--accent)}.tag{font-size:11px;color:var(--muted);letter-spacing:1px}.layout{display:grid;grid-template-columns:minmax(0,520px) minmax(0,250px);gap:26px;justify-content:center}.calculator{border:1px solid var(--line);border-radius:18px;padding:22px;background:var(--panel);box-shadow:0 22px 80px #0004}.topline{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--muted)}button{cursor:pointer;font:inherit;color:inherit;border:0}button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.modes{background:#0c1519;padding:4px;border-radius:7px;display:flex;gap:3px}.modes button{border-radius:4px;background:transparent;padding:6px 10px;font-size:10px;color:var(--muted);letter-spacing:1px}.modes button[aria-pressed=true]{background:#2e4134;color:var(--accent)}.display{background:#0c1519;border:1px solid #2d3f3e;border-radius:12px;padding:20px 18px;margin-bottom:18px;min-width:0}label{display:block;color:var(--muted);font-size:10px;letter-spacing:1px;margin-bottom:10px}#expression{display:block;width:100%;min-width:0;background:transparent;border:0;color:#e9f1e7;font:19px ui-monospace,monospace;padding:5px 0;outline-offset:4px}#expression::placeholder{color:#617a74;font-size:13px}.answer-label{margin-top:25px;color:var(--muted);font-size:9px;letter-spacing:2px}#result{font:500 clamp(23px,4vw,39px) ui-monospace,monospace;text-align:right;color:var(--accent);overflow-wrap:anywhere;line-height:1.5;min-height:59px;letter-spacing:-1px}#message{color:var(--muted);font-size:11px;line-height:1.6;min-height:18px;overflow-wrap:anywhere}#message.error{color:#f4a99e}.scientific{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px;margin-bottom:10px}.scientific button{min-height:39px;border:1px solid #304047;background:#202d32;border-radius:7px;font-size:12px;color:#bdd1c7}.keys{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.keys button{min-height:58px;border-radius:9px;background:#27343b;font-size:20px;transition:background .12s}.keys button:hover{background:#37484e}.keys .operator{background:#30423e;color:var(--accent)}.keys .utility{font-size:14px;background:#36373a;color:#e9c3b4}.keys .equals{background:var(--accent);color:#17231b;font-weight:800}.extras{display:flex;gap:8px;margin-top:10px}.extras button{flex:1;border-radius:7px;min-height:36px;background:#1e2d31;border:1px solid #304047;font-size:12px;color:var(--muted)}.footnote{font-size:10px;color:var(--muted);margin:17px 0 0;line-height:1.8}.card{border:1px solid var(--line);border-radius:13px;padding:20px;background:#172127a8;margin-bottom:16px;min-width:0}.card h2{font-size:12px;letter-spacing:1px;margin:0 0 17px;color:#d1dfd2;font-weight:600}.card p{font-size:12px;color:var(--muted);line-height:1.9;margin:0}.example{color:var(--accent);background:none;padding:0;text-align:left;margin-top:14px;font:12px ui-monospace,monospace}.empty{color:#6f8780;font-size:12px;line-height:1.8}.history-item{display:block;width:100%;background:none;border-top:1px solid var(--line);padding:13px 0;text-align:left;overflow-wrap:anywhere}.history-item small{display:block;font-size:10px;color:var(--muted);margin-bottom:5px}.history-item strong{display:block;color:#d5e6c9;font-size:15px;font-weight:500;line-height:1.7}footer{margin-top:25px;font-size:10px;color:#789086;display:flex;justify-content:space-between;gap:15px}kbd{font:10px system-ui;background:#2d3b3d;padding:2px 5px;border-radius:3px}@media(max-width:650px){main{padding:24px 14px}.layout{grid-template-columns:minmax(0,1fr);gap:18px;max-width:500px;margin:auto}header{margin-bottom:22px}.calculator{padding:15px}.display{padding:16px 13px}.scientific{gap:5px}.scientific button{font-size:11px}.keys{gap:6px}.keys button{min-height:51px}.brand{font-size:19px}.tag{font-size:9px}.card{padding:17px}aside{display:grid;grid-template-columns:1fr 1fr;gap:12px}.card{margin:0}footer{font-size:9px}.history-item small{font-size:9px}}@media(max-width:370px){.scientific button{font-size:10px}.calculator{padding:12px}main{padding:22px 10px}aside{grid-template-columns:1fr}.display{padding:13px}.brand{letter-spacing:2px}.tag{max-width:100px;line-height:1.6;text-align:right}}
+</style></head><body><main>
+<header><div class="brand">VECTOR <span>/</span></div><span class="tag">생각은 자유롭게, 계산은 정확하게.</span></header>
+<div class="layout"><section class="calculator" aria-label="공학용 계산기">
+<div class="topline"><span class="eyebrow">SCIENTIFIC CALCULATOR</span><div class="modes" aria-label="각도 단위"><button id="deg" aria-pressed="true">DEG</button><button id="rad" aria-pressed="false">RAD</button></div></div>
+<div class="display"><label for="expression">EXPRESSION / 수식</label><input id="expression" type="text" autocomplete="off" spellcheck="false" inputmode="text" placeholder="예: sin(30) + sqrt(16)" aria-describedby="message"><div class="answer-label">RESULT</div><div id="result" role="status" aria-live="polite">0</div><div id="message">각도 단위: 도(DEG) · Enter로 계산하세요.</div></div>
+<div class="scientific"><button data-insert="sin(">sin</button><button data-insert="cos(">cos</button><button data-insert="tan(">tan</button><button data-insert="asin(">sin⁻¹</button><button data-insert="acos(">cos⁻¹</button><button data-insert="atan(">tan⁻¹</button><button data-insert="sqrt(">√x</button><button data-insert="ln(">ln</button><button data-insert="log10(">log₁₀</button><button data-insert="!">x!</button><button data-insert="(">(</button><button data-insert=")">)</button></div>
+<div class="keys"><button data-insert="7">7</button><button data-insert="8">8</button><button data-insert="9">9</button><button class="operator" data-insert="/">÷</button><button class="utility" id="clear">AC</button><button data-insert="4">4</button><button data-insert="5">5</button><button data-insert="6">6</button><button class="operator" data-insert="*">×</button><button class="utility" id="backspace" aria-label="한 글자 지우기">⌫</button><button data-insert="1">1</button><button data-insert="2">2</button><button data-insert="3">3</button><button class="operator" data-insert="-">−</button><button class="operator" data-insert="^">xʸ</button><button data-insert="0">0</button><button data-insert=".">.</button><button data-insert="pi">π</button><button class="operator" data-insert="+">+</button><button class="equals" id="equals" aria-label="계산">=</button></div>
+<div class="extras"><button data-insert="e">e</button><button id="ans">Ans</button><button data-insert="%">%</button></div>
+<p class="footnote"><kbd>Enter</kbd> 계산 · <kbd>Esc</kbd> 초기화 · ^ 거듭제곱 · %는 100으로 나누기<br>log(x, base)로 밑을 지정할 수 있습니다.</p>
+</section><aside><section class="card"><h2>작은 사용 가이드</h2><p>삼각함수는 선택한 각도 단위를 따릅니다. 역삼각함수도 같은 단위로 결과를 돌려줍니다.<br><br>괄호로 계산 순서를 정하고, Ans로 직전 결과를 이어 쓰세요.</p><button class="example" id="example">sin(30) + sqrt(16) →</button></section><section class="card"><h2>최근 계산</h2><div id="history"><p class="empty">계산한 결과가<br>이곳에 차곡차곡 쌓입니다.</p></div></section></aside></div>
+<footer><span>연산·삼각함수·로그·팩토리얼</span><span>인터넷 연결 없이 사용</span></footer>
+</main><script>
+(function(){
+// Bounded scientific-expression parser. No eval, dynamic functions or external I/O.
+(function (root) {
+  'use strict';
+  class CalculatorError extends Error {
+    constructor(message) { super(message); this.name = 'CalculatorError'; }
+  }
+  function finite(value) {
+    if (!Number.isFinite(value)) throw new CalculatorError('실수 범위를 벗어난 계산입니다.');
+    return value;
+  }
+  function factorial(value) {
+    if (!Number.isInteger(value) || value < 0 || value > 170)
+      throw new CalculatorError('팩토리얼은 0~170 사이 정수만 가능합니다.');
+    let result = 1;
+    for (let n = 2; n <= value; n++) result *= n;
+    return finite(result);
+  }
+  function evaluate(expression, angleMode = 'deg') {
+    if (typeof expression !== 'string' || !expression.trim() || expression.length > 500)
+      throw new CalculatorError('1~500자의 수식을 입력하세요.');
+    if (angleMode !== 'deg' && angleMode !== 'rad')
+      throw new CalculatorError('각도 단위는 deg 또는 rad입니다.');
+    const source = expression.trim().toLowerCase()
+      .replace(/π/g, 'pi').replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+    // Sticky tokenization rejects unsupported characters instead of skipping them.
+    const pattern = /\s*(?:(\d+(?:\.\d*)?|\.\d+)(?:([e][+-]?\d+))?|([a-z_][a-z0-9_]*)|(\*\*|[+\-*/^!%(),]))/y;
+    const tokens = [];
+    let offset = 0;
+    while (offset < source.length) {
+      pattern.lastIndex = offset;
+      const match = pattern.exec(source);
+      if (!match) throw new CalculatorError('지원하지 않는 문자 또는 수식입니다.');
+      offset = pattern.lastIndex;
+      if (match[1] !== undefined)
+        tokens.push({kind:'number', value:finite(Number(match[1] + (match[2] || '')))});
+      else if (match[3] !== undefined) tokens.push({kind:'name', value:match[3]});
+      else tokens.push({kind:'operator', value:match[4]});
+      if (tokens.length > 256) throw new CalculatorError('수식이 너무 복잡합니다.');
+    }
+    let position = 0, depth = 0;
+    const peek = value => tokens[position] && tokens[position].value === value;
+    function take(value) {
+      const token = tokens[position++];
+      if (!token || (value !== undefined && token.value !== value))
+        throw new CalculatorError('수식 또는 괄호를 확인하세요.');
+      return token;
+    }
+    const toRadians = value => angleMode === 'deg' ? (value % 360) * Math.PI / 180 : value;
+    const fromRadians = value => angleMode === 'deg' ? value * 180 / Math.PI : value;
+    const arities = Object.freeze({sin:1,cos:1,tan:1,asin:1,acos:1,atan:1,
+      sqrt:1,abs:1,ln:1,log10:1,exp:1,floor:1,ceil:1,round:1,factorial:1,log:2});
+    function call(name, args) {
+      if (!Object.hasOwn(arities,name) || args.length !== arities[name])
+        throw new CalculatorError('함수 이름과 인자 개수를 확인하세요.');
+      const x = args[0];
+      switch (name) {
+        case 'sin': return finite(Math.sin(toRadians(x)));
+        case 'cos': return finite(Math.cos(toRadians(x)));
+        case 'tan': {
+          const radians = toRadians(x);
+          if (Math.abs(Math.cos(radians)) < 1e-12)
+            throw new CalculatorError('이 각도에서 tan은 정의되지 않습니다.');
+          return finite(Math.tan(radians));
+        }
+        case 'asin': return finite(fromRadians(Math.asin(x)));
+        case 'acos': return finite(fromRadians(Math.acos(x)));
+        case 'atan': return finite(fromRadians(Math.atan(x)));
+        case 'sqrt': return finite(Math.sqrt(x));
+        case 'abs': return Math.abs(x);
+        case 'ln': if (x <= 0) throw new CalculatorError('로그의 진수는 양수여야 합니다.'); return finite(Math.log(x));
+        case 'log10': if (x <= 0) throw new CalculatorError('로그의 진수는 양수여야 합니다.'); return finite(Math.log10(x));
+        case 'log':
+          if (x <= 0 || args[1] <= 0 || args[1] === 1)
+            throw new CalculatorError('로그의 진수와 밑을 확인하세요.');
+          return finite(Math.log(x) / Math.log(args[1]));
+        case 'exp': return finite(Math.exp(x));
+        case 'floor': return Math.floor(x);
+        case 'ceil': return Math.ceil(x);
+        case 'round': return Math.round(x);
+        case 'factorial': return factorial(x);
+      }
+    }
+    function primary() {
+      if (peek('(')) { take('('); const value = sum(); take(')'); return value; }
+      const token = take();
+      if (token.kind === 'number') return token.value;
+      if (token.kind !== 'name') throw new CalculatorError('숫자 또는 함수를 입력하세요.');
+      if (peek('(')) {
+        take('(');
+        const args = [];
+        if (!peek(')')) {
+          args.push(sum());
+          while (peek(',')) { take(','); args.push(sum()); }
+        }
+        take(')');
+        return call(token.value,args);
+      }
+      if (token.value === 'pi') return Math.PI;
+      if (token.value === 'e') return Math.E;
+      throw new CalculatorError('알 수 없는 상수입니다.');
+    }
+    function postfix() {
+      let value = primary();
+      while (peek('!') || peek('%')) {
+        const operator = take().value;
+        value = operator === '!' ? factorial(value) : finite(value / 100);
+      }
+      return value;
+    }
+    // Power is right-associative. Parsing its right operand through unary also
+    // permits 2^-2, while keeping -2^2 equal to -(2^2), not (-2)^2.
+    function power() {
+      let value = postfix();
+      if (peek('^') || peek('**')) { take(); value = finite(Math.pow(value,unary())); }
+      return value;
+    }
+    function unary() {
+      if (++depth > 32) { depth--; throw new CalculatorError('괄호 또는 중첩이 너무 깊습니다.'); }
+      try {
+        if (peek('+')) { take('+'); return unary(); }
+        if (peek('-')) { take('-'); return finite(-unary()); }
+        return power();
+      } finally { depth--; }
+    }
+    function product() {
+      let value = unary();
+      while (peek('*') || peek('/')) {
+        const operator = take().value, right = unary();
+        if (operator === '/' && right === 0) throw new CalculatorError('0으로 나눌 수 없습니다.');
+        value = finite(operator === '*' ? value * right : value / right);
+      }
+      return value;
+    }
+    function sum() {
+      let value = product();
+      while (peek('+') || peek('-')) {
+        const operator = take().value, right = product();
+        value = finite(operator === '+' ? value + right : value - right);
+      }
+      return value;
+    }
+    const result = sum();
+    if (position !== tokens.length) throw new CalculatorError('연산자 또는 괄호를 확인하세요.');
+    return finite(result);
+  }
+  const api = Object.freeze({evaluate,CalculatorError});
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  if (root) root.CalculatorCore = api;
+})(typeof globalThis === 'undefined' ? null : globalThis);
+
+})();
+</script><script>
+// UI delegates all math to the same independently tested engine.
+const {evaluate}=globalThis.CalculatorCore;
+const input=document.getElementById('expression'),result=document.getElementById('result'),message=document.getElementById('message');
+let mode='deg',lastAnswer=0,hasError=false,entries=[];
+function formatted(value){return Number(value.toPrecision(12)).toString();}
+function focusInput(){input.focus({preventScroll:true});}
+function modeMessage(){return mode==='deg'?'각도 단위: 도(DEG)':'각도 단위: 라디안(RAD)';}
+function setMode(value){mode=value;document.getElementById('deg').setAttribute('aria-pressed',String(mode==='deg'));document.getElementById('rad').setAttribute('aria-pressed',String(mode==='rad'));message.textContent=modeMessage();message.className='';focusInput();}
+function insert(text){if(hasError){input.value='';hasError=false;result.textContent='0';}const start=input.selectionStart??input.value.length,end=input.selectionEnd??start;input.setRangeText(text,start,end,'end');message.textContent=modeMessage();message.className='';focusInput();}
+function clear(){input.value='';result.textContent='0';message.textContent=modeMessage();message.className='';hasError=false;focusInput();}
+function history(){const container=document.getElementById('history');container.replaceChildren();for(const entry of entries){const b=document.createElement('button');b.className='history-item';const s=document.createElement('small'),v=document.createElement('strong');s.textContent=entry.mode.toUpperCase()+' · '+entry.expression;v.textContent='= '+formatted(entry.value);b.append(s,v);b.addEventListener('click',()=>{input.value=entry.expression;setMode(entry.mode);result.textContent=formatted(entry.value);lastAnswer=entry.value;hasError=false;input.setSelectionRange(input.value.length,input.value.length);focusInput();});container.append(b);}}
+function calculate(){try{const value=evaluate(input.value,mode);lastAnswer=value;result.textContent=formatted(value);message.textContent=modeMessage();message.className='';hasError=false;entries.unshift({expression:input.value,value,mode});entries=entries.slice(0,5);history();}catch(error){result.textContent='오류';message.textContent='계산할 수 없어요: '+error.message;message.className='error';hasError=true;}focusInput();}
+document.querySelectorAll('[data-insert]').forEach(b=>b.addEventListener('click',()=>insert(b.dataset.insert)));
+document.getElementById('equals').onclick=calculate;document.getElementById('clear').onclick=clear;
+document.getElementById('deg').onclick=()=>setMode('deg');document.getElementById('rad').onclick=()=>setMode('rad');
+document.getElementById('ans').onclick=()=>insert('('+lastAnswer.toString()+')');
+document.getElementById('backspace').onclick=()=>{const end=input.selectionEnd??input.value.length,start=input.selectionStart??end;input.setRangeText('',start===end?Math.max(0,start-1):start,end,'end');hasError=false;result.textContent='0';message.textContent=modeMessage();message.className='';focusInput();};
+document.getElementById('example').onclick=()=>{input.value='sin(30)+sqrt(16)';setMode('deg');calculate();};
+input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();calculate();}if(event.key==='Escape'){event.preventDefault();clear();}});
+input.addEventListener('input',()=>{if(hasError){hasError=false;result.textContent='0';}message.className='';message.textContent=modeMessage();});
+</script></body></html>
