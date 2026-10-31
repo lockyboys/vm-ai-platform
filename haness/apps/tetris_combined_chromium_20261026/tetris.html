@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BLOCK / 테트리스</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1018;--panel:#131c28;--ink:#edf4fc;--muted:#91a4ba;--line:#263447;--mint:#9eedd0}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 28% 15%,#1c2a3a 0,transparent 55%),var(--bg);font:15px system-ui,sans-serif;color:var(--ink);min-height:100vh}button{font:inherit;cursor:pointer}button:focus-visible{outline:3px solid #fff;outline-offset:4px}main{max-width:940px;margin:auto;padding:35px 24px 25px}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}.brand{font-size:23px;font-weight:850;letter-spacing:5px}.brand i{color:var(--mint);font-style:normal}.label{font-size:11px;letter-spacing:2px;color:var(--muted)}.tag{border:1px solid var(--line);padding:8px 12px;border-radius:30px;color:var(--mint);font-size:11px;letter-spacing:1px}.layout{display:grid;grid-template-columns:minmax(260px,390px) 250px;gap:32px;justify-content:center}.board-shell{position:relative;background:#080e16;border:1px solid #334457;padding:10px;border-radius:15px;box-shadow:0 22px 80px #0005}#board{display:block;width:100%;aspect-ratio:1/2;background:#0c1420;border-radius:6px}.overlay{position:absolute;inset:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#09121bea;backdrop-filter:blur(4px);text-align:center;border-radius:6px;padding:24px}.overlay[hidden]{display:none}.overlay .eyebrow{font-size:11px;color:var(--mint);letter-spacing:3px}.overlay h1{font-size:43px;line-height:1.1;margin:16px 0}.overlay p{color:var(--muted);font-size:14px;line-height:1.8;margin:0 0 25px}.primary{background:var(--mint);color:#10261d;border:0;border-radius:9px;font-weight:800;padding:13px 25px}.secondary{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:11px 14px}.secondary:disabled{opacity:.4;cursor:default}aside{display:flex;flex-direction:column;gap:16px}.card{border:1px solid var(--line);background:#131d28ce;border-radius:13px;padding:20px}.score{font-size:44px;font-weight:750;letter-spacing:-2px;margin-top:8px;font-variant-numeric:tabular-nums}.stats{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.stats strong{display:block;font-size:24px;margin-top:5px}.next-title{display:flex;justify-content:space-between;align-items:center}.dot{height:6px;width:6px;background:var(--mint);border-radius:50%}#next{display:block;margin:9px auto 0;width:150px;height:90px}.controls{margin-top:16px;display:grid;gap:10px;color:var(--muted);font-size:12px}.controls div{display:flex;justify-content:space-between;align-items:center}kbd{color:#e0eafa;background:#202e3e;border:1px solid #3a4b60;border-bottom-width:2px;border-radius:4px;padding:3px 7px;min-width:26px;text-align:center;font:11px system-ui}.buttons{display:flex;gap:10px}.buttons button{flex:1}.status{color:var(--mint);font-size:12px;margin-top:14px}.note{color:var(--muted);line-height:1.75;font-size:12px;margin:0}.touch{display:flex;gap:8px;justify-content:center;margin-top:14px}.touch button{background:#192536;color:#e4edf7;border:1px solid #30445b;border-radius:8px;padding:12px 17px;touch-action:manipulation}.touch .drop{color:var(--mint)}footer{margin-top:25px;color:#73869c;font-size:11px;display:flex;justify-content:space-between;gap:14px}.hidden{display:none}@media(max-width:650px){main{padding:22px 16px}header{margin-bottom:20px}.layout{grid-template-columns:minmax(220px,320px) minmax(105px,150px);gap:12px}.card{padding:13px}.score{font-size:30px}.stats{gap:8px}.stats strong{font-size:20px}#next{width:100%;height:70px}.controls{font-size:10px}.desktop-note{display:none}.buttons{flex-direction:column}.label{font-size:9px;letter-spacing:1px}.overlay h1{font-size:34px}.touch button{padding:12px}.tag{font-size:9px}}@media(max-width:390px){.layout{grid-template-columns:minmax(175px,1fr) 106px;gap:8px}main{padding:18px 10px}.card{padding:10px}.overlay h1{font-size:27px}.overlay p{font-size:11px}.primary{padding:12px 16px}.touch{gap:5px}.score{font-size:24px;overflow-wrap:anywhere}.touch button{padding:8px}.stats{grid-template-columns:1fr}.controls{gap:8px}.brand{font-size:20px}footer{font-size:9px}}
+</style></head><body><main>
+<header><div class="brand">BLOCK<i> /</i></div><span class="tag">한 판의 작은 몰입</span></header>
+<div class="layout"><section aria-label="테트리스 게임">
+<!-- tabindex makes the canvas the explicit keyboard-focus target after control clicks. --><div class="board-shell"><canvas id="board" width="300" height="600" tabindex="0" aria-label="테트리스 게임판"></canvas>
+<div class="overlay" id="overlay"><span class="eyebrow" id="eyebrow">READY WHEN YOU ARE</span><h1 id="overlay-title">한 줄씩,<br>가볍게.</h1><p id="overlay-description">블록을 쌓고 줄을 완성하세요.<br>빈틈이 줄어들수록 점수는 올라갑니다.</p><button class="primary" id="start">게임 시작</button></div></div>
+<div class="touch" aria-label="터치 조작"><button data-action="left" aria-label="왼쪽 이동">←</button><button data-action="rotate" aria-label="회전">↻</button><button data-action="right" aria-label="오른쪽 이동">→</button><button data-action="down" aria-label="한 칸 내리기">↓</button><button data-action="drop" class="drop" aria-label="즉시 내리기">⤓</button></div>
+</section><aside><section class="card" aria-label="게임 점수"><div class="label">SCORE</div><div class="score" id="score" aria-live="polite">000000</div><div class="stats"><div><span class="label">LEVEL</span><strong id="level">01</strong></div><div><span class="label">LINES</span><strong id="lines">00</strong></div></div><div class="status" id="status" role="status">시작을 기다리고 있어요</div></section>
+<section class="card"><div class="next-title"><span class="label">UP NEXT</span><i class="dot"></i></div><canvas id="next" width="150" height="90" aria-label="다음 블록"></canvas></section>
+<section class="card"><span class="label">HOW TO PLAY</span><div class="controls"><div><span>이동</span><span><kbd>←</kbd> <kbd>→</kbd></span></div><div><span>회전</span><kbd>↑</kbd></div><div><span>내리기</span><kbd>↓</kbd></div><div><span>즉시 내리기</span><kbd>Space</kbd></div><div><span>일시정지</span><kbd>P</kbd></div><div><span>다시 시작</span><kbd>R</kbd></div></div></section>
+<div class="buttons"><button class="secondary" id="pause" disabled>일시정지</button><button class="secondary" id="restart">다시 시작</button></div><p class="note desktop-note">10줄마다 레벨이 올라갑니다.<br>착지 가이드를 보고 다음 자리를 골라보세요.</p></aside></div>
+<footer><span>7가지 블록 · 7-bag · 착지 가이드</span><span>인터넷 연결 없이 플레이</span></footer>
+</main><script>
+(function(){
+const SHAPES = Object.freeze({
+  I: [[1, 1, 1, 1]],
+  O: [[1, 1], [1, 1]],
+  T: [[0, 1, 0], [1, 1, 1]],
+  S: [[0, 1, 1], [1, 1, 0]],
+  Z: [[1, 1, 0], [0, 1, 1]],
+  J: [[1, 0, 0], [1, 1, 1]],
+  L: [[0, 0, 1], [1, 1, 1]]
+});
+
+class Tetris {
+  constructor({ random = Math.random } = {}) {
+    this.rows = 20;
+    this.cols = 10;
+    this.random = random;
+    this.bag = [];
+    this.reset();
+  }
+
+  // Draw piece type using 7-bag Fisher-Yates shuffle
+  draw() {
+    if (this.bag.length === 0) {
+      this.bag = Object.keys(SHAPES);
+      for (let i = this.bag.length - 1; i > 0; i--) {
+        const j = Math.floor(this.random() * (i + 1));
+        [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
+      }
+    }
+    return this.bag.pop();
+  }
+
+  // Reset engine state and board to initial conditions
+  reset() {
+    this.board = Array.from({ length: this.rows }, () => Array(this.cols).fill(0));
+    this.score = 0;
+    this.lines = 0;
+    this.level = 1;
+    this.paused = false;
+    this.gameOver = false;
+    this.bag = [];
+    this.nextType = this.draw();
+    this.spawn();
+  }
+
+  // Introduce next piece, centering horizontally at row 0
+  spawn() {
+    const type = this.nextType;
+    this.nextType = this.draw();
+    const shape = SHAPES[type].map(row => [...row]);
+    const x = Math.floor((this.cols - shape[0].length) / 2);
+    const y = 0;
+    this.active = { type, shape, x, y };
+    if (this.collides(shape, x, y)) {
+      this.gameOver = true;
+    }
+  }
+
+  // Detect collision against board bounds or occupied cells; y < 0 is allowed
+  collides(shape, x, y) {
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (!shape[r][c]) continue;
+        const nx = x + c;
+        const ny = y + r;
+        if (nx < 0 || nx >= this.cols || ny >= this.rows) return true;
+        if (ny >= 0 && this.board[ny][nx]) return true;
+      }
+    }
+    return false;
+  }
+
+  // Translate active piece without locking or scoring
+  move(dx, dy = 0) {
+    if (this.paused || this.gameOver) return false;
+    if (this.collides(this.active.shape, this.active.x + dx, this.active.y + dy)) return false;
+    this.active.x += dx;
+    this.active.y += dy;
+    return true;
+  }
+
+  // Clockwise rotation with horizontal wall/block kicks
+  rotate() {
+    if (this.paused || this.gameOver) return false;
+    const prev = this.active.shape;
+    const rotated = prev[0].map((_, c) => prev.map(r => r[c]).reverse());
+    for (const kick of [0, -1, 1, -2, 2]) {
+      if (!this.collides(rotated, this.active.x + kick, this.active.y)) {
+        this.active.shape = rotated;
+        this.active.x += kick;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Simultaneously remove full rows and fill top with zeroes
+  clearLines() {
+    const remaining = this.board.filter(row => row.some(cell => !cell));
+    const cleared = this.rows - remaining.length;
+    while (remaining.length < this.rows) {
+      remaining.unshift(Array(this.cols).fill(0));
+    }
+    this.board = remaining;
+    return cleared;
+  }
+
+  // Stamp active piece into board, calculate score, clear lines, and spawn next
+  lock() {
+    if (this.paused || this.gameOver) return;
+    const { shape, type, x, y } = this.active;
+
+    // Out-of-bounds top lock-out check: do not write partially
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (shape[r][c] && y + r < 0) {
+          this.gameOver = true;
+          return;
+        }
+      }
+    }
+
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (shape[r][c]) {
+          this.board[y + r][x + c] = type;
+        }
+      }
+    }
+
+    const cleared = this.clearLines();
+    const scores = [0, 100, 300, 500, 800];
+    this.score += scores[cleared] * this.level;
+    this.lines += cleared;
+    this.level = Math.floor(this.lines / 10) + 1;
+    this.spawn();
+  }
+
+  // Progress falling piece down by 1; lock on ground collision
+  tick() {
+    if (this.paused || this.gameOver) return;
+    if (!this.move(0, 1)) this.lock();
+  }
+
+  // Soft drop 1 cell with +1 score bonus on success
+  softDrop() {
+    if (this.paused || this.gameOver) return false;
+    if (this.move(0, 1)) {
+      this.score += 1;
+      return true;
+    }
+    this.lock();
+    return false;
+  }
+
+  // Drop directly to floor, award 2 pts/cell, lock immediately
+  hardDrop() {
+    if (this.paused || this.gameOver) return 0;
+    let dist = 0;
+    while (this.move(0, 1)) {
+      dist++;
+      if (dist > this.rows) break; // Avoid unbounded loop in corrupt state
+    }
+    this.score += dist * 2;
+    this.lock();
+    return dist;
+  }
+
+  // Projected landing position non-mutating clone
+  ghost() {
+    let gy = this.active.y;
+    while (!this.collides(this.active.shape, this.active.x, gy + 1)) {
+      gy++;
+    }
+    return {
+      type: this.active.type,
+      shape: this.active.shape.map(r => [...r]),
+      x: this.active.x,
+      y: gy
+    };
+  }
+
+  togglePause() {
+    if (!this.gameOver) this.paused = !this.paused;
+  }
+}
+
+const TetrisCore = { Tetris, SHAPES };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = TetrisCore;
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.TetrisCore = TetrisCore;
+}
+
+})();
+</script><script>
+// Rendering and input share the exact engine exercised by the automated tests.
+const {Tetris,SHAPES}=globalThis.TetrisCore;
+const game=new Tetris();
+const canvas=document.getElementById('board'),ctx=canvas.getContext('2d');
+const preview=document.getElementById('next'),pc=preview.getContext('2d');
+const $=id=>document.getElementById(id);
+const colors={I:'#76d9eb',O:'#ebcb72',T:'#ad92ed',S:'#92d4ab',Z:'#e98894',J:'#819fe8',L:'#eeb17e'};
+let started=false,last=0,elapsed=0;
+function block(context,x,y,size,type,ghost=false){
+  context.globalAlpha=ghost?.17:1;
+  context.fillStyle=colors[type]||'#9eedd0';context.fillRect(x+1.5,y+1.5,size-3,size-3);
+  if(!ghost){context.fillStyle='#ffffff26';context.fillRect(x+3,y+3,size-6,3);}
+  context.globalAlpha=1;
+}
+function drawPiece(piece,ghost){piece.shape.forEach((r,y)=>r.forEach((v,x)=>{if(v&&y+piece.y>=0)block(ctx,(x+piece.x)*30,(y+piece.y)*30,30,piece.type,ghost);}));}
+function render(){
+  ctx.clearRect(0,0,300,600);ctx.strokeStyle='#1b2838';ctx.lineWidth=.5;
+  for(let x=0;x<=10;x++){ctx.beginPath();ctx.moveTo(x*30,0);ctx.lineTo(x*30,600);ctx.stroke();}
+  for(let y=0;y<=20;y++){ctx.beginPath();ctx.moveTo(0,y*30);ctx.lineTo(300,y*30);ctx.stroke();}
+  game.board.forEach((r,y)=>r.forEach((v,x)=>{if(v)block(ctx,x*30,y*30,30,v);}));
+  if(!game.gameOver){drawPiece(game.ghost(),true);drawPiece(game.active,false);}
+  pc.clearRect(0,0,150,90);const shape=SHAPES[game.nextType],size=23;
+  shape.forEach((r,y)=>r.forEach((v,x)=>{if(v)block(pc,(150-r.length*size)/2+x*size,(90-shape.length*size)/2+y*size,size,game.nextType);}));
+  $('score').textContent=String(game.score).padStart(6,'0');$('level').textContent=String(game.level).padStart(2,'0');$('lines').textContent=String(game.lines).padStart(2,'0');
+  $('pause').disabled=!started||game.gameOver;$('pause').textContent=game.paused?'계속하기':'일시정지';
+  $('status').textContent=!started?'시작을 기다리고 있어요':game.gameOver?'다시 도전해 볼까요?':game.paused?'잠깐 쉬어가는 중':'좋아요, 한 줄씩!';
+  if(started&&(game.gameOver||game.paused)){
+    $('overlay').hidden=false;$('eyebrow').textContent=game.gameOver?'ONE MORE ROUND?':'TAKE A BREATH';
+    $('overlay-title').textContent=game.gameOver?'GAME OVER':'일시정지';
+    $('overlay-description').textContent=game.gameOver?'점수 '+game.score.toLocaleString()+' · '+game.lines+'줄 완성':'준비되면 계속 이어가세요.';
+    $('start').textContent=game.gameOver?'다시 도전':'계속하기';
+  }else if(started){$('overlay').hidden=true;}
+}
+function begin(){if(!started||game.gameOver){game.reset();started=true;}else if(game.paused){game.togglePause();}elapsed=0;render();}
+function restart(){game.reset();started=true;elapsed=0;render();$('board').focus();} // Restore game-key focus after clicking Restart.
+function action(name){
+  if(name==='restart'){restart();return;}if(name==='pause'){if(started)game.togglePause();elapsed=0;render();return;}
+  if(!started||game.paused||game.gameOver)return;
+  if(name==='left')game.move(-1);if(name==='right')game.move(1);if(name==='rotate')game.rotate();if(name==='down')game.softDrop();if(name==='drop'){game.hardDrop();elapsed=0;}render();
+}
+$('start').onclick=begin;$('restart').onclick=restart;$('pause').onclick=()=>{action('pause');$('board').focus();}; // Return keyboard control after Pause/Resume.
+document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>{action(b.dataset.action);$('board').focus();})); // Return keyboard control after touch input.
+document.addEventListener('keydown',e=>{
+  const map={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'rotate',ArrowDown:'down',' ':'drop',p:'pause',P:'pause',r:'restart',R:'restart'};
+  if(e.key==='Enter'&&(!started||game.paused||game.gameOver)){e.preventDefault();begin();return;}
+  if(!(e.key in map))return;
+  // Buttons retain native keyboard activation; avoid duplicate space actions.
+  if(e.target instanceof HTMLButtonElement&&(e.key===' '||e.key==='Enter'))return;
+  e.preventDefault();if(e.repeat&&['rotate','drop','pause','restart'].includes(map[e.key]))return;action(map[e.key]);
+});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&started&&!game.paused&&!game.gameOver){game.togglePause();elapsed=0;render();}});
+function frame(time){const delta=Math.min(100,time-last);last=time;if(started&&!game.paused&&!game.gameOver){elapsed+=delta;const interval=Math.max(90,850*Math.pow(.82,game.level-1));if(elapsed>=interval){elapsed-=interval;game.tick();render();}}requestAnimationFrame(frame);}
+render();requestAnimationFrame(frame);
+</script></body></html>
