@@ -1,0 +1,101 @@
+const Hero = require('@ulixee/hero').default;
+const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
+const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { z } = require('zod');
+const { chunkTextBySentence } = require('./chunker');
+
+// 공개 또는 명시적으로 승인된 URL만 처리하며 인증·CAPTCHA·접근제어 우회는 금지한다.
+let hero;
+
+async function getHero() {
+  if (!hero) hero = new Hero({ showBrowser: false });
+  return hero;
+}
+
+function result(value) {
+  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
+}
+
+const server = new McpServer({ name: 'sps-ulixee-hero-mcp', version: '0.1.0' });
+
+server.registerTool('navigate', {
+  description: '승인된 URL로 이동하고 최종 URL과 제목을 반환한다.',
+  inputSchema: { url: z.string().url(), timeoutMs: z.number().int().positive().max(120000).optional() },
+}, async ({ url, timeoutMs }) => {
+  const h = await getHero();
+  await h.goto(url, { timeoutMs: timeoutMs ?? 60000 });
+  return result({ url: await h.url, title: await h.document.title });
+});
+
+server.registerTool('probe', {
+  description: '공개 또는 승인된 페이지의 비파괴 passive probe를 수행한다.',
+  inputSchema: { url: z.string().url(), maxHtmlChars: z.number().int().positive().max(50000).optional() },
+}, async ({ url, maxHtmlChars }) => {
+  const h = await getHero();
+  await h.goto(url, { timeoutMs: 60000 });
+  const html = await h.document.documentElement?.outerHTML;
+  return result({
+    url: await h.url,
+    title: await h.document.title,
+    htmlSnippet: String(html ?? '').slice(0, maxHtmlChars ?? 10000),
+  });
+});
+
+server.registerTool('extract', {
+  description: '현재 페이지에서 CSS 선택자의 텍스트 또는 속성을 추출한다.',
+  inputSchema: {
+    selector: z.string().min(1),
+    attribute: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(500).optional(),
+  },
+}, async ({ selector, attribute, limit }) => {
+  const h = await getHero();
+  const nodes = await h.document.querySelectorAll(selector);
+  const values = [];
+  for (const node of nodes.slice(0, limit ?? 100)) {
+    values.push(attribute ? await node.getAttribute(attribute) : await node.innerText);
+  }
+  return result({ selector, count: values.length, values });
+});
+
+server.registerTool('screenshot', {
+  description: '현재 페이지를 PNG로 캡처한다.',
+  inputSchema: {},
+}, async () => {
+  const h = await getHero();
+  const data = await h.takeScreenshot({});
+  return { content: [{ type: 'image', data: data.toString('base64'), mimeType: 'image/png' }] };
+});
+
+server.registerTool('close', {
+  description: 'Hero 브라우저 세션을 종료한다.',
+  inputSchema: {},
+}, async () => {
+  if (hero) {
+    await hero.close();
+    hero = undefined;
+  }
+  return result({ closed: true });
+});
+
+async function shutdown() {
+  if (hero) await hero.close();
+  process.exit(0);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+server.connect(new StdioServerTransport()).catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+server.registerTool('chunk_text', {
+  description: 'PDF 추출 텍스트를 문장 경계 기준으로 1,000자·200자 중복 청크로 변환한다.',
+  inputSchema: {
+    text: z.string(),
+    chunkSize: z.number().int().positive().max(10000).optional(),
+    overlapSize: z.number().int().nonnegative().optional(),
+  },
+}, async ({ text, chunkSize, overlapSize }) => {
+  // PDF 1개를 MongoDB 문서 1개로 저장할 때 결과를 문서의 chunks 배열에 넣는다.
+  return result({ chunks: chunkTextBySentence(text, chunkSize ?? 1000, overlapSize ?? 200) });
+});
