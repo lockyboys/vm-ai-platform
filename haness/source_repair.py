@@ -3,6 +3,15 @@
 LangChain 도구는 이 모듈을 호출하며 기존 LangGraph 노드/엣지는 유지한다.
 테스트는 임시 후보 파일에 대해 실행한다. 프로세스 분리는 보안 샌드박스가
 아니므로 신뢰된 프로젝트 작업에만 사용하며 설정/인증/검증기 자체는 수정하지 않는다.
+
+2026-10-25 LuckyBoys: "source_repair.py 자체도 LangGraph로" → repair_source의 단계를 StateGraph로 실행한다.
+(원본: haness/source_repair_BACKUP_20261025_215433.py — 판정·백업·원복·git add 규칙은 그대로)
+    START → baseline(원본에서 재현 실패 확인, 아니면 ValueError)
+          → candidate(후보 dry-run/실행/dry-run 3회 검증)
+          ─(실패 또는 dry_run)→ END
+          ─(통과·실행)→ apply(해시·Git 기준 재확인 → 백업 → 감사 PREPARED → 쓰기 → 재검증, 실패 시 원복·예외)
+          → stage(git add까지만, 커밋 안 함 — 감사 기록 실패 시 원복·예외) → END
+    노드에서 난 예외는 graph.invoke 밖으로 그대로 나온다(호출자 계약 유지).
 """
 from __future__ import annotations
 
@@ -16,6 +25,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 from zoneinfo import ZoneInfo
 
 import config
@@ -53,48 +63,25 @@ def _git_checkpoint(target: Path) -> dict:
     return {"ready": True, "commit": head.stdout.decode("ascii").strip()}
 
 
-def _auto_commit(target: Path, message: str, agent_run_id: str) -> dict:
-    """검증을 통과해 적용된 자율 수정을 사람의 git add/commit 없이 자동으로 커밋한다.
+def _stage_only(target: Path) -> dict:
+    """검증을 통과해 적용된 자율 수정을 git add까지만 한다(커밋은 사람이 git diff --cached 확인 후).
 
-    입력: target(커밋할 파일의 절대경로), message(커밋 메시지, 한글, 태그·백업 경로·테스트
-    통과 수 포함), agent_run_id(이번 실행을 식별하는 ID — 백업·감사 로그 파일명과 같은 값을
-    재사용해 셋을 서로 추적 가능하게 한다)
-    출력: {"committed": bool, "commit": <새 HEAD sha, 실패 시 None>, "error": <실패 사유, 성공 시 없음>}
-    주의: 이미 디스크에 적용된 패치를 롤백하지 않기 위해 예외를 던지지 않는다.
-    커밋이 실패하면 워킹트리가 깨끗하지 않은 상태로 남아, 다음 수정 시도는 기존과 동일하게
-    _git_checkpoint의 PreCommitRequired로 막힌다(기존 안전장치 유지).
-    author/committer를 SPS ORCHESTRATOR의 PARTNER 페르소나(코드 구현·제출 담당) 이름으로
-    지정해, git log 작성자 칼럼만 보고도 사람 커밋과 AI 자동 커밋이 구분되고 어느 페르소나가
-    했는지도 드러나게 한다. 이메일 local-part에 agent_run_id를 넣어 실행 단위까지 구분한다.
+    2026-10-25 LuckyBoys: "자동 커밋 → git add까지만". 예전 _auto_commit(PARTNER 이름 자동 커밋)을 대체한다.
+    (원본은 haness/source_repair_BACKUP_20261025_210602.py에 보존)
+    입력: target(적용된 파일의 절대경로) / 출력: {"staged": bool, "error": <실패 사유, 성공 시 없음>}
+    주의: 이미 적용된 패치를 롤백하지 않도록 예외를 던지지 않는다. add가 실패하면 워킹트리 변경만 남고,
+    다음 수정은 _git_checkpoint의 PreCommitRequired로 막힌다(기존 안전장치 유지).
     """
     root = _root()
     relative = str(target.relative_to(root))
-    bot_name = "SPS PARTNER"
-    bot_email = f"sps.partner+{agent_run_id}@sps.local"
-    bot_identity = f"{bot_name} <{bot_email}>"
-    git_env = {**os.environ,
-               "GIT_AUTHOR_NAME": bot_name,
-               "GIT_AUTHOR_EMAIL": bot_email,
-               "GIT_COMMITTER_NAME": bot_name,
-               "GIT_COMMITTER_EMAIL": bot_email}
     try:
         add = subprocess.run(["git", "add", "--", relative], cwd=root, capture_output=True,
-                              timeout=config.SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS)
-        if add.returncode:
-            return {"committed": False, "commit": None, "error": "git add 실패"}
-        commit = subprocess.run(
-            ["git", "commit", "--author", bot_identity, "-m", message, "--", relative],
-            cwd=root, capture_output=True, env=git_env,
-            timeout=config.SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS,
-        )
-        if commit.returncode:
-            return {"committed": False, "commit": None, "error": "git commit 실패"}
-        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
-                              timeout=config.SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS)
-        return {"committed": True,
-                "commit": sha.stdout.decode("ascii").strip() if sha.returncode == 0 else None}
+                             timeout=config.SPS_SOURCE_REPAIR_TEST_TIMEOUT_SECONDS)
     except (subprocess.TimeoutExpired, OSError) as error:
-        return {"committed": False, "commit": None, "error": type(error).__name__}
+        return {"staged": False, "error": type(error).__name__}
+    if add.returncode:
+        return {"staged": False, "error": "git add 실패"}
+    return {"staged": True}
 
 
 def _root() -> Path:
@@ -156,7 +143,9 @@ sys.exit(0 if ok else 1)
     try:
         # 인증 환경변수는 넘기지 않는다. OS 접근을 격리하는 보안 샌드박스는 아니다.
         result = subprocess.run(
-            [sys.executable, "-I", "-c", runner, str(test_file), str(candidate),
+            # -B: 바이트코드(.pyc)를 쓰지 않는다. 같은 초·같은 크기로 후보를 바꾸면 이전 .pyc가 재사용되어
+            # 원본 코드로 테스트되는 문제가 있었다(2026-10-25 재현 테스트로 확인: a-b → a+b 교체가 실패로 판정).
+            [sys.executable, "-I", "-B", "-c", runner, str(test_file), str(candidate),
              "1" if dry_run else "0"], cwd=candidate.parent,
             env={"PATH": os.defpath, "PYTHONIOENCODING": "utf-8"},
             capture_output=True, text=True,
@@ -189,7 +178,7 @@ def repair_source(file_path: str, old_code: str, new_code: str,
 
     dry_run=True도 후보의 회귀 테스트를 실행하지만 원본은 쓰지 않는다.
     실행 직후 재검증이 실패하면 원본 바이트로 복구한다. 검증을 통과해 적용되면
-    사람의 git add/commit 없이 바로 커밋한다(사전 승인 없는 사후 보고 방식).
+    git add까지만 한다(2026-10-25 변경: 자동 커밋 안 함 — 사람이 git diff --cached 확인 후 커밋).
     소스 교체는 이미 로드된 Python 객체를 바꾸지 않으므로 새 워커가 필요하다.
     """
     target = _target(file_path)
@@ -223,62 +212,136 @@ def repair_source(file_path: str, old_code: str, new_code: str,
         ast.parse(regression_test, filename="regression_test.py")
         with tempfile.TemporaryDirectory(prefix="sps_repair_") as directory:
             temp = Path(directory)
-            candidate = temp / target.name
-            test_file = temp / "regression_test.py"
-            test_file.write_text(regression_test, encoding="utf-8")
-            candidate.write_bytes(original)
-            baseline = _check(candidate, test_file, False)
-            if baseline.get("infrastructure_error") or baseline.get("tests", 0) < 1 or baseline["passed"]:
-                raise ValueError("기존 소스에서 오류가 재현되는 회귀 테스트가 필요합니다")
-            candidate.write_text(candidate_text, encoding="utf-8")
-            checks = [_check(candidate, test_file, mode) for mode in (True, False, True)]
-            if not all(item["passed"] for item in checks):
-                return {"success": False, "applied": False, "checks": checks}
-            after = hashlib.sha256(candidate.read_bytes()).hexdigest()
-            report = {"success": True, "applied": False, "dry_run": dry_run,
-                      "path": file_path, "before_sha256": before, "after_sha256": after,
-                      "baseline": baseline, "checks": checks,
-                      "git_checkpoint": checkpoint}
-            if dry_run:
-                return report
-            if target.read_bytes() != original:
-                raise ValueError("검증 중 원본 변경 감지")
-            if _git_checkpoint(target) != checkpoint:
-                raise PreCommitRequired("검증 중 Git 기준 커밋 변경 감지")
-            stamp = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d_%H%M%S_%f")
-            backup = target.with_name(target.stem + "_BACKUP_" + stamp + target.suffix)
-            # 원본 바이트를 배타적으로 저장하며 기존 백업을 덮어쓰지 않는다.
-            with backup.open("xb") as stream:
-                stream.write(original)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(backup, target.stat().st_mode & 0o777)
-            audit = lock_dir / ("repair_" + stamp + ".json")
-            report.update(backup=str(backup.relative_to(_root())), state="PREPARED")
-            audit.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-            try:
-                _atomic_write(target, candidate_text.encode("utf-8"), target.stat().st_mode & 0o777)
-                post = [_check(target, test_file, mode) for mode in (True, False, True)]
-                if not all(item["passed"] for item in post):
-                    raise RuntimeError("적용 후 회귀 테스트 실패")
-                if hashlib.sha256(target.read_bytes()).hexdigest() != after:
-                    raise RuntimeError("적용 후 해시 검증 실패")
-                report.update(applied=True, state="APPLIED", post_checks=post,
-                              restart_required=True)
-                audit.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-                # 사람의 git add/commit을 기다리지 않고 바로 커밋한다(사후 보고 방식).
-                # 메시지는 한글로, 작성자는 PARTNER 페르소나로 남겨 git log/revert로 나중에 검토할 수 있게 한다.
-                commit_message = (
-                    f"[SPS 자동수정] {file_path} 패치 적용\n\n"
-                    f"백업 파일: {report['backup']}\n"
-                    f"통과한 회귀 테스트 수: {post[-1].get('tests', 0)}\n"
-                    f"에이전트 실행 ID: {stamp}"
-                )
-                report["git_commit"] = _auto_commit(target, commit_message, stamp)
-                audit.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-            except BaseException:
-                _atomic_write(target, original, backup.stat().st_mode & 0o777)
-                report.update(success=False, applied=False, state="ROLLED_BACK")
-                audit.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-                raise
-            return report
+            # 그래프 상태: 노드 사이에 넘기는 값. 임시 폴더·락은 invoke 동안 이 함수가 유지한다.
+            state = {"file_path": file_path, "target": target, "original": original,
+                     "candidate_text": candidate_text, "regression_test": regression_test,
+                     "before": before, "checkpoint": checkpoint, "dry_run": dry_run,
+                     "lock_dir": lock_dir, "candidate": temp / target.name,
+                     "test_file": temp / "regression_test.py", "report": {}}
+            return build_repair_graph().invoke(state)["report"]
+
+
+# ---------------------------------------------------------------------------
+# LangGraph: 재현 → 후보 검증 → 적용 → git add (2026-10-25)
+# ---------------------------------------------------------------------------
+# repair_source 그래프 상태. 노드는 바뀐 키만 돌려준다.
+# 함수형 TypedDict를 쓰는 이유: 이 파일은 `from __future__ import annotations`라 class 문법의 타입이 문자열로 남는데,
+# 모듈을 spec_from_file_location으로 읽으면(sys.modules 미등록) LangGraph의 get_type_hints가 문자열을 풀지 못한다.
+RepairState = TypedDict("RepairState", {
+    "file_path": str,         # 프로젝트 상대 경로(허용 목록 검사 완료)
+    "target": Path,           # 실제 대상 파일
+    "original": bytes,        # 수정 전 원본 바이트(원복 기준)
+    "candidate_text": str,    # old_code→new_code 1회 교체 결과
+    "regression_test": str,   # 재현 unittest 원문
+    "before": str,            # 원본 sha256
+    "checkpoint": dict,       # _git_checkpoint 결과(적용 직전 재확인용)
+    "dry_run": bool,
+    "lock_dir": Path,         # 감사 파일·락 폴더(config.SPS_SOURCE_REPAIR_AUDIT_DIR)
+    "candidate": Path,        # 임시 폴더의 후보 파일
+    "test_file": Path,        # 임시 폴더의 재현 테스트 파일
+    "baseline": dict,         # 원본 대상 테스트 결과(실패해야 재현)
+    "report": dict,           # 호출자에게 돌려줄 보고서
+    "backup": Path,           # 적용 전 원본 백업
+    "audit": Path,            # 감사 JSON
+}, total=False)
+
+
+def _write_audit(audit: Path, report: dict) -> None:
+    """감사 파일을 현재 보고서로 덮어쓴다(PREPARED → APPLIED → git_stage / ROLLED_BACK)."""
+    audit.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _rollback(state: RepairState, report: dict) -> None:
+    """적용·stage 단계 실패 시 원본 바이트로 되돌리고 감사에 ROLLED_BACK을 남긴다(예외는 호출 노드가 다시 던짐)."""
+    _atomic_write(state["target"], state["original"], state["backup"].stat().st_mode & 0o777)
+    report.update(success=False, applied=False, state="ROLLED_BACK")
+    _write_audit(state["audit"], report)
+
+
+def _node_baseline(state: RepairState) -> dict:
+    """원본으로 재현 테스트를 돌린다. 통과·0개·인프라 오류면 재현이 아니므로 ValueError(수정하지 않음)."""
+    state["test_file"].write_text(state["regression_test"], encoding="utf-8")
+    state["candidate"].write_bytes(state["original"])
+    baseline = _check(state["candidate"], state["test_file"], False)
+    if baseline.get("infrastructure_error") or baseline.get("tests", 0) < 1 or baseline["passed"]:
+        raise ValueError("기존 소스에서 오류가 재현되는 회귀 테스트가 필요합니다")
+    return {"baseline": baseline}
+
+
+def _node_candidate(state: RepairState) -> dict:
+    """후보를 dry-run/실행/dry-run 3회 검증한다(지침 7: dry-run 전후 통과). 실패하면 success False 보고."""
+    state["candidate"].write_text(state["candidate_text"], encoding="utf-8")
+    checks = [_check(state["candidate"], state["test_file"], mode) for mode in (True, False, True)]
+    if not all(item["passed"] for item in checks):
+        return {"report": {"success": False, "applied": False, "checks": checks}}
+    after = hashlib.sha256(state["candidate"].read_bytes()).hexdigest()
+    return {"report": {"success": True, "applied": False, "dry_run": state["dry_run"],
+                       "path": state["file_path"], "before_sha256": state["before"], "after_sha256": after,
+                       "baseline": state["baseline"], "checks": checks, "git_checkpoint": state["checkpoint"]}}
+
+
+def _route_after_candidate(state: RepairState) -> str:
+    """후보 실패 또는 dry_run이면 여기서 끝(원본 쓰지 않음), 아니면 적용."""
+    return "apply" if state["report"].get("success") and not state["dry_run"] else "end"
+
+
+def _node_apply(state: RepairState) -> dict:
+    """적용 직전 재확인 → 백업(xb, 덮어쓰기 금지) → 감사 PREPARED → 원자적 쓰기 → 재검증. 실패 시 원복 후 예외."""
+    target, original, report = state["target"], state["original"], dict(state["report"])
+    if target.read_bytes() != original:
+        raise ValueError("검증 중 원본 변경 감지")
+    if _git_checkpoint(target) != state["checkpoint"]:
+        raise PreCommitRequired("검증 중 Git 기준 커밋 변경 감지")
+    stamp = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d_%H%M%S_%f")
+    backup = target.with_name(target.stem + "_BACKUP_" + stamp + target.suffix)
+    # 원본 바이트를 배타적으로 저장하며 기존 백업을 덮어쓰지 않는다.
+    with backup.open("xb") as stream:
+        stream.write(original)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(backup, target.stat().st_mode & 0o777)
+    audit = state["lock_dir"] / ("repair_" + stamp + ".json")
+    report.update(backup=str(backup.relative_to(_root())), state="PREPARED")
+    _write_audit(audit, report)
+    try:
+        _atomic_write(target, state["candidate_text"].encode("utf-8"), target.stat().st_mode & 0o777)
+        post = [_check(target, state["test_file"], mode) for mode in (True, False, True)]
+        if not all(item["passed"] for item in post):
+            raise RuntimeError("적용 후 회귀 테스트 실패")
+        if hashlib.sha256(target.read_bytes()).hexdigest() != report["after_sha256"]:
+            raise RuntimeError("적용 후 해시 검증 실패")
+        report.update(applied=True, state="APPLIED", post_checks=post, restart_required=True)
+        _write_audit(audit, report)
+    except BaseException:
+        _rollback({**state, "backup": backup, "audit": audit}, report)
+        raise
+    return {"report": report, "backup": backup, "audit": audit}
+
+
+def _node_stage(state: RepairState) -> dict:
+    """git add까지만 한다(커밋 안 함). 근거(백업·테스트 수)는 감사 파일에 남는다. 감사 기록 실패 시 원복."""
+    report = dict(state["report"])
+    try:
+        report["git_stage"] = _stage_only(state["target"])
+        _write_audit(state["audit"], report)
+    except BaseException:
+        _rollback(state, report)
+        raise
+    return {"report": report}
+
+
+def build_repair_graph():
+    """repair_source 단계를 LangGraph StateGraph로 조립해 compile()한 그래프를 돌려준다."""
+    from langgraph.graph import END, START, StateGraph   # 지연 import: read_repair_source만 쓸 때는 불필요
+
+    graph = StateGraph(RepairState)
+    graph.add_node("baseline", _node_baseline)
+    graph.add_node("candidate", _node_candidate)
+    graph.add_node("apply", _node_apply)
+    graph.add_node("stage", _node_stage)
+    graph.add_edge(START, "baseline")
+    graph.add_edge("baseline", "candidate")
+    graph.add_conditional_edges("candidate", _route_after_candidate, {"apply": "apply", "end": END})
+    graph.add_edge("apply", "stage")
+    graph.add_edge("stage", END)
+    return graph.compile()
