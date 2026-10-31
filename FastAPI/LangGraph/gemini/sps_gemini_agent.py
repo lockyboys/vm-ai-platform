@@ -8,6 +8,7 @@ import argparse
 import os
 import sys
 import base64
+import json
 import asyncio
 import traceback
 import httpx
@@ -29,6 +30,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
+try:
+    from langchain_ollama import ChatOllama
+except ImportError:  # Ollama fallback is optional for Gemini-only deployments.
+    ChatOllama = None
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -48,6 +53,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 # 주의: 소스 기본 키를 두지 않으며, 키가 없으면 CommonAuth가 실패 처리합니다.
 
 from common.auth import AuthenticationError, CommonAuth
+from common.common_function import WebSearchUnavailable, web_search
+from common.persona_source import PERSONA_NAMES, PersonaSource
 
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8000/mcp")
 
@@ -56,6 +63,11 @@ MCP_AUTH_SERVER_URL = "http://127.0.0.1:8000"
 
 MCP_URL = os.getenv("SPS_MCP_URL", "http://127.0.0.1:8000/mcp")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+LLM_PROVIDER = os.getenv("SPS_LLM_PROVIDER", "auto").strip().lower()
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e4b").strip()
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
+OLLAMA_TIMEOUT_SECONDS = int(os.getenv("SPS_OLLAMA_TIMEOUT_SECONDS", "120"))
+OLLAMA_FALLBACK_ENABLED = os.getenv("SPS_OLLAMA_FALLBACK_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 AGENT_TIMEOUT_SECONDS = int(os.getenv("SPS_GEMINI_AGENT_TIMEOUT_SECONDS", "120"))
 AGENT_RECURSION_LIMIT = int(os.getenv("SPS_GEMINI_AGENT_RECURSION_LIMIT", "12"))
 # CLI와 API 모두 프로세스 환경의 토큰을 사용하며 파일에 저장하지 않는다.
@@ -70,7 +82,9 @@ SYSTEM_PROMPT = """
 너는 SPS 개발을 지원하는 LangChain 기반 AI 비서(Agent)다.
 1. SPS Harness MCP 도구를 사용해 Repository와 등록 정보를 확인한다.
 2. Verified SQL에 등록되지 않은 임의 SQL을 실행하지 않는다.
-3. 메일(Gmail) 조회 및 발송 명령이 떨어지면 read_recent_emails 및 send_gmail 도구를 적극 활용하여 사용자를 돕는다.
+3. 메일(Gmail) 조회 및 발송 명령이 떨어지면 read_recent_emails 및 send_gmail 도구를 활용한다.
+4. 최신 외부 정보가 필요하면 공통 tavily_search 도구를 사용하며 검색 불가 시 추측하지 않는다.
+5. 전문 역할이 필요하면 persona_prompt로 저장된 13개 Markdown 페르소나 원문을 읽는다.
 """
 
 # FastAPI 앱 객체 선언
@@ -91,6 +105,7 @@ app = FastAPI(title="SPS Agent Gateway Server", lifespan=lifespan)
 
 # 전역 에이전트 및 도구 관리를 위한 변수
 agent_instance = None
+agent_tools: list[Any] = []
 
 def generate_and_inject_jwt(user_id: str = "jeaje") -> str:
     auth = CommonAuth()
@@ -130,8 +145,11 @@ def validate_environment(*, require_gemini: bool = True) -> None:
     """CLI 접속 전에 토큰 형식과 필요한 공급자 키만 검증한다. 비밀값은 출력하지 않는다."""
     if len(BEARER_TOKEN.split(".")) != 3 or not all(BEARER_TOKEN.split(".")):
         raise RuntimeError("SPS_MCP_BEARER_TOKEN must be a three-part JWT")
-    if require_gemini and not (os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()):
+    gemini_key_set = bool(os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip())
+    if require_gemini and LLM_PROVIDER == "gemini" and not gemini_key_set:
         raise RuntimeError("GOOGLE_API_KEY or GEMINI_API_KEY is required")
+    if require_gemini and LLM_PROVIDER not in {"auto", "both", "gemini", "ollama"}:
+        raise RuntimeError("SPS_LLM_PROVIDER must be auto, both, gemini, or ollama")
 
 
 def issue_common_auth_token(user_id: str) -> None:
@@ -142,25 +160,49 @@ def issue_common_auth_token(user_id: str) -> None:
 
 
 async def _invoke_graph(graph, query: str, thread_id: str) -> str:
-    """CLI·API 호출자가 같은 그래프 입력/스레드/응답 검증 경로를 사용한다."""
+    """CLI·API 공통 실행 경로; Gemini quota 시 Ollama로 한 번만 전환한다."""
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must not be empty")
-    result = await asyncio.wait_for(
-        graph.ainvoke(
-            {"messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=query)],
-             "thread_id": thread_id},
-            config={"configurable": {"thread_id": thread_id},
-                    "recursion_limit": AGENT_RECURSION_LIMIT},
-        ),
-        timeout=AGENT_TIMEOUT_SECONDS,
-    )
-    messages = result.get("messages", [])
-    if not messages:
-        raise RuntimeError("Gemini returned no messages")
-    response = extract_message_content(getattr(messages[-1], "content", messages[-1]))
-    if not response.strip():
-        raise RuntimeError("Gemini returned an empty response")
-    return response
+
+    async def invoke_once(target_graph) -> str:
+        result = await asyncio.wait_for(
+            target_graph.ainvoke(
+                {"messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=query)],
+                 "thread_id": thread_id},
+                config={"configurable": {"thread_id": thread_id},
+                        "recursion_limit": AGENT_RECURSION_LIMIT},
+            ),
+            timeout=AGENT_TIMEOUT_SECONDS,
+        )
+        messages = result.get("messages", [])
+        if not messages:
+            raise RuntimeError("LLM returned no messages")
+        response = extract_message_content(getattr(messages[-1], "content", messages[-1]))
+        if not response.strip():
+            raise RuntimeError("LLM returned an empty response")
+        return response
+
+    try:
+        return await invoke_once(graph)
+    except Exception as error:
+        error_text = str(error).upper()
+        quota_error = any(marker in error_text for marker in (
+            "RESOURCE_EXHAUSTED", "402", "429", "QUOTA", "PREPAYMENT", "CREDITS DEPLETED"
+        ))
+        if not (quota_error and OLLAMA_FALLBACK_ENABLED and LLM_PROVIDER != "ollama"):
+            raise
+        if ChatOllama is None:
+            raise RuntimeError("Gemini quota exhausted; Ollama fallback is not installed") from error
+        if not agent_tools:
+            raise RuntimeError("Gemini quota exhausted; no MCP tools are available for Ollama fallback") from error
+        print(f"⚠️ Gemini quota 오류 감지: Ollama로 1회 전환합니다 ({OLLAMA_BASE_URL}, {OLLAMA_MODEL})")
+        fallback_graph = build_graph(create_ollama_model(), agent_tools)
+        try:
+            return await invoke_once(fallback_graph)
+        except Exception as fallback_error:
+            raise RuntimeError(
+                f"Gemini quota exhausted and Ollama fallback failed: {fallback_error}"
+            ) from fallback_error
 
 
 async def run_agent(user_query: str, thread_id: str = "sps-gemini-cli",
@@ -210,7 +252,7 @@ async def main() -> None:
 # 청크/스트림 대응 안전한 에이전트 빌더 2026.10.13
 # ==========================================
 async def get_or_create_agent():
-    global agent_instance
+    global agent_instance, agent_tools
     if agent_instance is not None:
         return agent_instance
     
@@ -227,15 +269,16 @@ async def get_or_create_agent():
         traceback.print_exception(type(e), e, e.__traceback__)
         print(f"⚠️ [주의] MCP 도구 수신 지연/실패 ({e}), 우선 기본 Gmail 도구로 작동합니다.")
 
-    all_tools = mcp_tools + [read_recent_emails, send_gmail]
+    all_tools = mcp_tools + [read_recent_emails, send_gmail, tavily_search, persona_prompt]
+    agent_tools = all_tools
     print(f"🛠️ [최종 상태] 에이전트에 바인딩된 총 도구 수: {len(all_tools)}개")
 
     # 2. Gmail 기본 도구 탑재
-    all_tools = mcp_tools + [read_recent_emails, send_gmail]
-    agent_instance = build_graph(create_gemini_model(), all_tools)
+    all_tools = mcp_tools + [read_recent_emails, send_gmail, tavily_search, persona_prompt]
+    agent_instance = create_agent_graph(all_tools)
     print("🤖 [SPS AI Agent] 에이전트 준비 완료!")
 
-    agent_instance = build_graph(create_gemini_model(), all_tools)
+    agent_instance = create_agent_graph(all_tools)
     return agent_instance
 
 # ==========================================
@@ -310,24 +353,77 @@ def send_gmail(recipient: str, subject: str, content: str) -> str:
     except Exception as e:
         return f"❌ 메일 전송 실패: {str(e)}"
 
+@tool
+def tavily_search(query: str, max_results: int = 5) -> str:
+    """common.common_function.web_search를 통해 Tavily 검색 결과를 JSON으로 반환합니다."""
+    try:
+        return json.dumps(
+            {"results": web_search(query, max_results=max_results)},
+            ensure_ascii=False,
+        )
+    except (ValueError, WebSearchUnavailable) as error:
+        return json.dumps(
+            {"error": type(error).__name__, "message": str(error)},
+            ensure_ascii=False,
+        )
+
+
+@tool
+def persona_prompt(persona_name: str) -> str:
+    """config.py가 지정한 Markdown 원문에서 SPS 페르소나 하나를 읽습니다."""
+    name = persona_name.strip().upper() if isinstance(persona_name, str) else ""
+    if name not in PERSONA_NAMES:
+        return json.dumps(
+            {"error": "ValueError", "message": "unknown persona"},
+            ensure_ascii=False,
+        )
+    return PersonaSource().load(name)
+
+
 # ==========================================
 # 에이전트 설정
 # ==========================================
 def create_gemini_model() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0, max_retries=2)
 
+def create_ollama_model():
+    if ChatOllama is None:
+        raise RuntimeError("langchain-ollama is not installed")
+    return ChatOllama(
+        model=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        temperature=0,
+        client_kwargs={"timeout": OLLAMA_TIMEOUT_SECONDS},
+    )
+
+def create_primary_model():
+    """auto/both/gemini은 Gemini를 도구 실행 모델로 사용한다."""
+    if LLM_PROVIDER == "ollama" or (
+        LLM_PROVIDER == "auto"
+        and not (os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip())
+    ):
+        return create_ollama_model()
+    return create_gemini_model()
+
+def create_agent_graph(tools: list[Any]):
+    """선택된 공급자 모델 하나에 완전히 동일한 LangGraph와 도구를 적용한다."""
+    return build_graph(create_primary_model(), tools)
+
 class SimpleState(TypedDict, total=False):
     messages: Annotated[list[Any], add_messages]
     thread_id: str
 
-def build_graph(model: ChatGoogleGenerativeAI, tools: list[Any]):
+def build_graph(model: Any, tools: list[Any]):
+    """Gemini와 Ollama에 동일하게 적용되는 단일 LangGraph 실행 흐름."""
     model_with_tools = model.bind_tools(tools)
     
     async def rag_node(state: SimpleState) -> dict[str, list[Any]]:
         return {"messages": [await model_with_tools.ainvoke(state["messages"])]}
         
     async def verifier(state: SimpleState) -> dict[str, list[Any]]:
-        return {"messages": [await model.ainvoke([*state["messages"], HumanMessage(content="결과를 사용자에게 깔끔하게 요약해줘.")])]}
+        # 검증 단계는 사용자 답변을 재생성하지 않고 마지막 모델 답변을 통과시킨다.
+        # 재호출하면 원래 질문이 요약 요청으로 덮여 직접 대화 응답이 왜곡될 수 있다.
+        return {"messages": [state["messages"][-1]]}
         
     builder = StateGraph(SimpleState)
     builder.add_node("rag_node", rag_node)
@@ -338,6 +434,7 @@ def build_graph(model: ChatGoogleGenerativeAI, tools: list[Any]):
     builder.add_edge("tools", "rag_node")
     builder.add_edge("verifier", END)
     return builder.compile(checkpointer=MemorySaver())
+
 
 # ==============================================================================
 # [참고: 방법 C] FastAPI 서버 구동 시 토큰 수동 발급/만료 문제를 없애는 최소 코드 보강안
@@ -363,6 +460,7 @@ async def invoke_agent(
     return await _invoke_graph(agent, query, thread_id), tool_count
 
 async def create_agent():
+    global agent_tools
     mcp_tools = []
     try:
         client = create_mcp_client()
@@ -371,9 +469,10 @@ async def create_agent():
     except Exception as e:
         print(f"⚠️ [MCP] 도구 로드 실패 또는 건너뜀 (사유: {e})")
 
-    all_tools = mcp_tools + [read_recent_emails, send_gmail]
+    all_tools = mcp_tools + [read_recent_emails, send_gmail, tavily_search, persona_prompt]
+    agent_tools = all_tools
     print(f"🛠️ 최종 탑재된 총 도구 개수: {len(all_tools)}")
-    return build_graph(create_gemini_model(), all_tools), len(mcp_tools)
+    return create_agent_graph(all_tools), len(mcp_tools)
 
 
 def extract_message_content(content: Any) -> str:
