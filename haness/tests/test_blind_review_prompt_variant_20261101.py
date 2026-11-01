@@ -56,7 +56,22 @@ def test_checklist_prompt_is_generic_four_point_review():
     assert config.BLIND_REVIEW_PROMPTS["review"] == "이 프로그램을 검토해 주세요."
 
 
-@pytest.mark.parametrize("variant", ["review", "bug_focus", "checklist"])
+def test_checklist_rules_prompt_adds_generic_convention_step():
+    """2026-11-01 LuckyBoys 선택 A: 12b 점검표 논리 13/20 — 놓친 7건 중 6건이 테트리스(점수·레벨 규칙 4건).
+    점검표 ①~④는 그대로 두고 ⑤ '표준 규칙·관례와 다르게 동작하는 부분'만 추가한다(효과를 ⑤ 하나로 분리).
+    앱 종류가 드러나는 단어(게임·계산·점수 등)는 넣지 않는다 — 82건 공통 문구, 블라인드 유지."""
+    base = config.BLIND_REVIEW_PROMPTS["checklist"]
+    text = config.BLIND_REVIEW_PROMPTS["checklist_rules"]
+    assert "⑤" in text and "규칙" in text and "관례" in text
+    # ①~④ 문구는 checklist 와 같아야 비교가 공정하다(⑤ 앞부분이 동일)
+    assert text.split("⑤")[0] == base.split(" 부분을 차례로")[0] + " 부분 "
+    for hint in ("syntax", "runtime", "performance", "logic", "문법", "성능", "논리",
+                 "계산기", "테트리스", "tetris", "calculator", "82", "게임", "계산", "점수", "레벨"):
+        assert hint not in text.lower()
+    assert config.BLIND_REVIEW_PROMPTS["checklist"] == base  # 기존 점검표 문구 보존
+
+
+@pytest.mark.parametrize("variant", ["review", "bug_focus", "checklist", "checklist_rules"])
 def test_worker_resolves_configured_prompt(variant):
     assert worker.resolve_prompt(variant) == config.BLIND_REVIEW_PROMPTS[variant]
 
