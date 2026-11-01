@@ -16,7 +16,9 @@ ROOT = Path(config.PROJECT_ROOT)
 BASE = ROOT / "haness/apps/blind_review_20261027/results"
 JOBS = {"gemini_review": ("gemini", "cc319de2752c4649a13e1834a2c0c864"),
         "12b_review": ("ollama", "76508f145da54186a1794efd96b74746"),
-        "12b_checklist": ("ollama", "a0ead49b5f3140c5be2ae46db4e2d0c7")}
+        "12b_checklist": ("ollama", "a0ead49b5f3140c5be2ae46db4e2d0c7"),
+        # 2026-11-01 ⑤(표준 규칙·관례) 추가 실험 — 앱별 논리 점수 비교용
+        "12b_checklist_rules": ("ollama", "91f63317f1334ffa9558ddc056fdf68e")}
 STOP = {"with", "from", "that", "this", "when", "into", "than", "instead", "should", "function", "code"}
 
 
