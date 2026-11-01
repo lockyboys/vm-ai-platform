@@ -16,11 +16,48 @@ def _paths(job_id):
     d = JOB_ROOT / job_id
     return d / "request.json", d / "result.json", d / "stderr.log"
 
-def submit(provider="ollama"):
+def _next_attempt(job_dir):
+    """이전 실행 산출물을 보존할 attempt 번호(1부터). 이미 있는 번호는 건너뛴다(덮어쓰기 금지)."""
+    n = 1
+    while (job_dir / f"request.attempt{n}.json").exists():
+        n += 1
+    return n
+
+def _preserve_previous(job_dir, n):
+    """이전 request/result/stderr/return_code를 attemptN 이름으로 옮긴다(삭제 없음, 원본 보존).
+    return_code를 비워 두는 이유: 새 실행이 끝나기 전에 status()가 옛 종료코드를 읽지 않게 하기 위해서다."""
+    for name, new_name in (("request.json", f"request.attempt{n}.json"),
+                           ("result.json", f"result.attempt{n}.json"),
+                           ("stderr.log", f"stderr.attempt{n}.log"),
+                           ("return_code", f"return_code.attempt{n}")):
+        if (job_dir / name).exists():
+            (job_dir / name).replace(job_dir / new_name)
+
+def submit(provider="ollama", resume_job_id=""):
+    """블라인드 리뷰 job을 독립 프로세스로 띄운다.
+
+    resume_job_id(2026-11-01 LuckyBoys): 멈춘 job을 같은 job_id·같은 결과 폴더로 다시 띄운다.
+      워커는 success=true 결과를 재사용하므로 성공한 건은 건너뛰고 나머지만 처리한다.
+      잘못된 id·없는 job·다른 provider·아직 실행 중인 job은 프로세스를 띄우기 전에 거부한다.
+    """
     if provider not in ("ollama", "gemini"):
         raise ValueError("invalid provider")
-    job_id = uuid4().hex
-    req_path, result_path, stderr_path = _paths(job_id)
+    attempt = None
+    if resume_job_id:
+        req_path, result_path, stderr_path = _paths(resume_job_id)  # 형식 검사(32자리 소문자 hex)
+        if not req_path.exists():
+            raise ValueError(f"resume job not found: {resume_job_id}")
+        previous = json.loads(req_path.read_text(encoding="utf-8"))
+        if previous.get("provider") != provider:
+            raise ValueError(f"provider mismatch: job={previous.get('provider')}, requested={provider}")
+        if _alive(previous.get("pid", 0)):
+            raise ValueError(f"job is still running: {resume_job_id}")
+        attempt = _next_attempt(req_path.parent)
+        _preserve_previous(req_path.parent, attempt)
+        job_id = resume_job_id
+    else:
+        job_id = uuid4().hex
+        req_path, result_path, stderr_path = _paths(job_id)
     req_path.parent.mkdir(parents=True, exist_ok=True)
     rc_path = req_path.parent / "return_code"
     # 분리 실행(start_new_session)된 프로세스의 종료코드는 status() 에서 얻을 수 없으므로
@@ -38,6 +75,8 @@ def submit(provider="ollama"):
     req = {"job_id": job_id, "provider": provider, "state": "running",
            "pid": p.pid, "result_path": str(result_path),
            "stderr_path": str(stderr_path), "return_code": None}
+    if attempt is not None:
+        req["resumed_from_attempt"] = attempt  # 몇 번째 재실행인지(이전 산출물은 *.attemptN.*)
     req_path.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")
     return req
 
