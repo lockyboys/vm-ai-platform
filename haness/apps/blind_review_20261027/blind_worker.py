@@ -10,6 +10,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from config import OLLAMA_ENDPOINT, OLLAMA_MODEL, OLLAMA_NUM_GPU, OLLAMA_NUM_CTX, OLLAMA_NUM_BATCH, OLLAMA_NUM_PREDICT, OLLAMA_TEMPERATURE, OLLAMA_KEEP_ALIVE, OLLAMA_WORKERS, OLLAMA_TIMEOUT_SECONDS
 from config import BLIND_REVIEW_PROMPTS, BLIND_REVIEW_DEFAULT_PROMPT  # 2026-11-01 지시문 선택(문제별 힌트 없음)
+# 2026-11-01 실행 대상(laptop|gpu)·모델 선택(LuckyBoys: GPU 서버 gemma4:12b-it-q4_K_M 실험)
+from config import BLIND_REVIEW_OLLAMA_ENDPOINTS, BLIND_REVIEW_DEFAULT_OLLAMA_TARGET, BLIND_REVIEW_OLLAMA_NUM_GPU, BLIND_REVIEW_MODEL_DIGESTS
 ROOT=Path(__file__).resolve().parent
 PROMPT='이 프로그램을 검토해 주세요.'
 OPTIONS={'num_ctx':OLLAMA_NUM_CTX,'num_batch':OLLAMA_NUM_BATCH,'num_gpu':OLLAMA_NUM_GPU,'num_predict':OLLAMA_NUM_PREDICT,'temperature':OLLAMA_TEMPERATURE}
@@ -25,6 +27,27 @@ def resolve_prompt(variant):
  if not isinstance(variant,str) or variant not in BLIND_REVIEW_PROMPTS:
   raise ValueError(f'unknown prompt_variant: {variant!r}')
  return BLIND_REVIEW_PROMPTS[variant]
+
+def resolve_ollama(target,model):
+ """실행 대상·모델 → (주소, 모델, 기대 지문). 2026-11-01 LuckyBoys GPU 서버 실험.
+ 대상은 config.BLIND_REVIEW_OLLAMA_ENDPOINTS 의 이름(laptop|gpu)만, 모델은 BLIND_REVIEW_MODEL_DIGESTS 에 있는 이름만 허용.
+ URL 직접 입력·빈 값·None·문자열이 아닌 값은 ValueError — 임의 주소·지문 미등록 모델로 82건을 돌리지 않게 한다."""
+ if not isinstance(target,str) or target not in BLIND_REVIEW_OLLAMA_ENDPOINTS:
+  raise ValueError(f'unknown ollama_target: {target!r}')
+ if not isinstance(model,str) or model not in BLIND_REVIEW_MODEL_DIGESTS:
+  raise ValueError(f'unknown ollama_model: {model!r}')
+ return BLIND_REVIEW_OLLAMA_ENDPOINTS[target],model,BLIND_REVIEW_MODEL_DIGESTS[model]
+
+def options_for(target):
+ """대상별 Ollama 옵션. num_gpu 만 다르고 나머지(num_ctx·num_batch·num_predict·temperature)는 같다(공정 비교).
+ num_gpu 가 None(GPU 서버)이면 옵션에서 빼서 Ollama가 전 층을 GPU에 올리게 한다."""
+ if not isinstance(target,str) or target not in BLIND_REVIEW_OLLAMA_NUM_GPU:
+  raise ValueError(f'unknown ollama_target: {target!r}')
+ options=dict(OPTIONS)
+ num_gpu=BLIND_REVIEW_OLLAMA_NUM_GPU[target]
+ if num_gpu is None:options.pop('num_gpu',None)
+ else:options['num_gpu']=num_gpu
+ return options
 
 def request(route,data=None,timeout=10):
  opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -84,21 +107,31 @@ def main():
  args=json.loads(sys.stdin.read());provider=args['provider'];assert provider in ('ollama','gemini')
  # 2026-11-01: 지시문 선택. 지정이 없으면 기존 문구(review) — 예전 job과 결과 비교 기준 유지.
  # PROMPT는 아래 process_item 메시지 조립 줄이 쓰는 전역이라, 그 줄은 손대지 않고 전역 값만 바꾼다.
- global PROMPT
+ # 2026-11-01 대상·모델: request()·지문 확인·chat 호출이 쓰는 전역(OLLAMA_ENDPOINT·OLLAMA_MODEL·DIGEST·OPTIONS)만 바꾼다.
+ #   지정이 없으면 laptop + config.OLLAMA_MODEL = 기존 동작 그대로.
+ global PROMPT,OLLAMA_ENDPOINT,OLLAMA_MODEL,DIGEST,OPTIONS
  prompt_variant=args.get('prompt_variant',BLIND_REVIEW_DEFAULT_PROMPT)
  PROMPT=resolve_prompt(prompt_variant)
+ ollama_target=None
+ if provider=='ollama':
+  ollama_target=args.get('ollama_target',BLIND_REVIEW_DEFAULT_OLLAMA_TARGET)
+  # 실행 전에 검증(잘못된 값이면 여기서 예외 → 결과 파일을 만들지 않음)
+  OLLAMA_ENDPOINT,OLLAMA_MODEL,DIGEST=resolve_ollama(ollama_target,args.get('ollama_model',OLLAMA_MODEL))
+  OPTIONS=options_for(ollama_target)
  ollama_workers=max(1,int(args.get('ollama_workers',os.getenv('OLLAMA_WORKERS',DEFAULT_OLLAMA_WORKERS))))
  input_bytes=zlib.decompress(base64.b64decode((ROOT/'blind_inputs.b64').read_text()))
  inputs=json.loads(input_bytes)
  out=job_output_dir(provider,args.get('job_id'));out.mkdir(parents=True,exist_ok=True)
  summary={'provider':provider,'started_at':now(),'status':'running','completed':0,'total':len(inputs),'prompt':PROMPT,'input_sha256':hashlib.sha256(input_bytes).hexdigest(),'ollama_workers':ollama_workers if provider=='ollama' else 1,'runs':[]}
  summary['prompt_variant']=prompt_variant  # 어느 지시문으로 만든 결과인지 증빙
+ if provider=='ollama':
+  summary['ollama_target']=ollama_target;summary['ollama_endpoint']=OLLAMA_ENDPOINT  # 어느 서버에서 만든 결과인지 증빙
  save(out/'summary.json',summary)
  try:
   if provider=='ollama':
    summary['version']=request('version');tags=request('tags')
    m=next(m for m in tags['models'] if m['name']==OLLAMA_MODEL)
-   assert m['digest']==DIGEST,'Notebook model fingerprint mismatch'
+   assert m['digest']==DIGEST,'Ollama model fingerprint mismatch'  # 노트북·GPU 공통 메시지
    summary['model']=OLLAMA_MODEL;summary['options']=OPTIONS
   else:
    from dotenv import load_dotenv

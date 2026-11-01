@@ -118,6 +118,27 @@ BLIND_REVIEW_PROMPTS = {
                   "칭찬·일반 개선 제안은 쓰지 마세요. 버그가 없으면 '버그 없음'이라고 답하세요."),
 }
 BLIND_REVIEW_DEFAULT_PROMPT = "review"  # 지시문을 지정하지 않은 제출·예전 job 이어서 실행은 기존 문구
+# 블라인드 리뷰 실행 대상·모델(2026-11-01 LuckyBoys: GPU 서버 gemma4:12b-it-q4_K_M 실험).
+# - laptop: 노트북 RTX 3060 6GB, 역방향 터널(ssh -N -R 11435:127.0.0.1:11434) → 기존 OLLAMA_ENDPOINT 그대로.
+# - gpu   : GPU 서버(L4), 개발서버→GPU 정방향 터널(ssh -N -L 11436:127.0.0.1:11434 ... jeajea_park@<GPU IP>).
+#           GPU IP는 켤 때마다 바뀌지만 터널 로컬 포트(11436)는 고정이라 주소를 바꿀 필요가 없다.
+# 목록에 없는 대상은 워커·제출 도구가 거부한다(임의 URL로 82건을 보내지 않게).
+BLIND_REVIEW_OLLAMA_ENDPOINTS = {
+    "laptop": OLLAMA_ENDPOINT,
+    "gpu": os.getenv("BLIND_REVIEW_GPU_OLLAMA_ENDPOINT", "http://127.0.0.1:11436"),
+}
+BLIND_REVIEW_DEFAULT_OLLAMA_TARGET = "laptop"  # 대상 미지정 제출·예전 job 이어서 실행 = 기존 동작
+# 대상별 num_gpu(GPU에 올릴 층 수). 노트북 6GB는 OLLAMA_NUM_GPU(.env 28, 34는 CUDA OOM 실측),
+# GPU 서버는 None = 옵션을 보내지 않아 Ollama가 전 층을 GPU에 올리게 한다(28층 제한 시 12b가 CPU로 밀려 느려짐).
+BLIND_REVIEW_OLLAMA_NUM_GPU = {"laptop": OLLAMA_NUM_GPU, "gpu": None}
+# 모델 이름 → 기대 지문(ollama /api/tags digest 실측 2026-11-01). 다르면 워커가 실행 전에 멈춘다(preflight_failed).
+# gemma4:latest 는 노트북에서 gemma4:e4b 와 같은 지문(Q4_K_M 7.5B)이다.
+# 12b 지문: GPU 서버 127.0.0.1:11436/api/tags 실측(FastAPI/LangGraph/check_gpu_server_ollama_20261101.py).
+BLIND_REVIEW_MODEL_DIGESTS = {
+    "gemma4:e4b": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+    "gemma4:latest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+    "gemma4:12b-it-q4_K_M": "6114515d63c17436a7c0417d82820ac65ad643e2806c5a3c89cb62846436ed0b",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

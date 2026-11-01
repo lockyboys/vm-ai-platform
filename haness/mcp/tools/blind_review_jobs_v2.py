@@ -33,7 +33,7 @@ def _preserve_previous(job_dir, n):
         if (job_dir / name).exists():
             (job_dir / name).replace(job_dir / new_name)
 
-def submit(provider="ollama", resume_job_id="", prompt_variant=""):
+def submit(provider="ollama", resume_job_id="", prompt_variant="", ollama_target="", ollama_model=""):
     """블라인드 리뷰 job을 독립 프로세스로 띄운다.
 
     resume_job_id(2026-11-01 LuckyBoys): 멈춘 job을 같은 job_id·같은 결과 폴더로 다시 띄운다.
@@ -42,6 +42,10 @@ def submit(provider="ollama", resume_job_id="", prompt_variant=""):
     prompt_variant(2026-11-01 LuckyBoys): config.BLIND_REVIEW_PROMPTS 의 지시문 이름("review"|"bug_focus").
       빈 값이면 새 job은 기본값(review), 이어서 실행은 이전 job의 지시문을 그대로 쓴다.
       이어서 실행에 다른 지시문을 주면 거부한다(한 job 안에서 지시문이 섞이면 비교가 무의미해짐).
+    ollama_target / ollama_model(2026-11-01 LuckyBoys: GPU 서버 gemma4:12b-it-q4_K_M 실험):
+      대상은 config.BLIND_REVIEW_OLLAMA_ENDPOINTS 이름(laptop|gpu), 모델은 config.BLIND_REVIEW_MODEL_DIGESTS 이름.
+      빈 값이면 새 job은 laptop + config.OLLAMA_MODEL(기존 동작), 이어서 실행은 이전 job 값을 그대로 쓴다.
+      provider=ollama 일 때만 의미가 있으며, 이어서 실행에 다른 값을 주면 거부한다(한 job 안에서 모델이 섞이지 않게).
     """
     import config  # 지연 import: 지시문 목록은 루트 공통 설정에서만 읽는다(하드코딩 금지)
 
@@ -51,6 +55,15 @@ def submit(provider="ollama", resume_job_id="", prompt_variant=""):
         prompt_variant = ""  # MCP에서 null이 오면 '지정 안 함'으로 본다
     if not isinstance(prompt_variant, str) or (prompt_variant and prompt_variant not in config.BLIND_REVIEW_PROMPTS):
         raise ValueError(f"unknown prompt_variant: {prompt_variant!r}")  # 등록 안 된 이름·숫자 등은 실행 전 거부
+    # 대상·모델 검증: None(MCP null)은 '지정 안 함', 문자열이 아니거나 목록에 없으면 프로세스를 띄우기 전에 거부
+    if ollama_target is None:
+        ollama_target = ""
+    if ollama_model is None:
+        ollama_model = ""
+    if not isinstance(ollama_target, str) or (ollama_target and ollama_target not in config.BLIND_REVIEW_OLLAMA_ENDPOINTS):
+        raise ValueError(f"unknown ollama_target: {ollama_target!r}")
+    if not isinstance(ollama_model, str) or (ollama_model and ollama_model not in config.BLIND_REVIEW_MODEL_DIGESTS):
+        raise ValueError(f"unknown ollama_model: {ollama_model!r}")
     attempt = None
     if resume_job_id:
         req_path, result_path, stderr_path = _paths(resume_job_id)  # 형식 검사(32자리 소문자 hex)
@@ -65,11 +78,21 @@ def submit(provider="ollama", resume_job_id="", prompt_variant=""):
         if prompt_variant and prompt_variant != previous_variant:
             raise ValueError(f"prompt_variant mismatch: job={previous_variant}, requested={prompt_variant}")
         variant = previous_variant
+        # 예전 job(대상·모델 기록 없음)은 노트북 + config.OLLAMA_MODEL 로 돌았던 것으로 본다
+        previous_target = previous.get("ollama_target", config.BLIND_REVIEW_DEFAULT_OLLAMA_TARGET)
+        previous_model = previous.get("ollama_model", config.OLLAMA_MODEL)
+        if ollama_target and ollama_target != previous_target:
+            raise ValueError(f"ollama_target mismatch: job={previous_target}, requested={ollama_target}")
+        if ollama_model and ollama_model != previous_model:
+            raise ValueError(f"ollama_model mismatch: job={previous_model}, requested={ollama_model}")
+        target, model = previous_target, previous_model
         attempt = _next_attempt(req_path.parent)
         _preserve_previous(req_path.parent, attempt)
         job_id = resume_job_id
     else:
         variant = prompt_variant or config.BLIND_REVIEW_DEFAULT_PROMPT
+        target = ollama_target or config.BLIND_REVIEW_DEFAULT_OLLAMA_TARGET
+        model = ollama_model or config.OLLAMA_MODEL
         job_id = uuid4().hex
         req_path, result_path, stderr_path = _paths(job_id)
     req_path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,11 +107,16 @@ def submit(provider="ollama", resume_job_id="", prompt_variant=""):
     p = subprocess.Popen(cmd, cwd=PROJECT_ROOT, stdin=subprocess.PIPE,
                          stdout=out, stderr=err, start_new_session=True)
     # job_id 를 넘겨 워커가 job 별 결과 디렉터리를 쓰게 한다 (job 간 결과 섞임 방지)
-    p.stdin.write((json.dumps({"provider": provider, "job_id": job_id, "prompt_variant": variant}) + "\n").encode())
+    payload = {"provider": provider, "job_id": job_id, "prompt_variant": variant}
+    if provider == "ollama":
+        payload.update(ollama_target=target, ollama_model=model)  # Gemini 실행에는 넘기지 않는다(의미 없음)
+    p.stdin.write((json.dumps(payload) + "\n").encode())
     p.stdin.close(); out.close(); err.close()
     req = {"job_id": job_id, "provider": provider, "state": "running",
            "pid": p.pid, "result_path": str(result_path),
            "stderr_path": str(stderr_path), "return_code": None, "prompt_variant": variant}
+    if provider == "ollama":
+        req.update(ollama_target=target, ollama_model=model)  # 이어서 실행이 같은 대상·모델을 쓰도록 기록
     if attempt is not None:
         req["resumed_from_attempt"] = attempt  # 몇 번째 재실행인지(이전 산출물은 *.attemptN.*)
     req_path.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")

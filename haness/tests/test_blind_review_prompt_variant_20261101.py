@@ -85,7 +85,9 @@ def test_default_variant_is_review(env):
 def test_bug_focus_is_passed_to_worker(env):
     root, calls = env
     req = jobs.submit("ollama", prompt_variant="bug_focus")
-    assert _sent(calls[0]) == {"provider": "ollama", "job_id": req["job_id"], "prompt_variant": "bug_focus"}
+    # 2026-11-01: ollama 제출은 실행 대상·모델도 넘긴다(기본 laptop + config.OLLAMA_MODEL)
+    assert _sent(calls[0]) == {"provider": "ollama", "job_id": req["job_id"], "prompt_variant": "bug_focus",
+                               "ollama_target": "laptop", "ollama_model": config.OLLAMA_MODEL}
     assert req["prompt_variant"] == "bug_focus"
 
 
