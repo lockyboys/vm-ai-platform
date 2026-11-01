@@ -41,7 +41,22 @@ def test_bug_focus_prompt_has_no_item_hints():
         assert hint not in text.lower()
 
 
-@pytest.mark.parametrize("variant", ["review", "bug_focus"])
+def test_checklist_prompt_is_generic_four_point_review():
+    """2026-11-01 LuckyBoys '4관점 점검표': 문법 6/20 원인(결함 미언급) 대응 실험.
+    82건 공통 문구 — 구문·실행 예외·느린 부분·틀린 결과 4가지를 같은 무게로 묻고,
+    범주 이름(문법·성능·논리 등)·앱 이름·문제 수는 넣지 않는다(블라인드 유지)."""
+    text = config.BLIND_REVIEW_PROMPTS["checklist"]
+    for step in ("①", "②", "③", "④"):
+        assert step in text  # 4관점이 모두 들어 있어야 함
+    assert "위치" in text and "원인" in text and "문제 없음" in text
+    for hint in ("syntax", "runtime", "performance", "logic", "문법", "성능", "논리",
+                 "계산기", "테트리스", "tetris", "calculator", "82"):
+        assert hint not in text.lower()
+    # 기존 기준선 문구는 그대로여야 한다(이전 결과와 비교 가능)
+    assert config.BLIND_REVIEW_PROMPTS["review"] == "이 프로그램을 검토해 주세요."
+
+
+@pytest.mark.parametrize("variant", ["review", "bug_focus", "checklist"])
 def test_worker_resolves_configured_prompt(variant):
     assert worker.resolve_prompt(variant) == config.BLIND_REVIEW_PROMPTS[variant]
 

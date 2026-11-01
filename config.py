@@ -111,11 +111,17 @@ OLLAMA_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "29900"))
 # 문제별 힌트(범주·앱·주입 결함·문제 수)는 절대 넣지 않는다(블라인드 유지).
 # - review   : 기존 문구. Gemini 80/82, gemma4:e4b 27/82 결과의 기준선이므로 글자 하나도 바꾸지 않는다.
 # - bug_focus: 버그 집중형. 칭찬·일반 개선 제안을 막고 위치·원인·잘못된 동작을 적게 한다.
+# - checklist: 4관점 점검표(2026-11-01 LuckyBoys). 12b 기본 검토 문법 6/20 원인 = 결함을 아예 언급하지 않음(분석
+#              FastAPI/LangGraph/analyze_syntax_misses_20261101.py). 구문·실행 예외·느린 부분·틀린 결과를 같은 무게로
+#              차례로 확인하게 한다. 범주 이름(문법·성능·논리)·앱 이름·문제 수는 쓰지 않는다(블라인드 유지).
 # 사용처: haness/apps/blind_review_20261027/blind_worker.py resolve_prompt, haness/mcp/tools/blind_review_jobs_v2.submit
 BLIND_REVIEW_PROMPTS = {
     "review": "이 프로그램을 검토해 주세요.",
     "bug_focus": ("이 프로그램의 버그를 찾아 주세요. 버그마다 ① 위치(함수명·코드 조각) ② 원인 ③ 잘못된 동작을 적고, "
                   "칭찬·일반 개선 제안은 쓰지 마세요. 버그가 없으면 '버그 없음'이라고 답하세요."),
+    "checklist": ("이 프로그램을 검토해 주세요. 먼저 ① 코드가 그대로 해석·실행 가능한지(구문) ② 실행 중 예외가 나는지 "
+                  "③ 불필요하게 느린 부분 ④ 결과가 틀리는 부분을 차례로 확인하고, 문제마다 위치·원인을 적으세요. "
+                  "문제가 없으면 '문제 없음'이라고 답하세요."),
 }
 BLIND_REVIEW_DEFAULT_PROMPT = "review"  # 지시문을 지정하지 않은 제출·예전 job 이어서 실행은 기존 문구
 # 블라인드 리뷰 실행 대상·모델(2026-11-01 LuckyBoys: GPU 서버 gemma4:12b-it-q4_K_M 실험).
