@@ -107,6 +107,17 @@ OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0"))
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 OLLAMA_WORKERS = int(os.getenv("OLLAMA_WORKERS", "4"))
 OLLAMA_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "29900"))
+# 블라인드 리뷰 지시문(2026-11-01 LuckyBoys). 82건 모두 같은 문구를 각각 독립 호출로 보낸다.
+# 문제별 힌트(범주·앱·주입 결함·문제 수)는 절대 넣지 않는다(블라인드 유지).
+# - review   : 기존 문구. Gemini 80/82, gemma4:e4b 27/82 결과의 기준선이므로 글자 하나도 바꾸지 않는다.
+# - bug_focus: 버그 집중형. 칭찬·일반 개선 제안을 막고 위치·원인·잘못된 동작을 적게 한다.
+# 사용처: haness/apps/blind_review_20261027/blind_worker.py resolve_prompt, haness/mcp/tools/blind_review_jobs_v2.submit
+BLIND_REVIEW_PROMPTS = {
+    "review": "이 프로그램을 검토해 주세요.",
+    "bug_focus": ("이 프로그램의 버그를 찾아 주세요. 버그마다 ① 위치(함수명·코드 조각) ② 원인 ③ 잘못된 동작을 적고, "
+                  "칭찬·일반 개선 제안은 쓰지 마세요. 버그가 없으면 '버그 없음'이라고 답하세요."),
+}
+BLIND_REVIEW_DEFAULT_PROMPT = "review"  # 지시문을 지정하지 않은 제출·예전 job 이어서 실행은 기존 문구
 
 
 # ─────────────────────────────────────────────────────────────────────────────

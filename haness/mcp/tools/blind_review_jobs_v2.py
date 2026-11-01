@@ -33,15 +33,24 @@ def _preserve_previous(job_dir, n):
         if (job_dir / name).exists():
             (job_dir / name).replace(job_dir / new_name)
 
-def submit(provider="ollama", resume_job_id=""):
+def submit(provider="ollama", resume_job_id="", prompt_variant=""):
     """블라인드 리뷰 job을 독립 프로세스로 띄운다.
 
     resume_job_id(2026-11-01 LuckyBoys): 멈춘 job을 같은 job_id·같은 결과 폴더로 다시 띄운다.
       워커는 success=true 결과를 재사용하므로 성공한 건은 건너뛰고 나머지만 처리한다.
       잘못된 id·없는 job·다른 provider·아직 실행 중인 job은 프로세스를 띄우기 전에 거부한다.
+    prompt_variant(2026-11-01 LuckyBoys): config.BLIND_REVIEW_PROMPTS 의 지시문 이름("review"|"bug_focus").
+      빈 값이면 새 job은 기본값(review), 이어서 실행은 이전 job의 지시문을 그대로 쓴다.
+      이어서 실행에 다른 지시문을 주면 거부한다(한 job 안에서 지시문이 섞이면 비교가 무의미해짐).
     """
+    import config  # 지연 import: 지시문 목록은 루트 공통 설정에서만 읽는다(하드코딩 금지)
+
     if provider not in ("ollama", "gemini"):
         raise ValueError("invalid provider")
+    if prompt_variant is None:
+        prompt_variant = ""  # MCP에서 null이 오면 '지정 안 함'으로 본다
+    if not isinstance(prompt_variant, str) or (prompt_variant and prompt_variant not in config.BLIND_REVIEW_PROMPTS):
+        raise ValueError(f"unknown prompt_variant: {prompt_variant!r}")  # 등록 안 된 이름·숫자 등은 실행 전 거부
     attempt = None
     if resume_job_id:
         req_path, result_path, stderr_path = _paths(resume_job_id)  # 형식 검사(32자리 소문자 hex)
@@ -52,10 +61,15 @@ def submit(provider="ollama", resume_job_id=""):
             raise ValueError(f"provider mismatch: job={previous.get('provider')}, requested={provider}")
         if _alive(previous.get("pid", 0)):
             raise ValueError(f"job is still running: {resume_job_id}")
+        previous_variant = previous.get("prompt_variant", config.BLIND_REVIEW_DEFAULT_PROMPT)  # 예전 job=review
+        if prompt_variant and prompt_variant != previous_variant:
+            raise ValueError(f"prompt_variant mismatch: job={previous_variant}, requested={prompt_variant}")
+        variant = previous_variant
         attempt = _next_attempt(req_path.parent)
         _preserve_previous(req_path.parent, attempt)
         job_id = resume_job_id
     else:
+        variant = prompt_variant or config.BLIND_REVIEW_DEFAULT_PROMPT
         job_id = uuid4().hex
         req_path, result_path, stderr_path = _paths(job_id)
     req_path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,11 +84,11 @@ def submit(provider="ollama", resume_job_id=""):
     p = subprocess.Popen(cmd, cwd=PROJECT_ROOT, stdin=subprocess.PIPE,
                          stdout=out, stderr=err, start_new_session=True)
     # job_id 를 넘겨 워커가 job 별 결과 디렉터리를 쓰게 한다 (job 간 결과 섞임 방지)
-    p.stdin.write((json.dumps({"provider": provider, "job_id": job_id}) + "\n").encode())
+    p.stdin.write((json.dumps({"provider": provider, "job_id": job_id, "prompt_variant": variant}) + "\n").encode())
     p.stdin.close(); out.close(); err.close()
     req = {"job_id": job_id, "provider": provider, "state": "running",
            "pid": p.pid, "result_path": str(result_path),
-           "stderr_path": str(stderr_path), "return_code": None}
+           "stderr_path": str(stderr_path), "return_code": None, "prompt_variant": variant}
     if attempt is not None:
         req["resumed_from_attempt"] = attempt  # 몇 번째 재실행인지(이전 산출물은 *.attemptN.*)
     req_path.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")

@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from config import OLLAMA_ENDPOINT, OLLAMA_MODEL, OLLAMA_NUM_GPU, OLLAMA_NUM_CTX, OLLAMA_NUM_BATCH, OLLAMA_NUM_PREDICT, OLLAMA_TEMPERATURE, OLLAMA_KEEP_ALIVE, OLLAMA_WORKERS, OLLAMA_TIMEOUT_SECONDS
+from config import BLIND_REVIEW_PROMPTS, BLIND_REVIEW_DEFAULT_PROMPT  # 2026-11-01 지시문 선택(문제별 힌트 없음)
 ROOT=Path(__file__).resolve().parent
 PROMPT='이 프로그램을 검토해 주세요.'
 OPTIONS={'num_ctx':OLLAMA_NUM_CTX,'num_batch':OLLAMA_NUM_BATCH,'num_gpu':OLLAMA_NUM_GPU,'num_predict':OLLAMA_NUM_PREDICT,'temperature':OLLAMA_TEMPERATURE}
@@ -17,6 +18,14 @@ DEFAULT_OLLAMA_WORKERS=OLLAMA_WORKERS
 def now():return datetime.now(ZoneInfo('Asia/Seoul')).isoformat()
 def save(path,value):
  tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(value,ensure_ascii=False,indent=2));tmp.replace(path)
+def resolve_prompt(variant):
+ """지시문 종류 → 문구(config.BLIND_REVIEW_PROMPTS). 2026-11-01 LuckyBoys 버그 집중형 재실험.
+ 등록되지 않은 이름·문자열이 아닌 값은 거부한다(잘못된 지시문으로 82건을 낭비하지 않게).
+ 82건 공통 문구만 돌려주며, 문제별 범주·앱·결함 정보는 이 함수가 알 수 없다(블라인드 유지)."""
+ if not isinstance(variant,str) or variant not in BLIND_REVIEW_PROMPTS:
+  raise ValueError(f'unknown prompt_variant: {variant!r}')
+ return BLIND_REVIEW_PROMPTS[variant]
+
 def request(route,data=None,timeout=10):
  opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
  req=urllib.request.Request(OLLAMA_ENDPOINT+'/api/'+route,data=None if data is None else json.dumps(data).encode(),headers={'Content-Type':'application/json'})
@@ -73,11 +82,17 @@ def job_output_dir(provider,job_id):
  return base/'jobs'/job_id
 def main():
  args=json.loads(sys.stdin.read());provider=args['provider'];assert provider in ('ollama','gemini')
+ # 2026-11-01: 지시문 선택. 지정이 없으면 기존 문구(review) — 예전 job과 결과 비교 기준 유지.
+ # PROMPT는 아래 process_item 메시지 조립 줄이 쓰는 전역이라, 그 줄은 손대지 않고 전역 값만 바꾼다.
+ global PROMPT
+ prompt_variant=args.get('prompt_variant',BLIND_REVIEW_DEFAULT_PROMPT)
+ PROMPT=resolve_prompt(prompt_variant)
  ollama_workers=max(1,int(args.get('ollama_workers',os.getenv('OLLAMA_WORKERS',DEFAULT_OLLAMA_WORKERS))))
  input_bytes=zlib.decompress(base64.b64decode((ROOT/'blind_inputs.b64').read_text()))
  inputs=json.loads(input_bytes)
  out=job_output_dir(provider,args.get('job_id'));out.mkdir(parents=True,exist_ok=True)
  summary={'provider':provider,'started_at':now(),'status':'running','completed':0,'total':len(inputs),'prompt':PROMPT,'input_sha256':hashlib.sha256(input_bytes).hexdigest(),'ollama_workers':ollama_workers if provider=='ollama' else 1,'runs':[]}
+ summary['prompt_variant']=prompt_variant  # 어느 지시문으로 만든 결과인지 증빙
  save(out/'summary.json',summary)
  try:
   if provider=='ollama':

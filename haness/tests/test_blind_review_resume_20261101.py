@@ -68,7 +68,8 @@ def test_resume_reuses_same_job_id_and_folder(env):
     _old_job(root)
     req = jobs.submit("ollama", resume_job_id=OLD)
     assert req["job_id"] == OLD
-    assert _sent_payload(calls[0]) == {"provider": "ollama", "job_id": OLD}  # 워커가 같은 결과 폴더를 쓴다
+    # 워커가 같은 결과 폴더를 쓴다. 2026-11-01: 지시문 기록이 없는 예전 job은 기존 문구(review)로 이어간다.
+    assert _sent_payload(calls[0]) == {"provider": "ollama", "job_id": OLD, "prompt_variant": "review"}
     assert json.loads((root / OLD / "request.json").read_text())["pid"] == 424242
     assert req["resumed_from_attempt"] == 1
 
