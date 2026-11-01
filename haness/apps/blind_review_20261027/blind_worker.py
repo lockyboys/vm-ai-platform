@@ -12,6 +12,7 @@ from config import OLLAMA_ENDPOINT, OLLAMA_MODEL, OLLAMA_NUM_GPU, OLLAMA_NUM_CTX
 from config import BLIND_REVIEW_PROMPTS, BLIND_REVIEW_DEFAULT_PROMPT  # 2026-11-01 지시문 선택(문제별 힌트 없음)
 # 2026-11-01 실행 대상(laptop|gpu)·모델 선택(LuckyBoys: GPU 서버 gemma4:12b-it-q4_K_M 실험)
 from config import BLIND_REVIEW_OLLAMA_ENDPOINTS, BLIND_REVIEW_DEFAULT_OLLAMA_TARGET, BLIND_REVIEW_OLLAMA_NUM_GPU, BLIND_REVIEW_MODEL_DIGESTS
+from config import BLIND_REVIEW_OLLAMA_NUM_BATCH  # 2026-11-01 GPU 서버 12b CLIP 로딩 실패 대응
 ROOT=Path(__file__).resolve().parent
 PROMPT='이 프로그램을 검토해 주세요.'
 OPTIONS={'num_ctx':OLLAMA_NUM_CTX,'num_batch':OLLAMA_NUM_BATCH,'num_gpu':OLLAMA_NUM_GPU,'num_predict':OLLAMA_NUM_PREDICT,'temperature':OLLAMA_TEMPERATURE}
@@ -39,14 +40,17 @@ def resolve_ollama(target,model):
  return BLIND_REVIEW_OLLAMA_ENDPOINTS[target],model,BLIND_REVIEW_MODEL_DIGESTS[model]
 
 def options_for(target):
- """대상별 Ollama 옵션. num_gpu 만 다르고 나머지(num_ctx·num_batch·num_predict·temperature)는 같다(공정 비교).
- num_gpu 가 None(GPU 서버)이면 옵션에서 빼서 Ollama가 전 층을 GPU에 올리게 한다."""
+ """대상별 Ollama 옵션. num_gpu·num_batch 만 대상별로 다르고 나머지(num_ctx·num_predict·temperature)는 같다(공정 비교).
+ 값이 None(GPU 서버)이면 옵션에서 빼서 Ollama 기본값을 쓴다.
+ - num_gpu  : 빼면 전 층 GPU
+ - num_batch: 2026-11-01 실측, 12b 에 32 를 주면 CLIP 로딩 실패(HTTP 500) → GPU 서버에서는 보내지 않음"""
  if not isinstance(target,str) or target not in BLIND_REVIEW_OLLAMA_NUM_GPU:
   raise ValueError(f'unknown ollama_target: {target!r}')
  options=dict(OPTIONS)
- num_gpu=BLIND_REVIEW_OLLAMA_NUM_GPU[target]
- if num_gpu is None:options.pop('num_gpu',None)
- else:options['num_gpu']=num_gpu
+ for key,table in (('num_gpu',BLIND_REVIEW_OLLAMA_NUM_GPU),('num_batch',BLIND_REVIEW_OLLAMA_NUM_BATCH)):
+  value=table[target]
+  if value is None:options.pop(key,None)
+  else:options[key]=value
  return options
 
 def request(route,data=None,timeout=10):

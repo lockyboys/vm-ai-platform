@@ -54,13 +54,17 @@ def test_worker_default_is_previous_behavior():
 
 
 def test_worker_options_per_target():
-    """노트북(6GB)은 num_gpu=config.OLLAMA_NUM_GPU 유지, GPU 서버(L4 24GB)는 num_gpu를 보내지 않는다(전 층 GPU)."""
+    """노트북(6GB)은 num_gpu·num_batch 를 config 값 그대로 보낸다(기존 실행과 동일).
+    GPU 서버(L4 24GB)는 num_gpu(전 층 GPU)·num_batch 를 보내지 않는다.
+    2026-11-01 실측: GPU 서버 gemma4:12b-it-q4_K_M 은 num_batch=32 를 주면 CLIP(비전) 로딩 실패로 HTTP 500,
+    num_batch 를 빼면 정상(curl A/B 시험). num_ctx 8192 는 문제없음."""
     laptop = worker.options_for("laptop")
     assert laptop["num_gpu"] == config.OLLAMA_NUM_GPU
+    assert laptop["num_batch"] == config.OLLAMA_NUM_BATCH
     gpu = worker.options_for("gpu")
-    assert "num_gpu" not in gpu
-    # num_gpu 외의 값(num_ctx·num_predict·temperature 등)은 두 대상이 같아야 비교가 공정하다
-    assert {k: v for k, v in laptop.items() if k != "num_gpu"} == gpu
+    assert "num_gpu" not in gpu and "num_batch" not in gpu
+    # 출력 길이·문맥·온도(num_ctx·num_predict·temperature)는 두 대상이 같아야 비교가 공정하다
+    assert {k: v for k, v in laptop.items() if k not in ("num_gpu", "num_batch")} == gpu
 
 
 @pytest.mark.parametrize("target,model", [

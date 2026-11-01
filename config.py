@@ -131,6 +131,10 @@ BLIND_REVIEW_DEFAULT_OLLAMA_TARGET = "laptop"  # 대상 미지정 제출·예전
 # 대상별 num_gpu(GPU에 올릴 층 수). 노트북 6GB는 OLLAMA_NUM_GPU(.env 28, 34는 CUDA OOM 실측),
 # GPU 서버는 None = 옵션을 보내지 않아 Ollama가 전 층을 GPU에 올리게 한다(28층 제한 시 12b가 CPU로 밀려 느려짐).
 BLIND_REVIEW_OLLAMA_NUM_GPU = {"laptop": OLLAMA_NUM_GPU, "gpu": None}
+# 대상별 num_batch. 노트북은 OLLAMA_NUM_BATCH(32) 유지(기존 실행과 동일).
+# GPU 서버는 None = 보내지 않음(Ollama 기본값). 2026-11-01 실측: gemma4:12b-it-q4_K_M 에 num_batch=32 를 주면
+# "Failed to load CLIP model" 로 모델 로딩 실패(HTTP 500), 빼면 정상(curl A/B 시험, num_ctx 8192 는 무관).
+BLIND_REVIEW_OLLAMA_NUM_BATCH = {"laptop": OLLAMA_NUM_BATCH, "gpu": None}
 # 모델 이름 → 기대 지문(ollama /api/tags digest 실측 2026-11-01). 다르면 워커가 실행 전에 멈춘다(preflight_failed).
 # gemma4:latest 는 노트북에서 gemma4:e4b 와 같은 지문(Q4_K_M 7.5B)이다.
 # 12b 지문: GPU 서버 127.0.0.1:11436/api/tags 실측(FastAPI/LangGraph/check_gpu_server_ollama_20261101.py).
