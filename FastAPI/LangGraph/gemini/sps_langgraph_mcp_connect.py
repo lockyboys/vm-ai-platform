@@ -10,7 +10,7 @@ from common.database import get_mariadb_connection, get_mongodb_client, MariaMon
 from config import settings
 
 # (가정) LangChain 호환 48개 도구 로드 및 ToolNode 유틸리티
-from haness.mcp_client import get_langchain_48_tools
+from harness.mcp_client import get_langchain_48_tools
 from langgraph.prebuilt import ToolNode
 
 # 1. 상태 정의

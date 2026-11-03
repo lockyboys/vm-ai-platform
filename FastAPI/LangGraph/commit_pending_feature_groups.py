@@ -2,7 +2,7 @@
 import ast, hashlib, json, shutil, subprocess, sys
 from pathlib import Path
 ROOT=Path("/data/vm_project")
-STATE=ROOT/"haness/backups/pending_feature_commits_20261025_0520"
+STATE=ROOT/"harness/backups/pending_feature_commits_20261025_0520"
 def git(*args,input=None):
     return subprocess.run(["git",*args],cwd=ROOT,input=input,capture_output=True,check=True).stdout
 def entries():

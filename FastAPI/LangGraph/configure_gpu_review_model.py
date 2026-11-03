@@ -4,7 +4,7 @@ import shlex
 import subprocess
 import sys
 
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 import config
 
 MODE = (sys.stdin.read().strip() or "inspect")

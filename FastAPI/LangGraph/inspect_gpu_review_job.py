@@ -3,7 +3,7 @@ import sys, re, json, shlex, subprocess
 from pathlib import Path
 sys.path.insert(0, "/data/vm_project")
 import config
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 job = sys.stdin.read().strip()
 if not re.fullmatch(r"[0-9a-f]{32}", job):
     raise ValueError("Expected generated job_id")

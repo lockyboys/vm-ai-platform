@@ -6,7 +6,7 @@ def main():
     import os
     os.environ["SPS_SOURCE_PARTNER_MODEL_PROVIDER"]="ollama"
     from langchain_core.messages import HumanMessage
-    from haness.mcp.agents.source_partner_agent import _build_model
+    from harness.mcp.agents.source_partner_agent import _build_model
     model=_build_model()
     model.reasoning=False
     model.num_ctx=2048

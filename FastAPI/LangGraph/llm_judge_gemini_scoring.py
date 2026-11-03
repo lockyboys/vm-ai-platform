@@ -24,7 +24,7 @@ llm = ChatGoogleGenerativeAI(
     temperature=0, max_output_tokens=256, thinking_budget=0, max_retries=2, timeout=120
 )
 
-PACKAGES_DIR = Path("/data/vm_project/haness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864/scoring_packages")
+PACKAGES_DIR = Path("/data/vm_project/harness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864/scoring_packages")
 SCORE_DIR = PACKAGES_DIR / "scores"
 SCORE_DIR.mkdir(exist_ok=True)
 

@@ -1,8 +1,8 @@
 """SPS 13개 페르소나 공통 기능 (2026-10-25 LuckyBoys: persona_source 중복을 common으로 빼기).
 
 왜 있나
-    haness/mcp/agents/persona_source_runtime.py(앱 대상 동적 페르소나)와
-    haness/mcp/agents/persona_repair_chain.py(수집기 자기 수리)가 같은 일을 따로 구현하고 있었다.
+    harness/mcp/agents/persona_source_runtime.py(앱 대상 동적 페르소나)와
+    harness/mcp/agents/persona_repair_chain.py(수집기 자기 수리)가 같은 일을 따로 구현하고 있었다.
     - 프롬프트 출처가 달랐다(AdvancedPersonas 내장 문자열 vs 스킬 원문 파일)
     - 계획 해석이 둘(JSON {"personas":[...]} vs 'PLAN:' 줄), Gemini 블록 응답 처리가 한쪽에만 있었다
     그래서 공통 부분만 이 한 클래스로 모은다. 그래프·도구·대상(앱/소스) 실행은 각 런타임에 남긴다.

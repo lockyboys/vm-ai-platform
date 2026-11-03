@@ -15,7 +15,7 @@ def main():
         try:
             page=browser.new_page(viewport={"width":1100,"height":1000})
             page.on("pageerror",lambda error:report["page_errors"].append(str(error)))
-            page.goto(Path("haness/apps/tetris_stress_20261025/tetris.html").resolve().as_uri())
+            page.goto(Path("harness/apps/tetris_stress_20261025/tetris.html").resolve().as_uri())
             assert page.title()=="BLOCK / 테트리스";report["passed"].append("offline load")
             page.locator("#start").click()
             assert page.locator("#overlay").is_hidden();report["passed"].append("start")

@@ -15,7 +15,7 @@ from pathlib import Path
 import config  # 루트 공통 설정(일반 지침 4)
 
 WORKER_DIGEST = "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c"  # blind_worker.py DIGEST와 동일(비교용)
-RESULTS = Path(config.PROJECT_ROOT) / "haness/apps/blind_review_20261027/results/ollama"
+RESULTS = Path(config.PROJECT_ROOT) / "harness/apps/blind_review_20261027/results/ollama"
 
 report = {"config": {k: getattr(config, k) for k in (
     "OLLAMA_ENDPOINT", "OLLAMA_MODEL", "OLLAMA_NUM_GPU", "OLLAMA_NUM_CTX", "OLLAMA_NUM_BATCH",

@@ -2,7 +2,7 @@
 
 왜 필요한가: sps-harness.service 재시작 후에도 MCP 도구 submit_blind_review 의 입력 목록이
   옛 형태(ollama_target·ollama_model 없음)로 보여, 그대로 부르면 값이 무시되어 노트북으로 실행될 위험이 있다.
-  그래서 같은 함수(haness.mcp.tools.blind_review_jobs_v2.submit)를 이 스크립트로 직접 부른다(제출 로직 중복 없음).
+  그래서 같은 함수(harness.mcp.tools.blind_review_jobs_v2.submit)를 이 스크립트로 직접 부른다(제출 로직 중복 없음).
 
 입력(stdin JSON):
   {"provider": "ollama", "prompt_variant": "review"|"bug_focus",
@@ -16,7 +16,7 @@ import sys
 import urllib.request
 
 import config
-from haness.mcp.tools import blind_review_jobs_v2 as jobs
+from harness.mcp.tools import blind_review_jobs_v2 as jobs
 
 args = json.loads(sys.stdin.read() or "{}")
 provider = args.get("provider", "ollama")

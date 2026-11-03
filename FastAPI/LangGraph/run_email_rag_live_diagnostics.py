@@ -1,6 +1,6 @@
 """SPS 실행 도구의 허용 경로에서 haness 읽기 전용 진단을 호출하는 진입점입니다."""
 
-from haness.mcp.tools.email_rag_live_diagnostics import main
+from harness.mcp.tools.email_rag_live_diagnostics import main
 
 
 if __name__ == "__main__":

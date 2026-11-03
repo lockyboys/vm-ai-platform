@@ -430,8 +430,8 @@ def probe(profile: dict) -> dict:
 
 AUTODISCOVER_PATH = Path(__file__).resolve().with_name("profile_autodiscover.py")
 # 자기 수리 루프(2026-10-25): auto가 NEEDS_NEW_RULE이면 PARTNER로 코드를 고치고(적용+git add만) 다시 탐색한다.
-# 수리 루프는 Harness 소스라 haness/ 아래에 있고(일반 지침 10), 수집기는 경로로 연결만 한다.
-SELF_REPAIR_PATH = Path(str(config.BASE_DIR)) / "haness/mcp/agents/autodiscover_self_repair.py"
+# 수리 루프는 Harness 소스라 harness/ 아래에 있고(일반 지침 10), 수집기는 경로로 연결만 한다.
+SELF_REPAIR_PATH = Path(str(config.BASE_DIR)) / "harness/mcp/agents/autodiscover_self_repair.py"
 
 
 def heal_succeeded(report: dict) -> bool:

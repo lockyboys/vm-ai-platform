@@ -150,11 +150,11 @@ def _validate_test_paths(test_paths: Sequence[str]) -> list[str]:
             raise ValueError("Only non-empty project-relative test paths are allowed.")
         if any(part in {"", ".", ".."} for part in relative_path.parts):
             raise ValueError("Dot segments are not allowed in test paths.")
-        # 2026-10-25 LuckyBoys: Harness 테스트는 haness/tests에 둔다(일반 지침 10) → tests/와 haness/tests/만 허용.
-        # parts 비교라서 haness/testsX 같은 비슷한 이름은 허용되지 않는다.
+        # 2026-10-25 LuckyBoys: Harness 테스트는 harness/tests에 둔다(일반 지침 10) → tests/와 harness/tests/만 허용.
+        # parts 비교라서 harness/testsX 같은 비슷한 이름은 허용되지 않는다.
         parts = relative_path.parts
-        if not (parts[:1] == ("tests",) or parts[:2] == ("haness", "tests")) or len(parts) < 2:
-            raise ValueError("Only tests/ or haness/tests/ paths are allowed.")
+        if not (parts[:1] == ("tests",) or parts[:2] == ("harness", "tests")) or len(parts) < 2:
+            raise ValueError("Only tests/ or harness/tests/ paths are allowed.")
 
         requested_path = (project_root / relative_path).resolve(strict=True)
         if project_root not in requested_path.parents:

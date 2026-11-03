@@ -6,7 +6,7 @@ import json
 import re
 import shlex
 import subprocess
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 
 if __name__ == "__main__":
     job = sys.stdin.read().strip()

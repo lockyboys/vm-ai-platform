@@ -11,11 +11,11 @@ SCORING.md 기준: "실제 변경 위치/연산과 그 문제를 구체적으로
 import base64, json, zlib
 from pathlib import Path
 
-pkg = json.loads(zlib.decompress(base64.b64decode("".join(Path("/data/vm_project/haness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
+pkg = json.loads(zlib.decompress(base64.b64decode("".join(Path("/data/vm_project/harness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
 private_key = json.loads(pkg["private_key.json"])
 verification = json.loads(pkg["verification.json"])
 
-RESULT_DIR = Path("/data/vm_project/haness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864")
+RESULT_DIR = Path("/data/vm_project/harness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864")
 OUT_DIR = RESULT_DIR / "scoring_packages"
 OUT_DIR.mkdir(exist_ok=True)
 

@@ -10,7 +10,7 @@
 #  │    ├── database.py                         # (향후 MariaDB/VectorDB 공통 연결용)
 #  │    └── common_function.py                  # (공통 유틸리티)
 #  │
-#  ├── /data/vm_project/FastAPI/LangGraph/      # [이동] SPS haness MCP 메인 소스 폴더
+#  ├── /data/vm_project/FastAPI/LangGraph/      # [이동] SPS harness MCP 메인 소스 폴더
 #  │    ├── sps_main_orchestrator.py            # 메인 서버 
 #  │    ├── Agent_Import_RAGs/                  # RAG 에이전트
 #  │         ├── LangGraph_email_RAG_Agent.py   # RAG 에이전트
@@ -52,7 +52,7 @@ from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode
 
-app = FastAPI(title="SPS haness MCP Orchestrator")
+app = FastAPI(title="SPS harness MCP Orchestrator")
 
 # --- 데이터 모델 ---
 class ChatRequest(BaseModel):
@@ -255,5 +255,5 @@ if __name__ == "__main__":
     # 외부 공개가 필요하면 nginx에 이 포트로 가는 location을 별도로 추가합니다.
     bind_host = config.SPS_MAIN_ORCHESTRATOR_HOST
     bind_port = config.SPS_MAIN_ORCHESTRATOR_PORT
-    print(f"🚀 SPS haness MCP 구동 완료 - http://{bind_host}:{bind_port}")
+    print(f"🚀 SPS harness MCP 구동 완료 - http://{bind_host}:{bind_port}")
     uvicorn.run("sps_main_orchestrator:app", host=bind_host, port=bind_port, reload=True)

@@ -10,7 +10,7 @@
 #  │    ├── database.py               # (향후 MariaDB/VectorDB 공통 연결용)
 #  │    └── common_function.py        # (공통 유틸리티)
 #  │
-#  ├── haness/                        # [이동] SPS haness MCP 메인 소스 폴더
+#  ├── harness/                        # [이동] SPS harness MCP 메인 소스 폴더
 #  │    ├── sps_main_orchestrator.py  # 메인 서버 (haness 내부로 이동)
 #  │    ├── Agent_Import_RAGs/        # RAG 에이전트
 #  │    │    └── LangGraph_Ingestion_Pipeline.py
@@ -37,7 +37,7 @@ if PROJECT_ROOT not in sys.path:
 
 import config  # 루트에 있는 config.py 적용 (4번 지침 준수)
 
-# 기존 에이전트 폴더 모듈 임포트 유지 (haness 폴더 래핑 취소)
+# 기존 에이전트 폴더 모듈 임포트 유지 (harness 폴더 래핑 취소)
 from Agent_Import_RAGs.LangGraph_Ingestion_Pipeline import build_vector_db, query_insurance_rag
 from Agent_Import_PFDs.LangGraph_Network_Sniffer import explore_unknown_site
 
@@ -47,7 +47,7 @@ from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode
 
-app = FastAPI(title="SPS haness MCP Orchestrator")
+app = FastAPI(title="SPS harness MCP Orchestrator")
 
 # --- 데이터 모델 ---
 class ChatRequest(BaseModel):
@@ -108,5 +108,5 @@ async def api_chat_orchestrator(req: ChatRequest):
 
 if __name__ == "__main__":
     # 실행 시 경로는 리눅스 기준에 맞춥니다.
-    print("🚀 SPS haness MCP 구동 완료 - http://0.0.0.0:8080")
+    print("🚀 SPS harness MCP 구동 완료 - http://0.0.0.0:8080")
     uvicorn.run("sps_main_orchestrator:app", host="0.0.0.0", port=8080, reload=True)

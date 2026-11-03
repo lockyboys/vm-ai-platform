@@ -12,4 +12,4 @@ if __name__ == "__main__":
         raise ValueError("지원하지 않는 시험")
     script = "test_source_repair.py" if action == "unit" else "live_source_repair_trial.py"
     sys.argv = [script]
-    runpy.run_path(str(root / "haness/tests" / script), run_name="__main__")
+    runpy.run_path(str(root / "harness/tests" / script), run_name="__main__")

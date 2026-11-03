@@ -2,7 +2,7 @@
 import sys, json, shlex, subprocess, uuid
 sys.path.insert(0, "/data/vm_project")
 import config
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 payload = json.loads(sys.stdin.read() or '{"mode":"plan"}')
 mode = payload.get("mode", "plan")
 if mode not in ("plan", "install", "status"):

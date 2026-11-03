@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import hashlib
 import json
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 
 if __name__ == "__main__":
     execute = sys.stdin.read().strip() == "execute"

@@ -114,7 +114,7 @@ OLLAMA_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "29900"))
 # - checklist: 4관점 점검표(2026-11-01 LuckyBoys). 12b 기본 검토 문법 6/20 원인 = 결함을 아예 언급하지 않음(분석
 #              FastAPI/LangGraph/analyze_syntax_misses_20261101.py). 구문·실행 예외·느린 부분·틀린 결과를 같은 무게로
 #              차례로 확인하게 한다. 범주 이름(문법·성능·논리)·앱 이름·문제 수는 쓰지 않는다(블라인드 유지).
-# 사용처: haness/apps/blind_review_20261027/blind_worker.py resolve_prompt, haness/mcp/tools/blind_review_jobs_v2.submit
+# 사용처: harness/apps/blind_review_20261027/blind_worker.py resolve_prompt, harness/mcp/tools/blind_review_jobs_v2.submit
 BLIND_REVIEW_PROMPTS = {
     "review": "이 프로그램을 검토해 주세요.",
     "bug_focus": ("이 프로그램의 버그를 찾아 주세요. 버그마다 ① 위치(함수명·코드 조각) ② 원인 ③ 잘못된 동작을 적고, "
@@ -625,7 +625,10 @@ SPS_AGENT_GATEWAY_TIMEOUT_SECONDS = 3600
 SPS_SOURCE_EXECUTION_TIMEOUT_SECONDS = 3600
 SPS_GENERAL_UNIT_RUNTIME_SECONDS = 3600
 SPS_WORKER_RESULT_GRACE_SECONDS = 10
-MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS = 3600
+# 2026-11-02 LuckyBoys 결정: 리뷰 3590 + 결과 저장 여유 10 = 유닛 상한 3600.
+# 리뷰 시간이 상한과 같으면(3600) systemd가 여유 시간 전에 워커를 죽여 result.json 없이 실패하므로
+# 반드시 MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS + SPS_WORKER_RESULT_GRACE_SECONDS <= SPS_GENERAL_UNIT_RUNTIME_SECONDS 를 지킨다.
+MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS = 3590
 # Preserve the full report on disk and return a bounded preview through MCP.
 MULTI_PERSONA_REVIEW_OUTPUT_CHARS = 12000
 
@@ -647,7 +650,7 @@ SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS = float(os.getenv(
     "SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT", "300")))
 # 2026-11-01 LuckyBoys: Gemini 대기 시간을 Ollama와 분리한다. 환경변수로 바꿀 수 있고 기본값은 기존과 같은 300초.
 # 이유: 프로브가 Gemini에도 Ollama 값을 써서, Ollama 값을 늘리면 Gemini 장애 감지도 같이 늦어졌다(Gemini 실측 9초).
-# 사용처: haness/scripts/probe_partner_providers_20261025.py의 _provider_timeout()
+# 사용처: harness/scripts/probe_partner_providers_20261025.py의 _provider_timeout()
 SPS_SOURCE_PARTNER_GEMINI_TIMEOUT_SECONDS = float(os.getenv(
     "SPS_SOURCE_PARTNER_GEMINI_TIMEOUT_SECONDS", "300"))
 SPS_MAIN_ORCHESTRATOR_TIMEOUT_SECONDS = 120
@@ -658,7 +661,7 @@ SPS_MAIN_ORCHESTRATOR_HOST = os.getenv("SPS_MAIN_ORCHESTRATOR_HOST", "127.0.0.1"
 SPS_MAIN_ORCHESTRATOR_PORT = int(os.getenv("SPS_MAIN_ORCHESTRATOR_PORT", "8081"))
 
 
-# 자율 소스 수정(haness/source_repair.py 하나로 통일): 아래 파일만 수정할 수 있습니다.
+# 자율 소스 수정(harness/source_repair.py 하나로 통일): 아래 파일만 수정할 수 있습니다.
 # 설정/인증/검증기/테스트는 수정 대상에 넣지 않으며, 검증 통과 시 git add까지만 하고 커밋하지 않습니다.
 # 2026-10-25: 공개 문서 수집 자율 수리(AUTODISCOVER_SELF_REPAIR.allowed_paths)도 같은 엔진을 쓰도록 두 파일 추가.
 SPS_SOURCE_REPAIR_ALLOWED_PATHS = (
@@ -794,11 +797,11 @@ PROFILE_AUTODISCOVER = {
     "user_agent": "Mozilla/5.0 (SPS public disclosure collector)",
     "work_subdir": "insurance_docs/_autodiscover",
 }
-# 실행 도구(mcp_codex_apps_run_python_source) 위험 명령 승인 설정(haness/mcp/tools/command_approval.py). 2026-10-25 추가.
+# 실행 도구(mcp_codex_apps_run_python_source) 위험 명령 승인 설정(harness/mcp/tools/command_approval.py). 2026-10-25 추가.
 # LuckyBoys: "승인 기능을 붙이고 무슨 명령어를 쓰는지 반드시 표시". 실행할 파일과 그 파일이 import하는 프로젝트 모듈에서
 # 아래 명령·모듈을 찾으면 결과에 표시하고, approved_commands로 '찾은 이름 전체'를 넘겨야만 실행한다.
 # - shell_commands: 따옴표 문자열의 첫 단어로 쓰인 명령(subprocess 인자 등) / python_modules: 네트워크·원격 접속 모듈
-# - max_import_depth: 따라가며 읽는 import 깊이(연결 파일 → haness/scripts 실제 소스까지 보려고 3)
+# - max_import_depth: 따라가며 읽는 import 깊이(연결 파일 → harness/scripts 실제 소스까지 보려고 3)
 SPS_EXECUTION_APPROVAL = {
     "shell_commands": [
         "sudo", "su", "ssh", "scp", "sftp", "rsync", "curl", "wget", "nc", "ncat", "telnet",
@@ -811,18 +814,18 @@ SPS_EXECUTION_APPROVAL = {
     "max_import_depth": 3,
 }
 # SPS 13개 페르소나 원문 프롬프트 위치(common/persona_source.py PersonaSource 기본값). 2026-10-25 추가.
-# 스킬 references 원문과 sha256 동일(haness/scripts/sync_persona_prompts.py로 복사·검증). 모든 페르소나 런타임이 공유.
+# 스킬 references 원문과 sha256 동일(harness/scripts/sync_persona_prompts.py로 복사·검증). 모든 페르소나 런타임이 공유.
 SPS_PERSONA_PROMPTS = {
-    "persona_dir": BASE_DIR / "haness/personas/references",
+    "persona_dir": BASE_DIR / "harness/personas/references",
 }
-# 자동 탐색 자기 수리 루프(haness/mcp/agents/autodiscover_self_repair.py — Harness 소스라 haness에 둠, 수집기는 경로로 연결). 2026-10-25 추가.
-# auto 결과가 NEEDS_NEW_RULE(처음 보는 실패)이면 PARTNER 에이전트(haness/mcp/agents/source_partner_agent.py)에
+# 자동 탐색 자기 수리 루프(harness/mcp/agents/autodiscover_self_repair.py — Harness 소스라 haness에 둠, 수집기는 경로로 연결). 2026-10-25 추가.
+# auto 결과가 NEEDS_NEW_RULE(처음 보는 실패)이면 PARTNER 에이전트(harness/mcp/agents/source_partner_agent.py)에
 # 증빙을 넘겨 코드를 고치게 하고, 테스트가 통과한 변경만 적용·git add 한다(커밋 안 함: LuckyBoys "자동 적용 + add만").
 # - enabled: false면 수리 없이 NEEDS_NEW_RULE 그대로 보고 / max_repair_rounds: 한 번 실행에서 수리 시도 횟수
 # - agent_timeout_seconds / agent_recursion_limit: 에이전트 1회 실행 시간·도구 왕복 상한
 # - allowed_paths: 에이전트가 patch할 수 있는 유일한 소스. 그 밖 파일 patch·기존 테스트 수정은 적용 '전에' 거부된다
-#   (source_partner_agent의 allowed_source_paths). haness/tests/ 아래는 '새 파일 추가'만 허용
-# - report_dir: 수리 증빙(repair_<시각>.json) 저장 위치. Harness 산출물이라 haness/reports 아래(일반 지침 10)
+#   (source_partner_agent의 allowed_source_paths). harness/tests/ 아래는 '새 파일 추가'만 허용
+# - report_dir: 수리 증빙(repair_<시각>.json) 저장 위치. Harness 산출물이라 harness/reports 아래(일반 지침 10)
 # - autodiscover_script: 수리 전후 새 프로세스로 실행할 탐색기 경로(FastAPI 쪽 원래 위치 그대로 연결)
 # - regression_tests: 수리 뒤 반드시 통과해야 하는 기존 테스트(실패하면 원복하고 REPAIR_FAILED)
 # - auto_timeout_seconds: 수리 전후 auto를 새 프로세스로 돌릴 때 시간 상한(고친 코드를 새로 읽기 위해 별도 프로세스)
@@ -837,17 +840,17 @@ AUTODISCOVER_SELF_REPAIR = {
         "FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py",
     ],
     "regression_tests": [
-        "haness/tests/test_public_document_catalog_collector.py",
-        "haness/tests/test_collector_seedless_post_download.py",
-        "haness/tests/test_collector_self_heal.py",
-        "haness/tests/test_collector_worker_self_heal.py",
-        "haness/tests/test_profile_autodiscover_inference.py",
-        "haness/tests/test_autodiscover_failure_classification.py",
-        "haness/tests/test_autodiscover_self_repair.py",
+        "harness/tests/test_public_document_catalog_collector.py",
+        "harness/tests/test_collector_seedless_post_download.py",
+        "harness/tests/test_collector_self_heal.py",
+        "harness/tests/test_collector_worker_self_heal.py",
+        "harness/tests/test_profile_autodiscover_inference.py",
+        "harness/tests/test_autodiscover_failure_classification.py",
+        "harness/tests/test_autodiscover_self_repair.py",
     ],
-    "report_dir": BASE_DIR / "haness/reports/autodiscover_repair",
+    "report_dir": BASE_DIR / "harness/reports/autodiscover_repair",
     # 페르소나 체인(2026-10-25 LuckyBoys 승인): SPS ORCHESTRATOR 스킬 실행 방식 그대로, 원문 프롬프트를 시스템 프롬프트로 쓴다.
-    # persona_dir의 <이름>.md는 스킬 references 원문과 sha256 동일(haness/scripts/sync_persona_prompts.py로 복사·검증).
+    # persona_dir의 <이름>.md는 스킬 references 원문과 sha256 동일(harness/scripts/sync_persona_prompts.py로 복사·검증).
     # LuckyBoys 2026-10-25: "고정 순서 체인은 처음 한 번만, 두 번째는 ORCHESTRATOR 자율, 마지막만 지정".
     # - first_round_plan: 1라운드 고정 순서(뒤에 PARTNER 통합 자동). autonomous_from_round 이상은 ORCHESTRATOR가
     #   persona_dir의 13개 원문 중 필요한 페르소나와 순서를 직접 정한다. 프로그램이 지정하는 것은 마지막 PARTNER뿐.

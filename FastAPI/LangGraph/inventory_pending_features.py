@@ -15,7 +15,7 @@ for name in tracked:
 new=git("ls-files","--others","--exclude-standard").splitlines()
 for name in new:
     if not name.endswith(".py") or re.search(r"BACKUP|backup|memory/|pytest-|snapshots",name):continue
-    if not name.startswith(("haness/","harness/","tests/","scripts/","FastAPI/LangGraph/multi_persona/")):continue
+    if not name.startswith(("harness/","harness/","tests/","scripts/","FastAPI/LangGraph/multi_persona/")):continue
     p=ROOT/name
     lines=p.read_text(errors="replace").splitlines()
     print(json.dumps({"new":name,"lines":len(lines),"header":lines[:2],

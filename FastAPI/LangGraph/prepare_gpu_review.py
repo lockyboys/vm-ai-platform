@@ -4,7 +4,7 @@ import shlex
 import subprocess
 import sys
 import config
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 
 mode = (sys.stdin.read().strip() or "plan")
 if mode not in {"plan", "backup"}:

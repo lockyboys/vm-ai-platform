@@ -13,7 +13,7 @@ from pathlib import Path
 import config  # 루트 공통 설정(일반 지침 4)
 
 ROOT = Path(config.PROJECT_ROOT)
-BASE = ROOT / "haness/apps/blind_review_20261027/results"
+BASE = ROOT / "harness/apps/blind_review_20261027/results"
 JOBS = {"gemini_review": ("gemini", "cc319de2752c4649a13e1834a2c0c864"),
         "12b_review": ("ollama", "76508f145da54186a1794efd96b74746"),
         "12b_checklist": ("ollama", "a0ead49b5f3140c5be2ae46db4e2d0c7"),
@@ -47,7 +47,7 @@ def clue_hit(text, desc):
 
 
 pkg = json.loads(zlib.decompress(base64.b64decode("".join(
-    (ROOT / "haness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
+    (ROOT / "harness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
 key = json.loads(pkg["private_key.json"])
 logic_ids = [b for b, i in key.items() if i.get("category") == "logic"]
 data = {n: load(*j) for n, j in JOBS.items()}

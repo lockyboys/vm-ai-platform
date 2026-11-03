@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT=Path("/data/vm_project");sys.path.insert(0,str(ROOT))
 from common.common_function import write_json_atomic
 from FastAPI.LangGraph.skill_package_quick_validate import validate_skill
-TARGETS=["config.py","haness/mcp/agents/source_partner_agent.py","haness/mcp/tools/change_set_graph.py",
+TARGETS=["config.py","harness/mcp/agents/source_partner_agent.py","harness/mcp/tools/change_set_graph.py",
 "harness/mcp/tools/git_mutation_tools.py","tests/harness/mcp/test_source_partner_agent.py",
 "tests/harness/mcp/test_sps_change_set_tool.py","tests/harness/mcp/test_mutation_tool_extensions.py"]
 def git(*args):
@@ -16,8 +16,8 @@ def main():
               "evidence_files":{},"targets":{}}
     hashes={}
     for relative in ["harness/memory/change_set_evidence_fix_20261025.json","harness/memory/regression_verification_20261025.json",
-                     "haness/backups/pending_feature_commits_20261025_0520/verification.json",
-                     "haness/backups/git_feature_commits_20261025_0500/state.json"]:
+                     "harness/backups/pending_feature_commits_20261025_0520/verification.json",
+                     "harness/backups/git_feature_commits_20261025_0500/state.json"]:
         p=ROOT/relative
         summary={"exists":p.is_file()}
         if not p.is_file():evidence["evidence_files"][relative]=summary;continue

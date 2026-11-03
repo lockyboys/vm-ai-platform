@@ -10,7 +10,7 @@ from common.database import get_mariadb_connection, get_mongodb_client, MariaMon
 from config import settings
 
 # (가정) 48개의 MCP 도구를 동적으로 가져오는 함수
-from haness.mcp_client import get_all_48_mcp_tools, execute_mcp_tool
+from harness.mcp_client import get_all_48_mcp_tools, execute_mcp_tool
 
 router = APIRouter()
 

@@ -2,7 +2,7 @@
 import subprocess
 from types import SimpleNamespace
 import pytest
-from haness.mcp.tools import ssh_execution_tools as ssh
+from harness.mcp.tools import ssh_execution_tools as ssh
 
 @pytest.fixture
 def target(monkeypatch):

@@ -9,7 +9,7 @@ import pytest
 
 @pytest.fixture
 def context(tmp_path, monkeypatch):
-    module = import_module("haness.mcp.tools.multi_persona_tools")
+    module = import_module("harness.mcp.tools.multi_persona_tools")
     source = tmp_path / "sample.py"
     source.write_text("print('sample')\n", encoding="utf-8")
     runner = tmp_path / "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py"
@@ -29,7 +29,9 @@ def test_dry_run_never_starts_worker(context):
     plan = asyncio.run(module.review_python_source(str(source)))
     assert plan["timeout_seconds"] == 300 and not plan["executed"]
     assert "--wait" not in plan["command"] and "--pipe" not in plan["command"]
-    assert plan["review_command"][-2:] == ["--source-path", str(source)]
+    # 2026-11-02: job 전용 --output-dir가 --source-path 뒤에 붙는다(제안 파일 충돌 방지).
+    assert plan["review_command"][-4:-2] == ["--source-path", str(source)]
+    assert plan["review_command"][-2] == "--output-dir"
     assert not (module.PROJECT_ROOT / "harness/memory/source_reviews").exists()
     start.assert_not_awaited()
 
@@ -99,8 +101,15 @@ def test_worker_result_survives_a_new_status_call(context, monkeypatch):
     module, source, start = context
     original = source.read_bytes()
     job = asyncio.run(module.review_python_source(str(source), dry_run=False))
-    output = "[최종 검증된 답변]:\nfull review\n"
-    run = lambda *a, **kw: SimpleNamespace(returncode=0, stdout=output.encode(), stderr=b"")
+    # 2026-11-02: model_verified는 verifier 마커 + 계약 통과 줄 + job 폴더의 proposed.py가 모두 있어야 true.
+    output = "[출력 검증] 오류=[], 보고서=x\n[최종 검증된 답변]:\nfull review\n"
+
+    def run(command, **kw):
+        # 실제 CLI 대역: --output-dir 폴더에 제안 소스를 만든다(대상 소스는 실행하지 않음).
+        out_dir = Path(command[command.index("--output-dir") + 1])
+        (out_dir / "proposed.py").write_text("print('sample')\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout=output.encode(), stderr=b"")
+
     monkeypatch.setattr(module.subprocess, "run", run)
     module._run_review_job(job["job_id"])
     start.reset_mock()

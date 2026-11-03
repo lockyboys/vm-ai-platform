@@ -135,7 +135,7 @@ async def explore_unknown_site(start_url: str) -> str:
         @tool
         def read_repair_source(file_path: str) -> dict:
             """허용된 수집 소스와 SHA256을 읽습니다. 수정 전 반드시 호출하세요."""
-            from haness.source_repair import read_repair_source as read_source
+            from harness.source_repair import read_repair_source as read_source
             return read_source(file_path)
 
         @tool
@@ -150,7 +150,7 @@ async def explore_unknown_site(start_url: str) -> str:
             동일한 내용으로 False를 호출하세요. 백업 후 적용하며 자동 커밋하지 않습니다.
             적용된 소스는 새 워커부터 사용됩니다. 현재 수집 완료로 보고하지 마세요.
             """
-            from haness.source_repair import repair_source, PreCommitRequired
+            from harness.source_repair import repair_source, PreCommitRequired
             try:
                 return await asyncio.to_thread(
                     repair_source, file_path, old_code, new_code, regression_test,

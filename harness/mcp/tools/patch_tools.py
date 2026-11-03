@@ -16,7 +16,7 @@ import hashlib
 import re
 import subprocess
 from pathlib import Path
-from haness.mcp.tools.source_edit_guard import validate_python, require_entrypoint
+from harness.mcp.tools.source_edit_guard import validate_python, require_entrypoint
 
 
 PROJECT_ROOT = Path("/data/vm_project")

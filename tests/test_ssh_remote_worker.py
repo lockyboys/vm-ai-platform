@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 import uuid
-from haness.mcp.tools.ssh_execution_tools import REMOTE_HELPER
+from harness.mcp.tools.ssh_execution_tools import REMOTE_HELPER
 
 def invoke(root, operation, job="", arguments=None):
     return subprocess.run(

@@ -52,7 +52,7 @@ def main():
     if sys.stdin.read().strip()!="APPLY 8003 AUTH FIX":
         return
     stamp=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y%m%d_%H%M%S")
-    backup=ROOT/"haness/backups"/("service_8003_auth_"+stamp)
+    backup=ROOT/"harness/backups"/("service_8003_auth_"+stamp)
     backup.mkdir(parents=True,exist_ok=False)
     original=UNIT.read_bytes()
     (backup/("fastapi-insurance-rag_BACKUP_"+stamp+".service")).write_bytes(original)

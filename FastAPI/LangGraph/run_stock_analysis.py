@@ -19,6 +19,6 @@ for filename in (ROOT / '.env', Path(config.SPS_MCP_WORKER_SECRETS_FILE)):
         if not os.getenv(name) and values.get(name):
             os.environ[name] = values[name]
 
-from haness.stock_analysis import main
+from harness.stock_analysis import main
 if __name__ == '__main__':
     main()

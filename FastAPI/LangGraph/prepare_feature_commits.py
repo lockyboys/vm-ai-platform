@@ -2,7 +2,7 @@
 import hashlib, json, os, shutil, subprocess, sys
 from pathlib import Path
 ROOT=Path("/data/vm_project")
-STATE=ROOT/"haness/backups/git_feature_commits_20261025_0500"
+STATE=ROOT/"harness/backups/git_feature_commits_20261025_0500"
 AUTH=["FastAPI/LangGraph/fix_8003_service_auth.py","FastAPI/LangGraph/verify_8003_answer_generation.py",
       "tests/test_service_8003_auth_live.py","deployment/systemd/fastapi-insurance-rag.service.d/90-sps-auth.conf"]
 CLI=["FastAPI/LangGraph/agent_cli.py","tests/test_agent_cli.py","config.py"]

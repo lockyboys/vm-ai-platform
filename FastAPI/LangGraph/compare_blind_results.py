@@ -1,7 +1,7 @@
 import json,statistics
 from pathlib import Path
 for provider in ('gemini','ollama'):
- p=Path('/data/vm_project/haness/apps/blind_review_20261027/results')/provider
+ p=Path('/data/vm_project/harness/apps/blind_review_20261027/results')/provider
  rows=[]
  for f in p.glob('*.json'):
   if f.name=='summary.json': continue

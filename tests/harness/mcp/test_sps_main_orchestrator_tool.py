@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
 
-from haness.mcp.tools import orchestrator_tools as module
+from harness.mcp.tools import orchestrator_tools as module
 
 @pytest.fixture
 def process_context(tmp_path, monkeypatch):

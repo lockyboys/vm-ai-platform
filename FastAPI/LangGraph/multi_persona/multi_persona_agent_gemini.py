@@ -1321,6 +1321,13 @@ if __name__ == "__main__":
         default=None,
         help="이전 오류를 읽고 실행 오류를 저장할 파일 경로"
     )
+    # 2026-11-02: MCP 리뷰 job마다 전용 폴더를 받아 review.md / proposed.py를 그 안에 쓴다.
+    # 지정하지 않으면 기존처럼 원본 옆 <stem>.review.md / <stem>.proposed.py에 쓴다(직접 실행 호환).
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="리뷰 보고서와 제안 소스를 저장할 job 전용 폴더 (동시 리뷰 충돌 방지)"
+    )
     args = parser.parse_args()
 
     source_path = Path(args.source_path).expanduser().resolve()
@@ -1368,13 +1375,22 @@ if __name__ == "__main__":
         "## 3. 최종 수정 전체 소스 코드",
     )
     # 전체 결과를 파일로 보존하며 생성 소스를 원본에 자동 적용하지 않습니다.
-    report_path = source_path.with_name(source_path.stem + ".review.md")
+    if args.output_dir:
+        # job 전용 폴더: 다른 리뷰와 파일 이름이 겹치지 않는다.
+        output_dir = Path(args.output_dir).expanduser().resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        report_path = output_dir / "review.md"
+        proposed_path = output_dir / "proposed.py"
+    else:
+        report_path = source_path.with_name(source_path.stem + ".review.md")
+        proposed_path = source_path.with_name(source_path.stem + ".proposed.py")
     report_path.write_text(final_text, encoding="utf-8")
     output_errors = validate_review(final_text, query)
     print(f"[출력 검증] 오류={output_errors}, 보고서={report_path}")
     if not output_errors:
-        source_path.with_name(source_path.stem + ".proposed.py").write_text(
+        proposed_path.write_text(
             source_block(final_text.split("## 3. 최종 수정 전체 소스 코드", 1)[-1]), encoding="utf-8")
+        print(f"[제안 소스] {proposed_path}")
     missing_sections = validate_review(final_text, query)
     if missing_sections:
         result["verification_succeeded"] = False

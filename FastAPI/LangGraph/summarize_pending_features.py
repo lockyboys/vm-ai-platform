@@ -10,6 +10,6 @@ for name in g("diff","HEAD","--name-only").splitlines():
     print(json.dumps({"path":name,"hunks":[x for x in d.splitlines() if x.startswith("@@")][:2],
     "imports":[x for x in added if x.startswith(("import ","from "))][:3]},ensure_ascii=False))
 for name in g("ls-files","--others","--exclude-standard").splitlines():
-    if name.endswith(".py") and name.startswith(("haness/","harness/","tests/","scripts/","FastAPI/LangGraph/multi_persona/")) and not any(x in name for x in ["BACKUP","backup","memory/","pytest-"]):
+    if name.endswith(".py") and name.startswith(("harness/","harness/","tests/","scripts/","FastAPI/LangGraph/multi_persona/")) and not any(x in name for x in ["BACKUP","backup","memory/","pytest-"]):
         lines=(R/name).read_text(errors="replace").splitlines()
         print(json.dumps({"new":name,"lines":len(lines),"imports":[x for x in lines if x.startswith(("from ","import "))][:4]},ensure_ascii=False))

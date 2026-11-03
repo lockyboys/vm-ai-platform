@@ -9,7 +9,7 @@ import pytest
 # 원격 SPS와 독립 다운로드 패키지에서 동일한 모듈을 검증한다.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from haness.stock_analysis import analyze, KisMarketData, parse_bars, run_plan
+from harness.stock_analysis import analyze, KisMarketData, parse_bars, run_plan
 
 
 def sample():
@@ -105,7 +105,7 @@ def test_korean_response_normalized():
 
 
 def test_api_errors_do_not_leak_credentials(monkeypatch):
-    import haness.stock_analysis as module
+    import harness.stock_analysis as module
     client = KisMarketData(app_key='SECRETKEY', app_secret='SECRETSECRET')
     def fail(*a, **k): raise RuntimeError('SECRETKEY SECRETSECRET')
     monkeypatch.setattr(module.urllib.request, 'urlopen', fail)

@@ -7,14 +7,14 @@ verification.json: {cases: [{app, id, category, type, ...}]}
 import base64, json, zlib
 from pathlib import Path
 
-JUDGE_PATH = Path("/data/vm_project/haness/apps/blind_review_judge_20261027/private_judge.b64")
+JUDGE_PATH = Path("/data/vm_project/harness/apps/blind_review_judge_20261027/private_judge.b64")
 raw = "".join(JUDGE_PATH.read_text().split())
 pkg = json.loads(zlib.decompress(base64.b64decode(raw)))
 
 private_key = json.loads(pkg["private_key.json"])
 verification = json.loads(pkg["verification.json"])
 
-RESULT_DIR = Path("/data/vm_project/haness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864")
+RESULT_DIR = Path("/data/vm_project/harness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864")
 results = {}
 for f in sorted(RESULT_DIR.glob("*.json")):
     if f.name == "summary.json": continue

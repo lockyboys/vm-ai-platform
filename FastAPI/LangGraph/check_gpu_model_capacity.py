@@ -2,7 +2,7 @@
 import sys, subprocess, shlex
 sys.path.insert(0, "/data/vm_project")
 import config
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 plan = run_remote(path="FastAPI/LangGraph/multi_persona/multi_persona_agent_Ollama_Gemma4_e4b.py", ssh_target="gpu")
 script = """
 import json, shutil, subprocess

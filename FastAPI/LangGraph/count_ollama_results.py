@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-p=Path('/data/vm_project/haness/apps/blind_review_20261027/results/ollama')
+p=Path('/data/vm_project/harness/apps/blind_review_20261027/results/ollama')
 rows=[]
 for f in p.glob('*.json'):
     if f.name=='summary.json': continue

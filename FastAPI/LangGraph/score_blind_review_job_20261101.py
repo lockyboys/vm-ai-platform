@@ -2,7 +2,7 @@
 
 기존 prepare_scoring_packages.py + llm_judge_gemini_scoring.py 는 Gemini job(cc319de2…) 경로가 고정돼 있어
 Ollama job에 쓸 수 없다. 원본은 그대로 두고, 같은 채점 조건을 이 파일 하나에 옮겼다:
-  - 정답 키: haness/apps/blind_review_judge_20261027/private_judge.b64 (private_key.json + verification.json)
+  - 정답 키: harness/apps/blind_review_judge_20261027/private_judge.b64 (private_key.json + verification.json)
   - 판독 프롬프트(JUDGE_PROMPT) 문구: llm_judge_gemini_scoring.py 와 글자 단위로 동일
   - 채점 모델: gemini-3.8-flash, temperature 0, max_output_tokens 256, thinking_budget 0, max_retries 2, timeout 120
   - 응답 길이: 패키지에 앞 3000자 저장 → 판독 시 앞 2500자 사용 (기존과 동일)
@@ -26,7 +26,7 @@ from pathlib import Path
 import config  # 루트 공통 설정(일반 지침 4) — PROJECT_ROOT
 
 ROOT = Path(config.PROJECT_ROOT)
-JUDGE_PACKAGE = ROOT / "haness/apps/blind_review_judge_20261027/private_judge.b64"
+JUDGE_PACKAGE = ROOT / "harness/apps/blind_review_judge_20261027/private_judge.b64"
 SCORER_MODEL = "gemini-3.8-flash"  # Gemini 80/82 채점 때와 같은 모델
 
 # llm_judge_gemini_scoring.py 의 프롬프트를 그대로 복사(비교 조건 동일 유지 — 문구 수정 금지)
@@ -121,7 +121,7 @@ def judge(llm, entry: dict) -> tuple[int, str]:
 
 def main() -> None:
     provider, job_id, dry_run = parse_request()
-    result_dir = ROOT / "haness/apps/blind_review_20261027/results" / provider / "jobs" / job_id
+    result_dir = ROOT / "harness/apps/blind_review_20261027/results" / provider / "jobs" / job_id
     if not result_dir.is_dir():
         raise FileNotFoundError(f"result dir not found: {result_dir}")
     by_cat, missing = build_packages(result_dir)

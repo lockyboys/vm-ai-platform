@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 def main():
     from playwright.sync_api import sync_playwright
-    source=Path("haness/apps/tetris_combined_chromium_20261026/tetris.html")
+    source=Path("harness/apps/tetris_combined_chromium_20261026/tetris.html")
     report={"passed":[],"page_errors":[],"source_sha256":hashlib.sha256(source.read_bytes()).hexdigest()}
     with sync_playwright() as p:
         executable=Path(p.chromium.executable_path)

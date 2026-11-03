@@ -10,7 +10,7 @@ def main():
         page.on("pageerror",lambda error:report["page_errors"].append(str(error)))
         current="load"
         try:
-            page.goto(Path("haness/apps/scientific_calculator_20261025/scientific_calculator.html").resolve().as_uri())
+            page.goto(Path("harness/apps/scientific_calculator_20261025/scientific_calculator.html").resolve().as_uri())
             assert page.title()=="VECTOR / 공학용 계산기";report["passed"].append("offline load")
             def calculate(expression,expected,label):
                 nonlocal current

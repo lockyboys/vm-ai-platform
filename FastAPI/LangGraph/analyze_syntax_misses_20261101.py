@@ -17,7 +17,7 @@ from pathlib import Path
 import config  # 루트 공통 설정(일반 지침 4)
 
 ROOT = Path(config.PROJECT_ROOT)
-BASE = ROOT / "haness/apps/blind_review_20261027/results"
+BASE = ROOT / "harness/apps/blind_review_20261027/results"
 JUDGE_WINDOW = 2500  # score_blind_review_job_20261101.py 와 같은 값(채점관이 본 응답 앞부분 길이)
 # 비교할 작업(제공자, job_id) — 모두 같은 82건 입력(input_sha256 092fa65b…)
 JOBS = {
@@ -59,7 +59,7 @@ def first_pos(text, words):
 
 
 pkg = json.loads(zlib.decompress(base64.b64decode("".join(
-    (ROOT / "haness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
+    (ROOT / "harness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
 key = json.loads(pkg["private_key.json"])
 syntax_ids = [bid for bid, info in key.items() if info.get("category") == "syntax"]
 data = {name: load(*job) for name, job in JOBS.items()}

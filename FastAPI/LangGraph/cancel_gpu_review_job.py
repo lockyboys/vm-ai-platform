@@ -5,7 +5,7 @@ import shlex
 import subprocess
 import sys
 import config
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 
 request = json.loads(sys.stdin.read())
 mode, job = request.get("mode"), request.get("job")

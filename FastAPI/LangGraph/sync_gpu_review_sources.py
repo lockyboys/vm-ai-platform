@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime
 ROOT = Path("/data/vm_project")
 sys.path.insert(0, str(ROOT))
-from haness.mcp.tools.ssh_execution_tools import run_remote
+from harness.mcp.tools.ssh_execution_tools import run_remote
 import config
 FILES = ["FastAPI/LangGraph/multi_persona/" + name for name in (
     "multi_persona_agent_Ollama_Gemma4_e4b.py", "multi_persona_agent_gemini.py", "review_contract.py")]

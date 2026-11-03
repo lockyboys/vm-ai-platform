@@ -11,7 +11,7 @@ LuckyBoys용 SPS 분석 도구. 대상 프로젝트는 `/data/vm_project`이며 
 
 ## 파일
 
-- `haness/stock_analysis.py`: 조회 어댑터와 분석 함수, CLI.
+- `harness/stock_analysis.py`: 조회 어댑터와 분석 함수, CLI.
 - `FastAPI/LangGraph/run_stock_analysis.py`: 기존 SPS 실행 경로의 진입점.
 - `config.py`: STOCK_ANALYSIS 중앙 설정 추가. 수정 전 `config_BACKUP_20261023_stock_analysis.py` 보존.
 - `tests/test_stock_analysis.py`: 정상·실패·경계·명령 실행 검증.

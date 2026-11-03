@@ -4,4 +4,4 @@ import runpy
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[2]
-    runpy.run_path(str(root / "haness/tests/apply_source_repair_update.py"), run_name="__main__")
+    runpy.run_path(str(root / "harness/tests/apply_source_repair_update.py"), run_name="__main__")

@@ -6,8 +6,8 @@ import hashlib
 
 import pytest
 
-from haness.mcp.tools import change_set_graph as module
-from haness.mcp.tools import orchestrator_tools
+from harness.mcp.tools import change_set_graph as module
+from harness.mcp.tools import orchestrator_tools
 
 
 def _work_order(*, confirmed=False):
@@ -17,15 +17,15 @@ def _work_order(*, confirmed=False):
         "change_set_id": "change-001",
         "apply_confirmed": confirmed,
         "patch_text": (
-            "--- a/haness/example.py\n"
-            "+++ b/haness/example.py\n"
+            "--- a/harness/example.py\n"
+            "+++ b/harness/example.py\n"
             "@@ -1 +1 @@\n"
             "-OLD = True\n"
             "+OLD = False\n"
         ),
-        "test_paths": ["haness/tests/test_example.py"],
+        "test_paths": ["harness/tests/test_example.py"],
         "stage_groups": {
-            "source": ["haness/example.py"],
+            "source": ["harness/example.py"],
             "tests": [],
             "docs": [],
             "operations": [],
@@ -46,8 +46,8 @@ _BEFORE_SHA = hashlib.sha256(b"OLD = True\n").hexdigest()
 def isolated_source_tree(monkeypatch, tmp_path):
     """기존 모의 테스트도 실제 서버 파일과 증빙을 변경하지 않도록 격리한다."""
     from harness.mcp.tools import patch_tools
-    (tmp_path / "haness").mkdir(exist_ok=True)
-    (tmp_path / "haness/example.py").write_text("OLD = True\n", encoding="utf-8")
+    (tmp_path / "harness").mkdir(exist_ok=True)
+    (tmp_path / "harness/example.py").write_text("OLD = True\n", encoding="utf-8")
     monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(patch_tools, "PROJECT_ROOT", tmp_path)
 
@@ -56,9 +56,9 @@ def _patch_receipt(dry_run):
     """모의 도구도 실제 source_patch와 동일한 해시 증빙 계약을 반환한다."""
     return {
         "dry_run": dry_run, "applicable": True, "applied": not dry_run,
-        "paths": ["haness/example.py"],
-        "before_sha256": {"haness/example.py": _BEFORE_SHA},
-        "after_sha256": {"haness/example.py": _BEFORE_SHA},
+        "paths": ["harness/example.py"],
+        "before_sha256": {"harness/example.py": _BEFORE_SHA},
+        "after_sha256": {"harness/example.py": _BEFORE_SHA},
         "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
     }
 
@@ -70,7 +70,7 @@ def _patch_receipt(dry_run):
         lambda value: value.update(change_set_id="../bad"),
         lambda value: value.update(test_paths=[]),
         lambda value: value["stage_groups"].update(source=[]),
-        lambda value: value["stage_groups"].update(tests=["haness/example.py"]),
+        lambda value: value["stage_groups"].update(tests=["harness/example.py"]),
     ],
 )
 def test_invalid_change_set_is_rejected_before_mutation(monkeypatch, mutator):
@@ -101,8 +101,8 @@ def test_change_set_dry_run_checks_patch_and_stage_without_mutation(monkeypatch)
         or {
             "dry_run": dry_run,
             "applicable": True,
-            "paths": ["haness/example.py"],
-            "before_sha256": {"haness/example.py": _BEFORE_SHA},
+            "paths": ["harness/example.py"],
+            "before_sha256": {"harness/example.py": _BEFORE_SHA},
             "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
         },
     )
@@ -117,7 +117,7 @@ def test_change_set_dry_run_checks_patch_and_stage_without_mutation(monkeypatch)
 
     assert result["state"] == "PLANNED"
     assert patch_calls == [True]
-    assert stage_calls == [(["haness/example.py"], True)]
+    assert stage_calls == [(["harness/example.py"], True)]
     assert result["evidence_path"]
 
 
@@ -129,7 +129,7 @@ def test_patch_paths_must_match_stage_groups(monkeypatch):
         lambda patch_text, dry_run=True: {
             "dry_run": True,
             "applicable": True,
-            "paths": ["haness/other.py"],
+            "paths": ["harness/other.py"],
         },
     )
 
@@ -195,8 +195,8 @@ def test_selected_hunks_stage_after_pytest_in_same_graph(monkeypatch):
     assert result["state"] == "STAGED"
     assert events == [
         "pytest",
-        ("stage_patch", True, ["haness/example.py"]),
-        ("stage_patch", False, ["haness/example.py"]),
+        ("stage_patch", True, ["harness/example.py"]),
+        ("stage_patch", False, ["harness/example.py"]),
     ]
 
 
@@ -213,9 +213,9 @@ def test_apply_runs_patch_tests_and_separate_git_add(monkeypatch):
             "dry_run": dry_run,
             "applicable": True,
             "applied": not dry_run,
-            "paths": ["haness/example.py"],
-            "before_sha256": {"haness/example.py": _BEFORE_SHA},
-            "after_sha256": {"haness/example.py": _BEFORE_SHA},
+            "paths": ["harness/example.py"],
+            "before_sha256": {"harness/example.py": _BEFORE_SHA},
+            "after_sha256": {"harness/example.py": _BEFORE_SHA},
             "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
         },
     )
@@ -238,7 +238,7 @@ def test_apply_runs_patch_tests_and_separate_git_add(monkeypatch):
         or {
             "dry_run": dry_run,
             "requested_paths": list(paths),
-            "staged_paths": [] if dry_run else ["haness/example.py"],
+            "staged_paths": [] if dry_run else ["harness/example.py"],
         },
     )
     monkeypatch.setattr(
@@ -252,10 +252,10 @@ def test_apply_runs_patch_tests_and_separate_git_add(monkeypatch):
     assert result["state"] == "STAGED"
     assert patch_calls == [True, False]
     assert stage_calls == [
-        (["haness/example.py"], True),
-        (["haness/example.py"], False),
+        (["harness/example.py"], True),
+        (["harness/example.py"], False),
     ]
-    assert result["staged_groups"]["source"] == ["haness/example.py"]
+    assert result["staged_groups"]["source"] == ["harness/example.py"]
     assert result["evidence_path"] == "evidence.json"
 
 
@@ -271,9 +271,9 @@ def test_failed_tests_reverse_patch_and_do_not_stage(monkeypatch):
             "dry_run": dry_run,
             "applicable": True,
             "applied": not dry_run,
-            "paths": ["haness/example.py"],
-            "before_sha256": {"haness/example.py": _BEFORE_SHA},
-            "after_sha256": {"haness/example.py": _BEFORE_SHA},
+            "paths": ["harness/example.py"],
+            "before_sha256": {"harness/example.py": _BEFORE_SHA},
+            "after_sha256": {"harness/example.py": _BEFORE_SHA},
             "patch_sha256": hashlib.sha256(_work_order()["patch_text"].encode()).hexdigest(),
         },
     )
@@ -363,9 +363,9 @@ def test_source_write_requires_explicit_approval_before_mutation(monkeypatch):
     """source_write 요청은 승인 값이 없으면 어떤 파일도 쓰지 않아야 한다."""
     work_order = _work_order()
     work_order["writes"] = [
-        {"path": "haness/new_agent.py", "content": "VALUE = 1\n", "overwrite": False}
+        {"path": "harness/new_agent.py", "content": "VALUE = 1\n", "overwrite": False}
     ]
-    work_order["stage_groups"]["source"].append("haness/new_agent.py")
+    work_order["stage_groups"]["source"].append("harness/new_agent.py")
     write_calls = []
     monkeypatch.setattr(
         module,
@@ -386,9 +386,9 @@ def test_approved_source_write_runs_before_tests_and_git_add(monkeypatch):
     work_order["patch_text"] = ""
     work_order["source_write_confirmed"] = True
     work_order["writes"] = [
-        {"path": "haness/new_agent.py", "content": "VALUE = 1\n", "overwrite": False}
+        {"path": "harness/new_agent.py", "content": "VALUE = 1\n", "overwrite": False}
     ]
-    work_order["stage_groups"]["source"] = ["haness/new_agent.py"]
+    work_order["stage_groups"]["source"] = ["harness/new_agent.py"]
     write_calls = []
     stage_calls = []
     monkeypatch.setattr(module, "_staged_paths", lambda: [])
@@ -413,8 +413,8 @@ def test_approved_source_write_runs_before_tests_and_git_add(monkeypatch):
     result = module.run_change_set(work_order, dry_run=False)
 
     assert result["state"] == "STAGED"
-    assert [call["path"] for call in write_calls] == ["haness/new_agent.py"]
-    assert stage_calls == [(["haness/new_agent.py"], True), (["haness/new_agent.py"], False)]
+    assert [call["path"] for call in write_calls] == ["harness/new_agent.py"]
+    assert stage_calls == [(["harness/new_agent.py"], True), (["harness/new_agent.py"], False)]
 
 
 def test_commit_waits_for_approval_after_source_staging(monkeypatch):
@@ -469,8 +469,8 @@ def test_dry_run_persists_source_hashes_and_patch_plan(monkeypatch, tmp_path):
     import subprocess
     from harness.mcp.tools import patch_tools
 
-    (tmp_path / "haness").mkdir(exist_ok=True)
-    source = tmp_path / "haness/example.py"
+    (tmp_path / "harness").mkdir(exist_ok=True)
+    source = tmp_path / "harness/example.py"
     source.write_text("OLD = True\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
@@ -480,7 +480,7 @@ def test_dry_run_persists_source_hashes_and_patch_plan(monkeypatch, tmp_path):
 
     report = json.loads((tmp_path / result["evidence_path"]).read_text())
     expected = hashlib.sha256(source.read_bytes()).hexdigest()
-    assert report["source_before_sha256"] == {"haness/example.py": expected}
+    assert report["source_before_sha256"] == {"harness/example.py": expected}
     assert report["patch_plan"]["dry_run"] is True
     assert report["state"] == "PLANNED"
     assert source.read_text() == "OLD = True\n"
@@ -490,18 +490,18 @@ def test_source_change_after_check_blocks_apply(monkeypatch, tmp_path):
     """dry-run 이후 원본이 바뀌면 실제 patch·pytest·staging 전에 중단해야 한다."""
     from harness.mcp.tools import patch_tools
 
-    (tmp_path / "haness").mkdir(exist_ok=True)
-    source = tmp_path / "haness/example.py"
+    (tmp_path / "harness").mkdir(exist_ok=True)
+    source = tmp_path / "harness/example.py"
     source.write_text("OLD = True\n", encoding="utf-8")
     monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(patch_tools, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(module, "_staged_paths", lambda: [])
     plan = module._validate_request(_work_order(), False)
     plan["patch_plan"] = {
-        "dry_run": True, "applicable": True, "paths": ["haness/example.py"],
-        "before_sha256": {"haness/example.py": "0" * 64},
+        "dry_run": True, "applicable": True, "paths": ["harness/example.py"],
+        "before_sha256": {"harness/example.py": "0" * 64},
     }
-    plan["source_before_sha256"] = {"haness/example.py": "0" * 64}
+    plan["source_before_sha256"] = {"harness/example.py": "0" * 64}
     calls = []
     monkeypatch.setattr(module, "source_patch", lambda *a, **k: calls.append(k))
     with pytest.raises(ValueError, match="source changed since dry-run"):
@@ -513,7 +513,7 @@ def test_source_change_after_check_blocks_apply(monkeypatch, tmp_path):
 def test_missing_patch_hash_evidence_is_rejected(monkeypatch):
     """해시가 없는 잘못된 dry-run 응답은 성공 계획으로 인정하지 않아야 한다."""
     monkeypatch.setattr(module, "source_patch", lambda *a, **k: {
-        "dry_run": True, "applicable": True, "paths": ["haness/example.py"],
+        "dry_run": True, "applicable": True, "paths": ["harness/example.py"],
     })
     with pytest.raises(ValueError, match="patch hash evidence"):
         module.run_change_set(_work_order(), dry_run=True)
@@ -532,9 +532,9 @@ def test_real_apply_receipt_exists_before_pytest(monkeypatch, tmp_path):
         assert report["state"] == "APPLIED"
         assert report["patch_plan"]["dry_run"] is True
         assert report["patch_result"]["applied"] is True
-        assert report["source_before_sha256"]["haness/example.py"] == _BEFORE_SHA
-        after = hashlib.sha256((tmp_path / "haness/example.py").read_bytes()).hexdigest()
-        assert report["source_after_sha256"]["haness/example.py"] == after
+        assert report["source_before_sha256"]["harness/example.py"] == _BEFORE_SHA
+        after = hashlib.sha256((tmp_path / "harness/example.py").read_bytes()).hexdigest()
+        assert report["source_after_sha256"]["harness/example.py"] == after
         assert after != _BEFORE_SHA
         observed.append(True)
         return {"success": True}
@@ -570,7 +570,7 @@ def test_real_patch_changes_source_then_stages_after_pytest(monkeypatch, tmp_pat
     monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(patch_tools, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(git_mutation_tools, "PROJECT_ROOT", tmp_path)
-    source = tmp_path / "haness/example.py"
+    source = tmp_path / "harness/example.py"
     events = []
 
     real_patch = module.source_patch
@@ -613,7 +613,7 @@ def test_real_patch_changes_source_then_stages_after_pytest(monkeypatch, tmp_pat
         ["git", "-C", str(tmp_path), "diff", "--cached", "--name-only"],
         check=True, capture_output=True, text=True,
     ).stdout.splitlines()
-    assert cached == ["haness/example.py"]
+    assert cached == ["harness/example.py"]
 
 
 def test_real_source_write_changes_file_then_stages_after_pytest(monkeypatch, tmp_path):
@@ -626,7 +626,7 @@ def test_real_source_write_changes_file_then_stages_after_pytest(monkeypatch, tm
     monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(write_tools, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(git_mutation_tools, "PROJECT_ROOT", tmp_path)
-    path = "haness/new_agent.py"
+    path = "harness/new_agent.py"
     target = tmp_path / path
     events = []
     work_order = _work_order()

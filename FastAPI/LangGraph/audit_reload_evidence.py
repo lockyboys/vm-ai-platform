@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT=Path("/data/vm_project");sys.path.insert(0,str(ROOT))
 from common.common_function import now_kst_iso,write_json_atomic
 KST=datetime.timezone(datetime.timedelta(hours=9))
-bindings={"sps-harness.service":["haness/mcp/tools/change_set_graph.py","haness/mcp/agents/source_partner_agent.py","harness/mcp/tools/git_mutation_tools.py"],
+bindings={"sps-harness.service":["harness/mcp/tools/change_set_graph.py","harness/mcp/agents/source_partner_agent.py","harness/mcp/tools/git_mutation_tools.py"],
 "sps-gemini-agent.service":["FastAPI/LangGraph/gemini/sps_gemini_agent.py"]}
 result={"checked_at":now_kst_iso(),"services":{}}
 for service,files in bindings.items():

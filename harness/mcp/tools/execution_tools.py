@@ -15,7 +15,7 @@ import config as project_config
 from config import LOG_PATH
 from common.common_function import ensure_dirs, logger
 # 2026-10-25 LuckyBoys: 위험 명령(sudo·ssh·curl 등) 탐지·표시·승인 확인. 구현은 haness에 두고 연결만 한다(일반 지침 10).
-from haness.mcp.tools.command_approval import approval_matches, command_names, scan
+from harness.mcp.tools.command_approval import approval_matches, command_names, scan
 
 PROJECT_ROOT = Path("/data/vm_project").resolve()
 EXECUTION_ROOT = (PROJECT_ROOT / "FastAPI" / "LangGraph").resolve()
@@ -79,7 +79,7 @@ def mcp_codex_apps_run_python_source(
             return {"dry_run": False, "executed": False, "approval_required": True,
                     "approval_commands": ["ssh"], "commands_detected": [{"command": "ssh", "target": ssh_target}],
                     "blocked_reason": "ssh_target 실행은 사용자 승인(approved_commands=['ssh'])이 필요합니다."}
-        from haness.mcp.tools.ssh_execution_tools import run_remote
+        from harness.mcp.tools.ssh_execution_tools import run_remote
         return run_remote(
             path=path, ssh_target=ssh_target, ssh_operation=ssh_operation,
             argv=argv, job_id=job_id, dry_run=dry_run,
@@ -87,7 +87,7 @@ def mcp_codex_apps_run_python_source(
         )
     if job_id:
         # 조회는 실행 승인 없이 가능하며 작업 소스 경로를 반드시 대조한다.
-        from haness.mcp.tools.source_execution_jobs import status
+        from harness.mcp.tools.source_execution_jobs import status
         return status(path, job_id)
     if argv or ssh_operation != "hash":
         raise ValueError("SSH arguments require ssh_target")
@@ -124,7 +124,7 @@ def mcp_codex_apps_run_python_source(
 
     if timeout > project_config.SPS_GENERAL_UNIT_RUNTIME_SECONDS:
         # 장기 실행은 독립 유닛으로 넘겨 MCP 요청을 계속 열어 두지 않는다.
-        from haness.mcp.tools.source_execution_jobs import submit
+        from harness.mcp.tools.source_execution_jobs import submit
         return submit(plan, source_path, input_text)
     ensure_dirs()
     logger.info("MCP source execution started: %s approved_commands=%s", plan["path"], names)

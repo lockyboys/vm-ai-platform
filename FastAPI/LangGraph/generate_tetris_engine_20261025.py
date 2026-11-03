@@ -6,7 +6,7 @@ def main():
     import os
     os.environ["SPS_SOURCE_PARTNER_MODEL_PROVIDER"]="gemini"
     from langchain_core.messages import HumanMessage
-    from haness.mcp.agents.source_partner_agent import _build_model
+    from harness.mcp.agents.source_partner_agent import _build_model
     async def run():
         return await asyncio.wait_for(_build_model().ainvoke([HumanMessage(content=request["prompt"])]),timeout=90)
     response=asyncio.run(run())

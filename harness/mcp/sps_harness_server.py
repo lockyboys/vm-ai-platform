@@ -119,14 +119,14 @@ from harness.mcp.tools.agent_memory_tools import (
     agent_long_term_memory_save,
 )
 # Source-review implementation belongs to the user-requested haness package.
-from haness.mcp.tools.multi_persona_tools import review_python_source
-from haness.mcp.tools.orchestrator_tools import run_sps_orchestrator
+from harness.mcp.tools.multi_persona_tools import review_python_source
+from harness.mcp.tools.orchestrator_tools import run_sps_orchestrator
 from harness.mcp.tools.pytest_tools import (
     run_pytest_verification,
 )
-from haness.mcp.tools.pytest_jobs import submit as submit_pytest_job, status as pytest_job_status
-from haness.mcp.tools.blind_review_jobs_v2 import submit as submit_blind_review, status as blind_review_status
-from haness.mcp.tools.source_edit_guard import status as source_edit_guard_status
+from harness.mcp.tools.pytest_jobs import submit as submit_pytest_job, status as pytest_job_status
+from harness.mcp.tools.blind_review_jobs_v2 import submit as submit_blind_review, status as blind_review_status
+from harness.mcp.tools.source_edit_guard import status as source_edit_guard_status
 from harness.mcp.tools.execution_tools import (
     mcp_codex_apps_run_python_source,
 )

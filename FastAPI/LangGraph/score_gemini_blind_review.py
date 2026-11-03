@@ -10,12 +10,12 @@ import base64, json, zlib
 from pathlib import Path
 
 # 비공개 채점 기준 로드
-JUDGE_PATH = Path("/data/vm_project/haness/apps/blind_review_judge_20261027/private_judge.b64")
+JUDGE_PATH = Path("/data/vm_project/harness/apps/blind_review_judge_20261027/private_judge.b64")
 raw = "".join(JUDGE_PATH.read_text().split())
 judge = json.loads(zlib.decompress(base64.b64decode(raw)))
 
 # Gemini 결과 디렉터리 (신규 job별 격리 경로)
-RESULT_DIR = Path("/data/vm_project/haness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864")
+RESULT_DIR = Path("/data/vm_project/harness/apps/blind_review_20261027/results/gemini/jobs/cc319de2752c4649a13e1834a2c0c864")
 
 # 1단계: 비공개 패키지 구조 출력 (키·샘플)
 print("=== judge 패키지 구조 ===")

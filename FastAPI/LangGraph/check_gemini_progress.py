@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-ROOT = Path("/data/vm_project/haness/apps/blind_review_20261027")
+ROOT = Path("/data/vm_project/harness/apps/blind_review_20261027")
 # 신규: job 별 디렉터리 (job_output_dir 반영 후)
 job_dir = ROOT / "results" / "gemini" / "jobs"
 # 구형: 공용 디렉터리

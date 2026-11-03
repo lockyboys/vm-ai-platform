@@ -30,7 +30,7 @@ async def verify():
     review = next(tool for tool in tools if tool.name == "review_python_source")
     evidence = {"tool_registered": True, "tool_count": len(names)}
     REPORT.write_text(json.dumps(evidence), encoding="utf-8")
-    arguments = {"source_path": "haness/tests/fixtures/review_sample.py", "dry_run": True}
+    arguments = {"source_path": "harness/tests/fixtures/review_sample.py", "dry_run": True}
     evidence["dry_run"] = decode(await asyncio.wait_for(review.ainvoke(arguments), timeout=15))
     assert evidence["dry_run"]["executed"] is False
     REPORT.write_text(json.dumps(evidence, ensure_ascii=False), encoding="utf-8")

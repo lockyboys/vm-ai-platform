@@ -15,12 +15,12 @@ from pathlib import Path
 import config  # 루트 공통 설정(일반 지침 4)
 
 ROOT = Path(config.PROJECT_ROOT)
-APP = ROOT / "haness/apps/blind_review_20261027"
+APP = ROOT / "harness/apps/blind_review_20261027"
 JOBS = {"e4b_review": "a6f4e01600d6446e8d265badbda3c522", "12b_review": "76508f145da54186a1794efd96b74746"}
 
 inputs = {i["id"]: i for i in json.loads(zlib.decompress(base64.b64decode((APP / "blind_inputs.b64").read_text())))}
 pkg = json.loads(zlib.decompress(base64.b64decode("".join(
-    (ROOT / "haness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
+    (ROOT / "harness/apps/blind_review_judge_20261027/private_judge.b64").read_text().split()))))
 key = json.loads(pkg["private_key.json"])
 
 out = {"num_ctx": config.OLLAMA_NUM_CTX}

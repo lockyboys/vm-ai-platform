@@ -4,8 +4,8 @@ from pathlib import Path
 def main():
     os.environ["SPS_SOURCE_PARTNER_MODEL_PROVIDER"]="gemini"
     from langchain_core.messages import HumanMessage
-    from haness.mcp.agents.source_partner_agent import _build_model
-    source=Path("haness/apps/scientific_calculator_20261025/scientific_calculator.html").read_text()
+    from harness.mcp.agents.source_partner_agent import _build_model
+    source=Path("harness/apps/scientific_calculator_20261025/scientific_calculator.html").read_text()
     line=next(line for line in source.splitlines() if "getElementById('backspace').onclick=" in line)
     prompt=("Diagnose this actual UI regression and return ONLY JSON "
             "{old:exact existing substring,new:minimal replacement,reason:diagnosis}. "
