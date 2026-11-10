@@ -142,8 +142,9 @@ def test_invalid_test_paths_rejected_before_launch(bad):
 
 
 def test_dry_run_plan_shows_auto_apply_settings():
+    # 2026-11-10: tests/test_review_output_contract.py → harness/tests/로 이동(LuckyBoys 지시)
     plan = asyncio.run(review.review_python_source("FastAPI/LangGraph/multi_persona/review_contract.py",
-                                                   test_paths=["tests/test_review_output_contract.py"]))
+                                                   test_paths=["harness/tests/test_review_output_contract.py"]))
     assert plan["executed"] is False
-    assert plan["test_paths"] == ["tests/test_review_output_contract.py"]
+    assert plan["test_paths"] == ["harness/tests/test_review_output_contract.py"]
     assert plan["auto_apply"] is review.project_config.MULTI_PERSONA_REVIEW_AUTO_APPLY

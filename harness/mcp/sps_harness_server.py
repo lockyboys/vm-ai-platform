@@ -120,6 +120,8 @@ from harness.mcp.tools.agent_memory_tools import (
 )
 # Source-review implementation belongs to the user-requested haness package.
 from harness.mcp.tools.multi_persona_tools import review_python_source
+# 2026-11-10: 어느 AI(Gemini·ChatGPT·Claude·Ollama)가 만든 수정 코드든 검증·백업·적용·되돌림으로 반영.
+from harness.mcp.tools.apply_proposal_tools import apply_source_proposal
 from harness.mcp.tools.orchestrator_tools import run_sps_orchestrator
 from harness.mcp.tools.pytest_tools import (
     run_pytest_verification,
@@ -457,6 +459,8 @@ mcp.tool(name="blind_review_status")(blind_review_status)
 mcp.tool(name="source_edit_guard_status")(source_edit_guard_status)
 # Reuse Multi-Persona CLI without embedding it into the general Gemini chat server.
 mcp.tool()(review_python_source)
+# LLM 종류와 무관하게 호출 가능한 자동 적용 도구(dry_run 기본값 True).
+mcp.tool()(apply_source_proposal)
 mcp.tool()(run_sps_orchestrator)
 mcp.tool(name="mcp_codex_apps_run_python_source")(mcp_codex_apps_run_python_source)
 mcp.tool()(agent_long_term_memory_save)

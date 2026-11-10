@@ -84,16 +84,28 @@ def initialize_llm(temp: float = 0.2, output_limit: Optional[int] = None) -> Cha
     [주의점]
     OLLAMA_TIMEOUT 기본값을 120초로 설정하여 대형 모델 응답 지연 시 타임아웃 예외 발생에 대비합니다.
     """
+    # 2026-11-10: 11-01 Ollama 주소 자동 선택(GPU 서버 → 노트북 터널 11435 → 개발 서버 11434)을 리뷰에도 적용.
+    # 이전에는 127.0.0.1:11434(개발 서버 CPU 전용)로 고정돼 계산기·테트리스 리뷰가 3590초 시간 초과됐다.
+    # OLLAMA_BASE_URL을 직접 지정하면 그 주소를 그대로 쓴다(수동 고정).
+    base_url = os.getenv("OLLAMA_BASE_URL", "").strip()
+    if not base_url:
+        from common.common_function import resolve_ollama_base_url
+        base_url = resolve_ollama_base_url(
+            project_config.SPS_SOURCE_PARTNER_OLLAMA_BASE_URL,
+            project_config.SPS_SOURCE_PARTNER_OLLAMA_CANDIDATES,
+            project_config.SPS_SOURCE_PARTNER_OLLAMA_PROBE_TIMEOUT_SECONDS,
+        )["base_url"]
     return ChatOllama(
         # 호스트별 루트 config.py 값을 사용하며, 명시적 환경 변수는 우선합니다.
         model=os.getenv("OLLAMA_MODEL", getattr(project_config, "MULTI_PERSONA_OLLAMA_MODEL", "gemma4:e4b")).strip(),
-        base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip(),
+        base_url=base_url,
         temperature=temp,
         # GPU 서버에서만 reasoning=False를 설정해 계획·진단 단계의 숨은 출력 낭비를 막습니다.
         reasoning=getattr(project_config, "MULTI_PERSONA_OLLAMA_REASONING", None),
         client_kwargs={"timeout": float(os.getenv("OLLAMA_TIMEOUT", "3000"))},
         # 긴 소스 입력과 전체 코드 출력 공간을 함께 확보합니다. 중앙 설정과 실행 환경을 우선합니다.
-        num_ctx=int(os.getenv("OLLAMA_CONTEXT_LENGTH", str(getattr(project_config, "MULTI_PERSONA_OLLAMA_CONTEXT", 65536)))),
+        # 2026-11-10 LuckyBoys 결정: 기본값 65536 → 8192 (11-01 노트북 RTX 3060 6GB에서 GPU 100% 사용 값, 공용 모듈과 동일).
+        num_ctx=int(os.getenv("OLLAMA_CONTEXT_LENGTH", str(getattr(project_config, "MULTI_PERSONA_OLLAMA_CONTEXT", 8192)))),
         num_predict=int(output_limit if output_limit is not None else os.getenv(
             "OLLAMA_NUM_PREDICT", str(getattr(project_config, "MULTI_PERSONA_OLLAMA_OUTPUT", 32768)))),
     )
@@ -1489,6 +1501,12 @@ if __name__ == "__main__":
         default=None,
         help="이전 오류를 읽고 실행 오류를 저장할 파일 경로",
     )
+    # 2026-11-10: Gemini CLI와 같은 계약 — MCP 리뷰 job마다 전용 폴더에 review.md / proposed.py를 쓴다.
+    # 지정하지 않으면 기존처럼 원본 옆 <stem>.review.md / <stem>.proposed.py에 쓴다(직접 실행 호환).
+    parser.add_argument(
+        "--output-dir", default=None,
+        help="리뷰 보고서와 제안 소스를 저장할 job 전용 폴더 (동시 리뷰 충돌 방지)",
+    )
     args = parser.parse_args()
 
     # 입력 경로를 정규화하고 일반 파일인지, UTF-8인지 확인합니다.
@@ -1550,13 +1568,22 @@ if __name__ == "__main__":
         "## 3. 최종 수정 전체 소스 코드",
     )
     # 전체 결과를 파일로 보존하며 생성 소스를 원본에 자동 적용하지 않습니다.
-    report_path = source_path.with_name(source_path.stem + ".review.md")
+    if args.output_dir:
+        # job 전용 폴더: 다른 리뷰와 파일 이름이 겹치지 않는다.
+        output_dir = Path(args.output_dir).expanduser().resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        report_path = output_dir / "review.md"
+        proposed_path = output_dir / "proposed.py"
+    else:
+        report_path = source_path.with_name(source_path.stem + ".review.md")
+        proposed_path = source_path.with_name(source_path.stem + ".proposed.py")
     report_path.write_text(final_text, encoding="utf-8")
     output_errors = validate_review(final_text, query)
     print(f"[출력 검증] 오류={output_errors}, 보고서={report_path}")
     if not output_errors:
-        source_path.with_name(source_path.stem + ".proposed.py").write_text(
+        proposed_path.write_text(
             source_block(final_text.split("## 3. 최종 수정 전체 소스 코드", 1)[-1]), encoding="utf-8")
+        print(f"[제안 소스] {proposed_path}")
     missing_sections = validate_review(final_text, query)
     if missing_sections:
         result["verification_succeeded"] = False

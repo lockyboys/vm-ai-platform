@@ -196,12 +196,27 @@ def validate_review(text, query, search_roots=None):
 
             # 라인 단위로 '수정 불필요', '수정불필요', '수정 불요' 등으로 판정된 심볼은 제외하고
             # 실제 수정 대상으로 지목된 함수 심볼만 추출합니다.
+            # 2026-11-10: Claude 리뷰 오탐 수정(job 24a9715c·2b1d6d67) — "회귀 검증: `add`, `multiply`는
+            # 기존 동작 유지" 같은 설명 줄까지 수정 대상으로 잡혀 올바른 제안이 거부됐다.
+            # 이제 '수정 필요/수정함/수정 완료' 표시가 있는 줄의 함수만 수정 대상으로 본다.
             target_names = set()
             no_fix_pattern = re.compile(r"수정\s*(?:불필요|불요|없음)|변경\s*불필요", re.IGNORECASE)
+            fix_pattern = re.compile(r"수정\s*(?:필요|함|완료|했)")
             for line in diagnosis.splitlines():
-                line_funcs = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", line)) & old_functions.keys()
-                if line_funcs and not no_fix_pattern.search(line):
+                found = [name for name in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", line) if name in old_functions]
+                # 2026-11-10: 표 행(| ... |)에서는 '대상' 칸에 해당하는 첫 함수만 수정 대상으로 본다.
+                # 근거 칸에 같이 적힌 호출자(예: `divide` 행의 "`calculate` 호출자")를 대상으로 오인하지 않기 위함.
+                if line.lstrip().startswith("|"):
+                    found = found[:1]
+                line_funcs = set(found)
+                if line_funcs and fix_pattern.search(line) and not no_fix_pattern.search(line):
                     target_names.update(line_funcs)
+            # 수정 표시가 한 줄도 없으면 예전 규칙(언급된 함수 중 최소 1개는 실제로 바뀌어야 함)으로 검사한다.
+            mentioned = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", diagnosis)) & old_functions.keys()
+            if not target_names and mentioned and not any(
+                    name in new_functions and not _is_executable_body_unchanged(old_functions[name], new_functions[name])
+                    for name in mentioned):
+                errors.append("진단된 함수 수정 미반영: " + ", ".join(sorted(mentioned)))
 
             # 지목된 함수 중 실제로 변경되지 않은 함수를 전수 검출합니다.
             # 주석 및 docstring만 변경된 편법 수정을 걸러내기 위해 docstring을 제거한 실행문 AST를 비교합니다.

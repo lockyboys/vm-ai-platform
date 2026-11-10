@@ -1,11 +1,21 @@
-"""Expose the existing Multi-Persona source-review CLI as one SPS MCP tool."""
+"""Expose the existing Multi-Persona source-review CLI as one SPS MCP tool.
+
+[자동 수정(auto_apply) 안내 — 2026-11-10, LuckyBoys 결정: 완전 자동]
+- review_python_source는 검증된 리뷰 제안을 원본 소스에 직접 적용한다
+  (config.MULTI_PERSONA_REVIEW_AUTO_APPLY, 호출 시 auto_apply 인자로 개별 지정 가능).
+- 적용 전 job 폴더에 original.py 백업 → 문법 컴파일 → test_paths pytest → 실패 시 자동 되돌림.
+- Git 커밋은 하지 않는다(사람이 확인 후 지시).
+
+⚠ 주의: test_paths 없이 호출하면 문법만 맞아도 원본이 바뀐다(동작이 달라져도 되돌리지 않음).
+  중요한 파일은 반드시 test_paths=["tests/...", "harness/tests/..."]를 함께 넘길 것.
+  허용 폴더: config.MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS (tests/, harness/tests/)
+"""
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
 import re
-import shutil  # 2026-11-10: 자동 적용 전 원본 백업(copy2)
 import subprocess
 import sys
 import time
@@ -16,9 +26,32 @@ from time import monotonic
 import config as project_config
 from common.common_function import logger, normalize_required_text
 from harness.mcp.tools.execution_tools import _mask_secrets
+# 2026-11-10: 자동 수정(백업→적용→검증→되돌림) 로직은 재사용 모듈로 분리했다.
+from harness.mcp.tools import auto_apply
 
 PROJECT_ROOT = Path(project_config.PROJECT_ROOT).resolve()
-REVIEW_SOURCE = PROJECT_ROOT / "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py"
+# 2026-11-10: 리뷰 CLI는 config.MULTI_PERSONA_REVIEW_PROVIDERS에서 LLM별로 고른다(하드코딩 제거).
+# REVIEW_SOURCE는 기본 provider의 CLI이며, 테스트가 이 값을 바꿔 임시 CLI를 쓸 수 있다.
+REVIEW_SOURCE = PROJECT_ROOT / project_config.MULTI_PERSONA_REVIEW_PROVIDERS[
+    project_config.MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER]["cli"]
+
+
+def _review_cli(provider: str | None) -> tuple[str, Path, list[str]]:
+    """provider 이름을 검사하고 (이름, 리뷰 CLI 경로, CLI 추가 인자)를 돌려준다.
+
+    gemini·openai·claude는 같은 CLI를 쓰고 ["--provider", <llm>]으로 LLM만 바꾼다.
+    ollama처럼 전용 CLI는 추가 인자가 없다.
+    잘못된 입력(문자열 아님, 등록되지 않은 이름)은 리뷰 시작 전에 거부한다.
+    """
+    name = project_config.MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER if provider is None else provider
+    if not isinstance(name, str) or name not in project_config.MULTI_PERSONA_REVIEW_PROVIDERS:
+        raise ValueError("provider must be one of: "
+                         + ", ".join(sorted(project_config.MULTI_PERSONA_REVIEW_PROVIDERS)))
+    entry = project_config.MULTI_PERSONA_REVIEW_PROVIDERS[name]
+    extra = ["--provider", entry["llm"]] if entry.get("llm") else []
+    if name == project_config.MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER:
+        return name, REVIEW_SOURCE, extra
+    return name, PROJECT_ROOT / entry["cli"], extra
 
 
 def _project_path(value: str, field_name: str) -> Path:
@@ -151,73 +184,19 @@ async def _review_status(source: Path, job_id: str) -> dict:
 
 
 def _validate_test_paths(values) -> list[str]:
-    """자동 적용 후 돌릴 테스트 경로를 설정된 테스트 폴더 안으로만 제한한다 (2026-11-10).
-
-    잘못된 입력(목록이 아님, 문자열이 아닌 값, 경로 탈출, 테스트 폴더 밖, 없는 파일)은
-    리뷰를 시작하기 전에 거부해 워커가 임의 코드를 테스트로 실행하지 못하게 한다.
-    """
-    if values is None:
-        return []
-    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        raise ValueError("test_paths must be a list of text paths")
-    roots = [(PROJECT_ROOT / root).resolve() for root in project_config.MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS]
-    checked = []
-    for value in values:
-        path = _project_path(value, "test_paths")
-        if not any(path == root or root in path.parents for root in roots):
-            raise ValueError("test_paths must stay inside the configured test folders")
-        if not path.exists():
-            raise FileNotFoundError(f"Test path not found: {value}")
-        checked.append(str(path.relative_to(PROJECT_ROOT)))
-    return checked
+    """테스트 경로 검사 — 2026-11-10 재사용 모듈 harness.mcp.tools.auto_apply로 분리, 여기서는 위임만 한다."""
+    # PROJECT_ROOT를 호출 시점에 넘겨 테스트의 monkeypatch(임시 저장소)도 그대로 동작하게 한다.
+    return auto_apply.validate_test_paths(values, PROJECT_ROOT)
 
 
 def _auto_apply(source: Path, proposed: Path, job_dir: Path, request: dict, budget: float) -> dict:
-    """검증된 제안을 원본에 적용하고, 검증에 실패하면 원본으로 되돌린다 (2026-11-10, 완전 자동).
+    """자동 적용 — 2026-11-10 재사용 모듈 harness.mcp.tools.auto_apply로 분리, 여기서는 위임만 한다.
 
-    순서: 원본 해시 재확인 → job 폴더 original.py 백업 → 제안 기록 → 문법 컴파일
-          → (지정 시) pytest → 실패하면 백업으로 복원. 결과는 result.json에 그대로 남긴다.
+    ⚠ test_paths가 없으면 문법만 맞아도 원본이 바뀐다(세부 동작은 auto_apply 모듈 헤더 참고).
     """
-    state = {"auto_apply": True, "applied": False, "rolled_back": False, "reason": None,
-             "backup_path": None, "test_returncode": None}
-    if budget < 30:
-        state["reason"] = "not enough time left after review"
-        return state
-    # 리뷰 도중 사람이나 다른 작업이 원본을 바꿨다면 덮어쓰지 않는다.
-    if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != request["source_sha256"]:
-        state["reason"] = "source changed during review"
-        return state
-    backup = job_dir / "original.py"
-    shutil.copy2(source, backup)
-    backup.chmod(0o600)
-    original_bytes = backup.read_bytes()
-    state["backup_path"] = str(backup.relative_to(PROJECT_ROOT))
-    try:
-        source.write_bytes(proposed.read_bytes())
-        # 파일(.pyc)을 만들지 않고 문법만 확인한다.
-        compile(source.read_text(encoding="utf-8"), str(source), "exec")
-        # ⚠ 주의(2026-11-10): test_paths를 주지 않으면 여기서 끝난다.
-        #   즉 "문법만 맞으면" 제안이 원본에 그대로 남는다(동작이 바뀌어도 되돌리지 않음).
-        #   중요한 파일은 반드시 관련 테스트 경로를 test_paths로 넘겨, pytest 실패 시 되돌리게 할 것.
-        #   test_paths는 config.MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS(tests/, harness/tests/) 안만 허용되며,
-        #   pytest 시간은 MULTI_PERSONA_AUTO_APPLY_TEST_TIMEOUT_SECONDS와 리뷰 후 남은 시간 중 작은 값이다.
-        tests = request.get("test_paths") or []
-        if tests:
-            run = subprocess.run(
-                [str(PROJECT_ROOT / "venv/bin/python"), "-m", "pytest", "-q", *tests],
-                cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                timeout=max(1, min(int(project_config.MULTI_PERSONA_AUTO_APPLY_TEST_TIMEOUT_SECONDS),
-                                   int(budget) - 10)),
-                check=False)
-            state["test_returncode"] = run.returncode
-            state["test_output_tail"] = _mask_secrets(run.stdout.decode("utf-8", errors="replace"))[-2000:]
-            if run.returncode != 0:
-                raise RuntimeError("tests failed after applying the proposal")
-        state["applied"] = True
-    except Exception as error:  # 컴파일 오류·테스트 실패·시간 초과 모두 되돌린다
-        source.write_bytes(original_bytes)
-        state.update(rolled_back=True, reason=f"{type(error).__name__}: {error}"[:500])
-    return state
+    return auto_apply.apply_with_rollback(
+        source, proposed, job_dir, request["source_sha256"],
+        request.get("test_paths") or [], budget, PROJECT_ROOT)
 
 
 async def review_python_source(
@@ -227,6 +206,7 @@ async def review_python_source(
     job_id: str | None = None,
     auto_apply: bool | None = None,
     test_paths: list[str] | None = None,
+    provider: str | None = None,
 ) -> dict:
     """Review Python source with a durable Multi-Persona Gemini job under the configured timeout.
 
@@ -248,7 +228,9 @@ async def review_python_source(
     # 2026-11-10: 자동 적용 설정. 호출 인자가 없으면 config 기본값을 따른다.
     apply_changes = project_config.MULTI_PERSONA_REVIEW_AUTO_APPLY if auto_apply is None else bool(auto_apply)
     checked_tests = _validate_test_paths(test_paths)
-    if not REVIEW_SOURCE.is_file():
+    # 2026-11-10: 리뷰 LLM 선택(gemini / ollama ...). 같은 출력 계약이라 검증·자동 적용은 공통이다.
+    provider_name, review_cli, provider_args = _review_cli(provider)
+    if not review_cli.is_file():
         raise FileNotFoundError("The configured Multi-Persona review CLI is missing")
     timeout = int(project_config.MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS)
     # 워커의 실행 한도보다 큰 값은 제출 단계에서 거부해 비동기 실패를 막는다.
@@ -261,7 +243,7 @@ async def review_python_source(
     output_limit = int(project_config.MULTI_PERSONA_REVIEW_OUTPUT_CHARS)
     if output_limit < 1:
         raise ValueError("Review output limit must be positive")
-    review_command = [str(PROJECT_ROOT / "venv/bin/python"), "-u", str(REVIEW_SOURCE),
+    review_command = [str(PROJECT_ROOT / "venv/bin/python"), "-u", str(review_cli), *provider_args,
                       "--source-path", str(source)]
     error_relative = None
     if error_path is not None:
@@ -283,7 +265,8 @@ async def review_python_source(
             "source_path": str(source.relative_to(PROJECT_ROOT)),
             "command": command, "review_command": review_command,
             "timeout_seconds": timeout, "tests_executed": False,
-            "auto_apply": apply_changes, "test_paths": checked_tests}
+            "auto_apply": apply_changes, "test_paths": checked_tests,
+            "provider": provider_name}
     if dry_run:
         return plan
     request_path, result_path = _job_files(identifier)
@@ -324,7 +307,9 @@ def _run_review_job(job_id: str) -> None:
         if hashlib.sha256(source.read_bytes()).hexdigest() != request["source_sha256"]:
             raise ValueError("Source changed after review submission")
         # Reconstruct the fixed CLI rather than executing a caller-supplied command.
-        command = [str(PROJECT_ROOT / "venv/bin/python"), "-u", str(REVIEW_SOURCE),
+        # 2026-11-10: 제출 때 저장한 provider로 CLI를 다시 고른다(이전 job은 기본 provider).
+        _, review_cli, provider_args = _review_cli(request.get("provider"))
+        command = [str(PROJECT_ROOT / "venv/bin/python"), "-u", str(review_cli), *provider_args,
                    "--source-path", str(source)]
         if request.get("error_path"):
             log = _project_path(request["error_path"], "error_path")

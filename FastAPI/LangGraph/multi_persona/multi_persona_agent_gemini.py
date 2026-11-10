@@ -60,17 +60,25 @@ def get_message_text(message):
 # systemd EnvironmentFile 또는 실행 환경이 키를 주입하고, 이 소스는 루트 .env만 읽습니다.
 load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
 
+# 2026-11-10: LLM 공급자 일반화 — gemini / openai / claude / ollama 중 하나로 같은 그래프를 돌린다.
+# 모델은 아래에서 모듈 import 시점에 만들어지므로, 본 argparse보다 먼저 --provider만 미리 읽는다.
+# 우선순위: --provider 인자 > MULTI_PERSONA_LLM_PROVIDER 환경변수 > config 기본값(gemini).
+from common.llm_provider import available_providers, create_chat_model
+_provider_parser = argparse.ArgumentParser(add_help=False)
+_provider_parser.add_argument("--provider", default=None)
+LLM_PROVIDER = (_provider_parser.parse_known_args()[0].provider
+                or os.getenv("MULTI_PERSONA_LLM_PROVIDER", "").strip()
+                or project_config.MULTI_PERSONA_LLM_DEFAULT_PROVIDER)
+
+
 def initialize_llm(temp=0.2):
-    """Google Gemini API 모델을 생성합니다."""
-    api_key = os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY 또는 GOOGLE_API_KEY가 systemd 환경변수에 없습니다. systemd 서비스로 실행하세요.")
-    return ChatGoogleGenerativeAI(
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
-        api_key=SecretStr(api_key),
-        temperature=temp,
-        max_retries=2,
-    )
+    """선택한 공급자(LLM_PROVIDER)의 LangChain 채팅 모델을 생성합니다.
+
+    공급자별 클래스·키·모델 이름은 common/llm_provider.py와 config.MULTI_PERSONA_LLM_PROVIDERS에 있다.
+    (이전: Gemini 전용 ChatGoogleGenerativeAI 직접 생성 — 동작은 provider=gemini일 때 동일)
+    """
+    return create_chat_model(LLM_PROVIDER, temperature=temp, max_retries=2)
+
 
 router_llm = initialize_llm(temp=0.1)
 agent_llm = initialize_llm(temp=0.4)
@@ -1327,6 +1335,12 @@ if __name__ == "__main__":
         "--output-dir",
         default=None,
         help="리뷰 보고서와 제안 소스를 저장할 job 전용 폴더 (동시 리뷰 충돌 방지)"
+    )
+    # 2026-11-10: LLM 공급자 선택. 실제 모델은 파일 상단에서 이미 이 값으로 만들어졌고,
+    # 여기서는 도움말 표시와 잘못된 이름 거부(choices)만 담당한다.
+    parser.add_argument(
+        "--provider", default=None, choices=available_providers(),
+        help="리뷰에 쓸 LLM (gemini/openai/claude/ollama). 생략하면 환경변수 또는 config 기본값"
     )
     args = parser.parse_args()
 

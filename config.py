@@ -641,6 +641,48 @@ MULTI_PERSONA_REVIEW_AUTO_APPLY = True
 MULTI_PERSONA_AUTO_APPLY_TEST_TIMEOUT_SECONDS = 600
 # 자동 적용 검증에 쓸 수 있는 테스트 폴더(이 밖의 경로는 거부).
 MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS = ("tests", "harness/tests")
+# 2026-11-10: apply_source_proposal(어느 AI든 수정 코드를 넘겨 적용하는 MCP 도구) 설정.
+# MCP 요청 안에서 바로 pytest를 돌리므로 테스트 시간을 짧게 둔다(클라이언트 응답 대기 한도 고려).
+APPLY_PROPOSAL_TEST_TIMEOUT_SECONDS = 120
+# 제안 소스 최대 길이(문자). 비정상적으로 큰 입력으로 서버가 막히는 것을 막는다.
+APPLY_PROPOSAL_MAX_CHARS = 500000
+# 2026-11-10: 스스로 고치는 리뷰 앱의 LLM 선택(review_python_source provider 인자).
+# 모든 CLI는 같은 계약을 지킨다: --source-path, --error-path, --output-dir 인자 /
+# 세 제목 + 전체 소스 출력 / [출력 검증] 오류=[...] / [최종 검증된 답변]: 표시.
+# cli: 실행할 리뷰 CLI / llm: CLI에 --provider로 넘길 LLM 이름(None이면 넘기지 않음, 전용 CLI).
+# gemini·openai·claude는 같은 CLI를 쓰고 common/llm_provider.py가 LLM만 바꾼다.
+MULTI_PERSONA_REVIEW_PROVIDERS = {
+    "gemini": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "gemini"},
+    "openai": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "openai"},
+    "claude": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "claude"},
+    # 2026-11-10 리뷰 경로 통일: ollama도 공용 CLI + common/llm_provider.py(11-01 튜닝 포함)를 쓴다.
+    "ollama": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "ollama"},
+    # 이전 전용 CLI는 이름을 바꿔 남겨 둔다(비교·호환용).
+    "ollama_gemma": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_Ollama_Gemma4_e4b.py", "llm": None},
+}
+MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER = "gemini"
+# 2026-11-10: common/llm_provider.py가 읽는 LLM 공급자별 생성 정보(키 값은 환경변수에만 둔다).
+# default_model이 빈 문자열이면 model_env 환경변수를 반드시 설정해야 한다(모델 이름을 추측하지 않음).
+MULTI_PERSONA_LLM_PROVIDERS = {
+    "gemini": {"module": "langchain_google_genai", "class": "ChatGoogleGenerativeAI",
+               "model_env": "GEMINI_MODEL", "default_model": "gemini-2.5-flash",
+               "key_envs": ["GEMINI_API_KEY", "GOOGLE_API_KEY"], "key_param": "api_key"},
+    # 2026-11-10: gpt-6.1-terra는 temperature 인자를 거부한다(400 "Unsupported parameter") → False.
+    "openai": {"module": "langchain_openai", "class": "ChatOpenAI",
+               "model_env": "OPENAI_MODEL", "default_model": "",
+               "key_envs": ["OPENAI_API_KEY"], "key_param": "api_key",
+               "supports_temperature": False},
+    # langchain_anthropic 패키지와 ANTHROPIC_API_KEY가 준비되면 바로 동작한다(2026-11-10 기준 둘 다 없음).
+    # 2026-11-10: claude-opus-5-5는 temperature 인자를 거부한다(400) → supports_temperature False.
+    "claude": {"module": "langchain_anthropic", "class": "ChatAnthropic",
+               "model_env": "ANTHROPIC_MODEL", "default_model": "",
+               "key_envs": ["ANTHROPIC_API_KEY"], "key_param": "api_key",
+               "supports_temperature": False},
+    "ollama": {"module": "langchain_ollama", "class": "ChatOllama",
+               "model_env": "OLLAMA_MODEL", "default_model": "",
+               "key_envs": [], "key_param": ""},
+}
+MULTI_PERSONA_LLM_DEFAULT_PROVIDER = "gemini"
 
 # Shared transient workers use the account and protected files supplied by the operator.
 SPS_MCP_WORKER_USER = "jeaje"
