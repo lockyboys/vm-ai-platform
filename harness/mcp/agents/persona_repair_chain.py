@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import inspect
 import re
 import subprocess
 import sys
@@ -103,6 +104,47 @@ def _human_message(task: str, carried: list[tuple[str, str]], instruction: str) 
     return "\n\n".join(parts)
 
 
+def _validate_scope_paths(paths: Any, label: str) -> list[str]:
+    """scope 경로 목록 검증 도우미 (2026-11-10 LuckyBoys 일반화: 상대경로·정규화·중복 금지)."""
+    if not isinstance(paths, list) or len(paths) == 0:
+        raise ValueError(f"{label} must be a non-empty list of strings")
+    seen = set()
+    for item in paths:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{label} entries must be non-empty strings: {item!r}")
+        if chr(92) in item:
+            raise ValueError(f"{label} must not contain backslashes: {item!r}")
+        parts = item.split("/")
+        if item.startswith("/") or Path(item).is_absolute() or any(part == ".." for part in parts):
+            raise ValueError(f"{label} must be a relative normalized path without '..': {item!r}")
+        if item in seen:
+            raise ValueError(f"{label} contains duplicate path: {item!r}")
+        seen.add(item)
+    return list(paths)
+
+
+def resolve_scope(scope: dict | None) -> dict[str, list[str]]:
+    """수리 범위(허용 소스 경로·회귀 테스트)를 대상별로 주입 가능하게 정규화한다 (2026-11-10 LuckyBoys 일반화).
+
+    scope가 None이면 config.AUTODISCOVER_SELF_REPAIR의 기본 allowed_paths와 regression_tests를 돌려준다(하위 호환).
+    scope가 dict이면 두 키('allowed_paths', 'regression_tests')가 모두 필수이며,
+    각각 비어있지 않은 list[str], 각 항목은 프로젝트 상대 정규 경로(절대경로·'..'·역슬래시 금지, 중복 금지)여야 한다.
+    규격에 맞지 않으면 ValueError를 발생시킨다.
+    """
+    if scope is None:
+        return {
+            "allowed_paths": list(_SETTINGS["allowed_paths"]),
+            "regression_tests": list(_SETTINGS["regression_tests"]),
+        }
+    if not isinstance(scope, dict):
+        raise ValueError("scope must be a dict or None")
+    if "allowed_paths" not in scope or "regression_tests" not in scope:
+        raise ValueError("scope must contain both 'allowed_paths' and 'regression_tests'")
+    allowed = _validate_scope_paths(scope["allowed_paths"], "allowed_paths")
+    regression = _validate_scope_paths(scope["regression_tests"], "regression_tests")
+    return {"allowed_paths": allowed, "regression_tests": regression}
+
+
 # ---------------------------------------------------------------------------
 # PARTNER 수정 도구 = harness/source_repair.py (2026-10-25 LuckyBoys: "source_repair.py 하나로 통일, git add까지만")
 # ---------------------------------------------------------------------------
@@ -110,13 +152,15 @@ REPAIR_TOOL_NAMES = ("read_repair_source", "repair_source")
 _REPAIR_REQUIRED = ("old_code", "new_code", "regression_test", "expected_sha256")
 
 
-def source_repair_tool_call(name: str, arguments: dict, repair: Any = None) -> str:
+def source_repair_tool_call(name: str, arguments: dict, repair: Any = None,
+                            allowed_paths: list[str] | None = None) -> str:
     """PARTNER가 부르는 수정 도구 한 번을 실행하고 결과를 JSON 문자열로 돌려준다(예외를 던지지 않음).
 
     입력: name(read_repair_source | repair_source), arguments(모델이 준 인자), repair(테스트용 대역, 기본 harness.source_repair)
     출력: 엔진 보고서 JSON, 또는 {"success": false, "error_code": ..., "error": ...}
     호출 경계에서 고정하는 것(모델이 바꿀 수 없음):
       - 경로: config AUTODISCOVER_SELF_REPAIR['allowed_paths']에 정확히 있는 것만(엔진 허용 목록의 부분집합) → 아니면 PATH_NOT_ALLOWED
+        (2026-11-10 LuckyBoys 일반화: 대상별 allowed_paths 주입 가능, None이면 기본 _SETTINGS 값)
       - dry_run: 항상 False(검증 통과 시 백업 → 적용 → git add, 커밋은 사람이)
     오류 코드: UNKNOWN_TOOL / PATH_NOT_ALLOWED / INVALID_REQUEST(인자·검증 실패) / PRE_COMMIT_REQUIRED(대상 미커밋)
               / APPLY_ROLLED_BACK(적용 후 재검증 실패로 원복) / REPAIR_LOCKED(다른 수정 진행 중)
@@ -128,7 +172,9 @@ def source_repair_tool_call(name: str, arguments: dict, repair: Any = None) -> s
         return fail("UNKNOWN_TOOL", f"허용되지 않은 수정 도구: {name}")
     args = arguments if isinstance(arguments, dict) else {}
     path = args.get("file_path")
-    if not isinstance(path, str) or path not in list(_SETTINGS["allowed_paths"]):
+    # 2026-11-10 LuckyBoys 일반화: 대상별 allowed_paths 주입 지원(None이면 기본 _SETTINGS 값)
+    valid_paths = list(_SETTINGS["allowed_paths"]) if allowed_paths is None else allowed_paths
+    if not isinstance(path, str) or path not in valid_paths:
         return fail("PATH_NOT_ALLOWED", "자율 수리 허용 목록 밖 파일입니다")
     if name == "repair_source" and any(not isinstance(args.get(k), str) or not args.get(k).strip()
                                        for k in _REPAIR_REQUIRED):
@@ -152,19 +198,22 @@ def source_repair_tool_call(name: str, arguments: dict, repair: Any = None) -> s
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
-def build_source_repair_tools() -> list:
-    """PARTNER(수정) 단계에만 붙이는 LangChain 도구 2개(read_repair_source, repair_source)."""
+def build_source_repair_tools(allowed_paths: list[str] | None = None) -> list:
+    """PARTNER(수정) 단계에만 붙이는 LangChain 도구 2개(read_repair_source, repair_source).
+
+    2026-11-10 LuckyBoys 일반화: 대상별 allowed_paths 주입 지원(None이면 기존 기본값).
+    """
     from langchain_core.tools import StructuredTool
 
     def read_repair_source(file_path: str) -> str:
         """허용 소스 한 파일의 내용·sha256·Git 기준 상태를 JSON으로 읽는다(수정 전 반드시 호출)."""
-        return source_repair_tool_call("read_repair_source", {"file_path": file_path})
+        return source_repair_tool_call("read_repair_source", {"file_path": file_path}, allowed_paths=allowed_paths)
 
     def repair_source(file_path: str, old_code: str, new_code: str, regression_test: str, expected_sha256: str) -> str:
         """old_code(정확히 한 번)→new_code 수정을 재현 unittest로 검증(원본 실패·후보 통과)한 뒤 백업·적용·git add 한다."""
         return source_repair_tool_call("repair_source", {
             "file_path": file_path, "old_code": old_code, "new_code": new_code,
-            "regression_test": regression_test, "expected_sha256": expected_sha256})
+            "regression_test": regression_test, "expected_sha256": expected_sha256}, allowed_paths=allowed_paths)
 
     return [StructuredTool.from_function(read_repair_source), StructuredTool.from_function(repair_source)]
 
@@ -202,8 +251,12 @@ def build_web_search_tool():
 # ---------------------------------------------------------------------------
 # 실제 LLM 단계 실행 (테스트에서는 step_fn 주입)
 # ---------------------------------------------------------------------------
-def run_step(persona: str, system_prompt: str, human_text: str, tools_mode: str) -> dict:
-    """한 페르소나 단계를 실행한다. tools_mode: none | read | write."""
+def run_step(persona: str, system_prompt: str, human_text: str, tools_mode: str,
+             allowed_paths: list[str] | None = None) -> dict:
+    """한 페르소나 단계를 실행한다. tools_mode: none | read | write.
+
+    2026-11-10 LuckyBoys 일반화: 대상별 allowed_paths 선택 인자 추가(None이면 기존 _SETTINGS 값).
+    """
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     from harness.mcp.agents import source_partner_agent as agent
@@ -213,17 +266,18 @@ def run_step(persona: str, system_prompt: str, human_text: str, tools_mode: str)
     # 13개 페르소나 모두 같은 SPS MCP Client/tools/list를 사용한다.
     mcp_tools = asyncio.run(agent._load_sps_mcp_tools(source_write_confirmed=False))
     tools = list(mcp_tools)
+    effective_allowed_paths = list(_SETTINGS["allowed_paths"]) if allowed_paths is None else list(allowed_paths)
     if tools_mode != "none":
         local_tools = agent.build_partner_tools(
             dry_run=False,
             source_write_confirmed=False,
             commit_confirmed=False,
-            allowed_source_paths=list(_SETTINGS["allowed_paths"]),
+            allowed_source_paths=effective_allowed_paths,  # 2026-11-10 LuckyBoys 일반화: 주입된 allowed_paths 반영
         )
         tools.extend(t for t in local_tools if t.name != "execute_change_set")
         tools.append(build_web_search_tool())                            # read/write 단계 공통 웹 검색
     if tools_mode == "write":
-        tools += build_source_repair_tools()                             # PARTNER만 로컬 수정 도구를 받는다
+        tools += build_source_repair_tools(allowed_paths=effective_allowed_paths)  # 2026-11-10 LuckyBoys 일반화
     graph = agent.build_source_partner_graph(model=model, tools=tools, system_prompt=system_prompt)
     state = asyncio.run(asyncio.wait_for(
         graph.ainvoke({"messages": [HumanMessage(content=human_text)]},
@@ -286,29 +340,46 @@ def initial_state(task: str, round_no: int) -> ChainState:
 
 
 def build_repair_chain_graph(step_fn: Callable[..., dict], regression_fn: Callable[[list], dict],
-                             staged_fn: Callable[[dict], list[dict]]):
+                             staged_fn: Callable[[dict], list[dict]],
+                             scope: dict | None = None):
     """페르소나 수리 체인을 LangGraph StateGraph로 만들어 compile()한 그래프를 돌려준다.
 
     step_fn      : (persona, system_prompt, human_text, tools_mode) → {"output", "tool_evidence"} (운영: run_step)
     regression_fn: (tests) → {"ok", ...} 회귀 테스트 실제 실행(운영: run_regression)
     staged_fn    : PARTNER 결과에서 실제 staged 변경 세트를 고르는 함수(autodiscover_self_repair.staged_change_sets)
+    scope        : 2026-11-10 LuckyBoys 일반화: 대상별 수리 범위 {'allowed_paths', 'regression_tests'} (None이면 기본값)
     """
     for label, fn in (("step_fn", step_fn), ("regression_fn", regression_fn), ("staged_fn", staged_fn)):
         if not callable(fn):
             raise ValueError(f"{label} must be callable")
     from langgraph.graph import END, START, StateGraph   # 지연 import: 모듈 import만으로 langgraph를 요구하지 않음
 
+    # 2026-11-10 LuckyBoys 일반화: scope 정규화 (None이면 기본 _SETTINGS 값 사용)
+    resolved_scope = resolve_scope(scope)
     fixed_plan = list(_SETTINGS["first_round_plan"])
     allowed = available_personas()
 
     # --- 공통 도우미 (노드 안에서만 쓰임) --------------------------------------
     def run_persona(state: ChainState, persona: str, key: str, mode: str) -> tuple[dict, dict]:
         """원문 프롬프트로 한 페르소나를 실행하고 (결과, 상태 갱신분[steps·carried])을 돌려준다."""
+        # 2026-11-10 LuckyBoys 일반화: scope의 allowed_paths / regression_tests를 지시문에 바인딩
         instruction = STEP_INSTRUCTIONS[key].format(
-            allowed=json.dumps(_SETTINGS["allowed_paths"]), tests=json.dumps(_SETTINGS["regression_tests"]),
+            allowed=json.dumps(resolved_scope["allowed_paths"]), tests=json.dumps(resolved_scope["regression_tests"]),
             fixed=" → ".join(fixed_plan), all=", ".join(allowed), cap=int(_SETTINGS["max_personas"]) - 1)
         carried = [(name, text) for name, text in state["carried"]]
-        result = step_fn(persona, load_persona_prompt(persona), _human_message(state["task"], carried, instruction), mode)
+        human_text = _human_message(state["task"], carried, instruction)
+        # 2026-11-10 LuckyBoys 일반화: step_fn이 allowed_paths를 받을 수 있을 때만 키워드로 넘김 (4개 인자 기존 step_fn 호환)
+        try:
+            sig = inspect.signature(step_fn)
+            params = sig.parameters
+            has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+            if "allowed_paths" in params or has_var_kw:
+                result = step_fn(persona, load_persona_prompt(persona), human_text, mode,
+                                 allowed_paths=resolved_scope["allowed_paths"])
+            else:
+                result = step_fn(persona, load_persona_prompt(persona), human_text, mode)
+        except (ValueError, TypeError):
+            result = step_fn(persona, load_persona_prompt(persona), human_text, mode)
         steps = state["steps"] + [{"persona": persona, "key": key, "mode": mode, "output": result["output"][:4000]}]
         return result, {"steps": steps, "carried": state["carried"] + [[persona, result["output"]]]}
 
@@ -318,7 +389,8 @@ def build_repair_chain_graph(step_fn: Callable[..., dict], regression_fn: Callab
         if state["regression"] is not None and state["regression_after_change"] == after_change:
             return {}
         new_tests = sorted({p for cs in state["sets"] for p in cs["staged_groups"].get("tests", [])})
-        regression = regression_fn(list(_SETTINGS["regression_tests"]) + new_tests)
+        # 2026-11-10 LuckyBoys 일반화: 기본 _SETTINGS 대신 resolved_scope의 regression_tests 사용
+        regression = regression_fn(list(resolved_scope["regression_tests"]) + new_tests)
         return {"regression": regression, "regression_after_change": after_change,
                 "carried": state["carried"] + [["REGRESSION(프로그램 실행)", json.dumps(regression, ensure_ascii=False)]]}
 
@@ -421,16 +493,19 @@ def build_repair_chain_graph(step_fn: Callable[..., dict], regression_fn: Callab
 
 
 def run_chain(task: str, staged_fn: Callable[[dict], list[dict]], step_fn: Callable[..., dict] = None,
-              regression_fn: Callable[[list], dict] = None, round_no: int = 1) -> dict:
+              regression_fn: Callable[[list], dict] = None, round_no: int = 1,
+              scope: dict | None = None) -> dict:
     """한 라운드의 페르소나 체인 그래프를 실행하고 {mode, plan, verdict, steps, tool_evidence, regression, output}을 돌려준다.
 
     staged_fn: PARTNER 결과에서 실제 staged 변경 세트를 고르는 함수(autodiscover_self_repair.staged_change_sets).
     round_no : config autonomous_from_round 미만이면 고정 순서, 이상이면 ORCHESTRATOR 자율 계획.
+    scope    : 2026-11-10 LuckyBoys 일반화: 대상별 수리 범위 {'allowed_paths', 'regression_tests'} (None이면 기본값).
     반환 형식은 예전 for 루프 버전과 같다(autodiscover_self_repair가 그대로 읽음).
     """
+    resolved_scope = resolve_scope(scope)  # 2026-11-10 LuckyBoys 일반화: scope 정규화 및 검증
     state = initial_state(task, round_no)
     graph = build_repair_chain_graph(step_fn=step_fn or run_step, regression_fn=regression_fn or run_regression,
-                                     staged_fn=staged_fn)
+                                     staged_fn=staged_fn, scope=resolved_scope)
     final = graph.invoke(state, config={"recursion_limit": int(_SETTINGS["agent_recursion_limit"])})
     out: dict[str, Any] = {key: final.get(key) for key in
                            ("started_kst", "mode", "plan", "steps", "tool_evidence", "regression", "verdict")}
