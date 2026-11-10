@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import re
+import shutil  # 2026-11-10: 자동 적용 전 원본 백업(copy2)
 import subprocess
 import sys
 import time
@@ -149,11 +150,83 @@ async def _review_status(source: Path, job_id: str) -> dict:
     return state
 
 
+def _validate_test_paths(values) -> list[str]:
+    """자동 적용 후 돌릴 테스트 경로를 설정된 테스트 폴더 안으로만 제한한다 (2026-11-10).
+
+    잘못된 입력(목록이 아님, 문자열이 아닌 값, 경로 탈출, 테스트 폴더 밖, 없는 파일)은
+    리뷰를 시작하기 전에 거부해 워커가 임의 코드를 테스트로 실행하지 못하게 한다.
+    """
+    if values is None:
+        return []
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise ValueError("test_paths must be a list of text paths")
+    roots = [(PROJECT_ROOT / root).resolve() for root in project_config.MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS]
+    checked = []
+    for value in values:
+        path = _project_path(value, "test_paths")
+        if not any(path == root or root in path.parents for root in roots):
+            raise ValueError("test_paths must stay inside the configured test folders")
+        if not path.exists():
+            raise FileNotFoundError(f"Test path not found: {value}")
+        checked.append(str(path.relative_to(PROJECT_ROOT)))
+    return checked
+
+
+def _auto_apply(source: Path, proposed: Path, job_dir: Path, request: dict, budget: float) -> dict:
+    """검증된 제안을 원본에 적용하고, 검증에 실패하면 원본으로 되돌린다 (2026-11-10, 완전 자동).
+
+    순서: 원본 해시 재확인 → job 폴더 original.py 백업 → 제안 기록 → 문법 컴파일
+          → (지정 시) pytest → 실패하면 백업으로 복원. 결과는 result.json에 그대로 남긴다.
+    """
+    state = {"auto_apply": True, "applied": False, "rolled_back": False, "reason": None,
+             "backup_path": None, "test_returncode": None}
+    if budget < 30:
+        state["reason"] = "not enough time left after review"
+        return state
+    # 리뷰 도중 사람이나 다른 작업이 원본을 바꿨다면 덮어쓰지 않는다.
+    if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != request["source_sha256"]:
+        state["reason"] = "source changed during review"
+        return state
+    backup = job_dir / "original.py"
+    shutil.copy2(source, backup)
+    backup.chmod(0o600)
+    original_bytes = backup.read_bytes()
+    state["backup_path"] = str(backup.relative_to(PROJECT_ROOT))
+    try:
+        source.write_bytes(proposed.read_bytes())
+        # 파일(.pyc)을 만들지 않고 문법만 확인한다.
+        compile(source.read_text(encoding="utf-8"), str(source), "exec")
+        # ⚠ 주의(2026-11-10): test_paths를 주지 않으면 여기서 끝난다.
+        #   즉 "문법만 맞으면" 제안이 원본에 그대로 남는다(동작이 바뀌어도 되돌리지 않음).
+        #   중요한 파일은 반드시 관련 테스트 경로를 test_paths로 넘겨, pytest 실패 시 되돌리게 할 것.
+        #   test_paths는 config.MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS(tests/, harness/tests/) 안만 허용되며,
+        #   pytest 시간은 MULTI_PERSONA_AUTO_APPLY_TEST_TIMEOUT_SECONDS와 리뷰 후 남은 시간 중 작은 값이다.
+        tests = request.get("test_paths") or []
+        if tests:
+            run = subprocess.run(
+                [str(PROJECT_ROOT / "venv/bin/python"), "-m", "pytest", "-q", *tests],
+                cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                timeout=max(1, min(int(project_config.MULTI_PERSONA_AUTO_APPLY_TEST_TIMEOUT_SECONDS),
+                                   int(budget) - 10)),
+                check=False)
+            state["test_returncode"] = run.returncode
+            state["test_output_tail"] = _mask_secrets(run.stdout.decode("utf-8", errors="replace"))[-2000:]
+            if run.returncode != 0:
+                raise RuntimeError("tests failed after applying the proposal")
+        state["applied"] = True
+    except Exception as error:  # 컴파일 오류·테스트 실패·시간 초과 모두 되돌린다
+        source.write_bytes(original_bytes)
+        state.update(rolled_back=True, reason=f"{type(error).__name__}: {error}"[:500])
+    return state
+
+
 async def review_python_source(
     source_path: str,
     error_path: str | None = None,
     dry_run: bool = True,
     job_id: str | None = None,
+    auto_apply: bool | None = None,
+    test_paths: list[str] | None = None,
 ) -> dict:
     """Review Python source with a durable Multi-Persona Gemini job under the configured timeout.
 
@@ -161,7 +234,9 @@ async def review_python_source(
     Set dry_run=False to start a review and receive a job_id immediately.
     Call again with the same source_path and job_id to read status/results.
     MCP responses stay short; a disconnect does not cancel the configured job.
-    Generated corrections are proposals only; target source/tests are never executed.
+    auto_apply (default from config) applies only a verified proposal: the original is backed up
+    to the job folder, the new source is compiled, test_paths (inside tests/ or harness/tests/)
+    are run with pytest, and any failure restores the original automatically.
     """
     source = _project_path(source_path, "source_path")
     if job_id is not None:
@@ -170,6 +245,9 @@ async def review_python_source(
         raise ValueError("source_path must name a Python source")
     if not source.is_file():
         raise FileNotFoundError(f"Source file not found: {source_path}")
+    # 2026-11-10: 자동 적용 설정. 호출 인자가 없으면 config 기본값을 따른다.
+    apply_changes = project_config.MULTI_PERSONA_REVIEW_AUTO_APPLY if auto_apply is None else bool(auto_apply)
+    checked_tests = _validate_test_paths(test_paths)
     if not REVIEW_SOURCE.is_file():
         raise FileNotFoundError("The configured Multi-Persona review CLI is missing")
     timeout = int(project_config.MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS)
@@ -204,7 +282,8 @@ async def review_python_source(
     plan = {"dry_run": bool(dry_run), "executed": False, "job_id": identifier,
             "source_path": str(source.relative_to(PROJECT_ROOT)),
             "command": command, "review_command": review_command,
-            "timeout_seconds": timeout, "tests_executed": False}
+            "timeout_seconds": timeout, "tests_executed": False,
+            "auto_apply": apply_changes, "test_paths": checked_tests}
     if dry_run:
         return plan
     request_path, result_path = _job_files(identifier)
@@ -282,6 +361,15 @@ def _run_review_job(job_id: str) -> None:
     # 2026-11-02: LLM 호출이 모두 실패해도 CLI는 returncode 0으로 끝나 success=true로 보이던 문제 수정.
     # 리뷰의 성공은 "검증된 제안까지 만들어졌는가"로 판단한다. 프로세스 종료 여부는 process_completed로 따로 남긴다.
     success = process_completed and verified
+    # 2026-11-10: 완전 자동 수정 — 검증된 리뷰만 적용하고, 실패하면 원본으로 되돌린다.
+    if not request.get("auto_apply"):
+        auto_result = {"auto_apply": False}
+    elif success:
+        auto_result = _auto_apply(source, proposed, request_path.parent, request,
+                                  budget=int(request["timeout_seconds"]) - (monotonic() - started))
+    else:
+        auto_result = {"auto_apply": True, "applied": False, "rolled_back": False,
+                       "reason": "review not verified"}
     limit = request["output_limit"]
     result.update(state="timed_out" if timed_out else ("completed" if success else "failed"),
                   success=success, process_completed=process_completed,
@@ -289,6 +377,8 @@ def _run_review_job(job_id: str) -> None:
                   elapsed_seconds=round(monotonic() - started, 3), source_unchanged=unchanged,
                   model_verified=success,
                   verification_reasons=verification_reasons,
+                  auto_apply_result=auto_result,
+                  tests_executed=bool(auto_result.get("test_returncode") is not None),
                   proposed_path=str(proposed.relative_to(PROJECT_ROOT)) if proposed.is_file() else None,
                   report_path=str(report.relative_to(PROJECT_ROOT)),
                   output=text[:limit], stderr=stderr[:limit],

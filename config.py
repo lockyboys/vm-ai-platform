@@ -631,6 +631,16 @@ SPS_WORKER_RESULT_GRACE_SECONDS = 10
 MULTI_PERSONA_REVIEW_TIMEOUT_SECONDS = 3590
 # Preserve the full report on disk and return a bounded preview through MCP.
 MULTI_PERSONA_REVIEW_OUTPUT_CHARS = 12000
+# 2026-11-10 LuckyBoys 결정(완전 자동): 검증된 리뷰 제안을 원본에 자동 적용한다.
+# 적용 전 job 폴더에 original.py 백업 → 문법 컴파일 + 지정 pytest → 실패 시 자동 되돌림.
+# False로 바꾸면 이전처럼 proposed.py만 남긴다(호출 시 auto_apply 인자로 개별 지정도 가능).
+# ⚠ 주의: 호출 시 test_paths를 주지 않으면 문법 검사만 통과해도 원본이 바뀐다(테스트로 되돌릴 근거 없음).
+#   중요한 파일은 반드시 test_paths=["tests/...", "harness/tests/..."]를 함께 넘길 것.
+MULTI_PERSONA_REVIEW_AUTO_APPLY = True
+# 자동 적용 후 pytest 최대 시간(초). 리뷰 남은 시간보다 길면 남은 시간으로 줄인다.
+MULTI_PERSONA_AUTO_APPLY_TEST_TIMEOUT_SECONDS = 600
+# 자동 적용 검증에 쓸 수 있는 테스트 폴더(이 밖의 경로는 거부).
+MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS = ("tests", "harness/tests")
 
 # Shared transient workers use the account and protected files supplied by the operator.
 SPS_MCP_WORKER_USER = "jeaje"
