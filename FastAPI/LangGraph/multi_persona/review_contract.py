@@ -7,6 +7,9 @@ from pathlib import Path
 
 HEADINGS = ("## 1. 전문가적 견해 및 종합 평가", "## 2. 위험도 및 진단 리포트", "## 3. 최종 수정 전체 소스 코드")
 
+# 모듈 탐색 시 불필요한 중복 호출을 막고 튜플 조회를 위한 지원 확장자 모듈 수준 상수 캐시
+_MODULE_SUFFIXES = tuple(importlib.machinery.all_suffixes())
+
 
 def build_review_query(path, code, previous_error=""):
     """프롬프트 구분자만 줄바꿈하고 입력 소스의 escape는 보존합니다."""
@@ -93,26 +96,28 @@ def _module_exists(name, roots):
     if top in sys.builtin_module_names or top in getattr(sys, "stdlib_module_names", ()):
         return True
 
-    suffixes = importlib.machinery.all_suffixes()  # .py, .pyc, .cpython-*.so 등
     seen_roots = set()
     for root in roots:
+        if not root:
+            continue
         try:
             base = Path(root).resolve()
             if base in seen_roots or not base.is_dir():
                 continue
             seen_roots.add(base)
 
+            current_base = base
             for index, part in enumerate(parts):
                 last = index == len(parts) - 1
-                target_dir = base / part
+                target_dir = current_base / part
                 if last:
-                    if target_dir.is_dir() or any((base / (part + s)).is_file() for s in suffixes):
+                    if target_dir.is_dir() or any((current_base / (part + s)).is_file() for s in _MODULE_SUFFIXES):
                         return True
                 elif not target_dir.is_dir():
                     break  # 중간 패키지가 없으면 이 루트에서는 찾을 수 없다.
-                base = target_dir
-        except OSError:
-            # 권한 거부(PermissionError), 깨진 링크 순환 등 I/O 실패 시 안전하게 건너뜀
+                current_base = target_dir
+        except (OSError, RuntimeError, ValueError):
+            # 권한 거부(PermissionError), 심볼릭 링크 루프(RuntimeError), 경로 형식 에러(ValueError) 건너뜀
             continue
     return False
 
@@ -129,15 +134,35 @@ def unresolved_imports(code_tree, original_tree, roots):
                   if n not in original_missing and not _module_exists(n, roots))
 
 
+def _strip_docstring_nodes(func_node):
+    """함수 본문에서 첫 번째 구문인 docstring(Expr(Constant(str))) 노드를 제외한 실행 노드를 반환합니다."""
+    body = func_node.body
+    if body and isinstance(body[0], ast.Expr):
+        val = getattr(body[0], "value", None)
+        if isinstance(val, ast.Constant) and isinstance(val.value, str):
+            return body[1:]
+    return body
+
+
+def _is_executable_body_unchanged(old_fn, new_fn):
+    """docstring 변경을 제외하고 두 함수의 실제 실행 AST가 동일한지 검사합니다."""
+    old_stmts = [ast.dump(stmt) for stmt in _strip_docstring_nodes(old_fn)]
+    new_stmts = [ast.dump(stmt) for stmt in _strip_docstring_nodes(new_fn)]
+    return old_stmts == new_stmts
+
+
 def validate_review(text, query, search_roots=None):
     """제목·문법·기존 최상위 심볼을 확인하며 모델의 내용 정확성까지 보증하지는 않습니다."""
     if not wants_full_source(query):
         return []
     errors = ["누락 제목: " + h for h in HEADINGS if h not in text]
     positions = [text.find(h) for h in HEADINGS]
+    has_all_headings = all(position >= 0 for position in positions)
     if not errors and positions != sorted(positions):
         errors.append("제목 순서 오류")
-    code = source_block(text[text.find(HEADINGS[2]):]) if HEADINGS[2] in text else ""
+    code = source_block(text[positions[2]:]) if (has_all_headings and positions[2] >= 0) else (
+        source_block(text[text.find(HEADINGS[2]):]) if HEADINGS[2] in text else ""
+    )
     if not code:
         return errors + ["닫힌 전체 Python 코드 블록 없음"]
     try:
@@ -157,7 +182,8 @@ def validate_review(text, query, search_roots=None):
         if missing:
             errors.append("기존 공개 심볼 누락: " + ", ".join(sorted(missing)))
         # 진단 표가 기존 함수를 수정 대상으로 지목했다면 실제 함수 본문 변화를 확인합니다.
-        if all(position >= 0 for position in positions):
+        # 헤딩 순서가 올바르고 모두 존재하는 경우에만 안전하게 진단 영역을 슬라이스합니다.
+        if has_all_headings and positions == sorted(positions):
             diagnosis = text[positions[1] + len(HEADINGS[1]):positions[2]]
             old_functions = {
                 node.name: node for node in ast.walk(old)
@@ -178,10 +204,11 @@ def validate_review(text, query, search_roots=None):
                     target_names.update(line_funcs)
 
             # 지목된 함수 중 실제로 변경되지 않은 함수를 전수 검출합니다.
+            # 주석 및 docstring만 변경된 편법 수정을 걸러내기 위해 docstring을 제거한 실행문 AST를 비교합니다.
             if target_names:
                 unmodified = [
                     name for name in sorted(target_names)
-                    if name not in new_functions or ast.dump(old_functions[name]) == ast.dump(new_functions[name])
+                    if name not in new_functions or _is_executable_body_unchanged(old_functions[name], new_functions[name])
                 ]
                 if unmodified:
                     errors.append("진단된 함수 수정 미반영: " + ", ".join(unmodified))
