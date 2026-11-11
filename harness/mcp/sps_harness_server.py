@@ -122,6 +122,8 @@ from harness.mcp.tools.agent_memory_tools import (
 from harness.mcp.tools.multi_persona_tools import review_python_source
 # 2026-11-10: 어느 AI(Gemini·ChatGPT·Claude·Ollama)가 만든 수정 코드든 검증·백업·적용·되돌림으로 반영.
 from harness.mcp.tools.apply_proposal_tools import apply_source_proposal
+# 2026-11-11 LuckyBoys: 범용 자기 수리 엔진(등록된 대상 실행 → 판정 → 수리 → 재실행). 둘 다 dry_run 기본값 True.
+from harness.mcp.agents.self_repair_engine import self_repair_run, self_repair_target_register
 from harness.mcp.tools.orchestrator_tools import run_sps_orchestrator
 from harness.mcp.tools.pytest_tools import (
     run_pytest_verification,
@@ -461,6 +463,9 @@ mcp.tool(name="source_edit_guard_status")(source_edit_guard_status)
 mcp.tool()(review_python_source)
 # LLM 종류와 무관하게 호출 가능한 자동 적용 도구(dry_run 기본값 True).
 mcp.tool()(apply_source_proposal)
+# 대상 등록(backend=config|repository)과 등록 대상 실행(백그라운드 job, job_id 로 상태 조회).
+mcp.tool()(self_repair_target_register)
+mcp.tool()(self_repair_run)
 mcp.tool()(run_sps_orchestrator)
 mcp.tool(name="mcp_codex_apps_run_python_source")(mcp_codex_apps_run_python_source)
 mcp.tool()(agent_long_term_memory_save)
