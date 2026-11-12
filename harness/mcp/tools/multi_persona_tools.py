@@ -1,4 +1,9 @@
-"""Expose the existing Multi-Persona source-review CLI as one SPS MCP tool.
+"""스스로 고치는 소스 리뷰 앱(Self-fixing source review app) — SPS MCP 도구 review_python_source.
+
+[이 앱이 하는 일 — 2026-11-11 명시, LuckyBoys 요청]
+  AI(gemini·openai·claude·ollama)가 Python 소스를 리뷰해 고친 전체 소스를 내면,
+  앱이 테스트로 '더 나아졌는지' 확인해 스스로 원본에 반영하고, 실패하면 되돌린 뒤
+  실패한 테스트를 같은 AI에게 돌려줘 다시 고치게 한다(사람 개입 없음, Git 커밋은 사람이 지시).
 
 [자동 수정(auto_apply) 안내 — 2026-11-10, LuckyBoys 결정: 완전 자동]
 - review_python_source는 검증된 리뷰 제안을 원본 소스에 직접 적용한다
@@ -9,6 +14,12 @@
 ⚠ 주의: test_paths 없이 호출하면 문법만 맞아도 원본이 바뀐다(동작이 달라져도 되돌리지 않음).
   중요한 파일은 반드시 test_paths=["tests/...", "harness/tests/..."]를 함께 넘길 것.
   허용 폴더: config.MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS (tests/, harness/tests/)
+
+[실패 피드백 재시도 — 2026-11-11, LuckyBoys 결정]
+- 자동 적용이 되돌려지거나 일부만 적용되면, 실패한 테스트(이름·기대값·실제값)와 새로 깨진 테스트를
+  job 폴더 round<N>/feedback.txt로 만들어 직전 수정안과 함께 같은 AI에게 다시 리뷰시킨다(--error-path).
+- 판정 기준(퇴행 금지 + 통과 수 증가)은 그대로다. 나빠지면 반영하지 않는다(라운드마다 단조 개선).
+- 최대 라운드·최소 남은 시간·피드백 개수는 config.MULTI_PERSONA_AUTO_APPLY_* 에서 읽는다.
 """
 from __future__ import annotations
 
@@ -19,6 +30,7 @@ import re
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from uuid import uuid4
 from time import monotonic
@@ -41,6 +53,8 @@ def _review_cli(provider: str | None) -> tuple[str, Path, list[str]]:
 
     gemini·openai·claude는 같은 CLI를 쓰고 ["--provider", <llm>]으로 LLM만 바꾼다.
     ollama처럼 전용 CLI는 추가 인자가 없다.
+    2026-11-12: 공용 CLI에는 config.MULTI_PERSONA_REVIEW_WEB_SEARCH가 False일 때 "--no-web-search"를
+    붙여 소스 리뷰 중 Tavily 검색과 그로 인한 router 재호출을 막는다(전용 CLI는 이 인자를 모르므로 붙이지 않음).
     잘못된 입력(문자열 아님, 등록되지 않은 이름)은 리뷰 시작 전에 거부한다.
     """
     name = project_config.MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER if provider is None else provider
@@ -49,6 +63,8 @@ def _review_cli(provider: str | None) -> tuple[str, Path, list[str]]:
                          + ", ".join(sorted(project_config.MULTI_PERSONA_REVIEW_PROVIDERS)))
     entry = project_config.MULTI_PERSONA_REVIEW_PROVIDERS[name]
     extra = ["--provider", entry["llm"]] if entry.get("llm") else []
+    if entry.get("llm") and not project_config.MULTI_PERSONA_REVIEW_WEB_SEARCH:
+        extra.append("--no-web-search")
     if name == project_config.MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER:
         return name, REVIEW_SOURCE, extra
     return name, PROJECT_ROOT / entry["cli"], extra
@@ -189,14 +205,136 @@ def _validate_test_paths(values) -> list[str]:
     return auto_apply.validate_test_paths(values, PROJECT_ROOT)
 
 
-def _auto_apply(source: Path, proposed: Path, job_dir: Path, request: dict, budget: float) -> dict:
+def _auto_apply(source: Path, proposed: Path, job_dir: Path, request: dict, budget: float,
+                expected_sha256: str | None = None) -> dict:
     """자동 적용 — 2026-11-10 재사용 모듈 harness.mcp.tools.auto_apply로 분리, 여기서는 위임만 한다.
 
     ⚠ test_paths가 없으면 문법만 맞아도 원본이 바뀐다(세부 동작은 auto_apply 모듈 헤더 참고).
+    expected_sha256: 재시도 라운드에서는 '그 라운드 시작 때의 원본 해시'를 넘긴다(없으면 제출 당시 해시).
     """
     return auto_apply.apply_with_rollback(
-        source, proposed, job_dir, request["source_sha256"],
+        source, proposed, job_dir, expected_sha256 or request["source_sha256"],
         request.get("test_paths") or [], budget, PROJECT_ROOT)
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-11 실패 피드백 재시도(LuckyBoys 결정: "그런 오류를 만나면 앱이 스스로 대응")
+# 배경: 어려운 시험(테트리스)에서 AI가 오류 87개를 고쳤지만, 다른 오류에 가려져 우연히 통과하던
+#       테스트 1개가 새로 실패해 전부 되돌려졌다. AI는 그 실패를 볼 기회가 없었다.
+# 대응: 실패 결과를 오류 로그로 돌려주고 한 번 더 고치게 한다. 판정 기준은 완화하지 않는다.
+# ---------------------------------------------------------------------------
+_ROUND_KEYS = ("applied", "partial", "rolled_back", "reason",
+               "tests_passed_before", "tests_passed_after", "tests_total")
+
+
+def _round_view(auto_result: dict) -> dict:
+    """라운드 기록에 남길 자동 적용 결과 요약."""
+    return {key: auto_result.get(key) for key in _ROUND_KEYS}
+
+
+def _needs_retry(auto_result: dict) -> bool:
+    """되돌려졌거나(테스트·문법 실패) 일부만 적용돼 실패 테스트가 남았으면 다음 라운드가 필요하다."""
+    return bool(auto_result.get("rolled_back") or auto_result.get("partial"))
+
+
+def _junit_failures(xml_path: Path, limit: int) -> list[str]:
+    """pytest junit xml에서 실패·오류 테스트의 '- 이름: 메시지'를 최대 limit개 뽑는다(파일이 없으면 빈 목록)."""
+    try:
+        root = ET.parse(xml_path).getroot()
+    except (OSError, ET.ParseError):
+        return []
+    lines = []
+    for case in root.iter("testcase"):
+        problem = case.find("failure")
+        if problem is None:
+            problem = case.find("error")
+        if problem is None:
+            continue
+        message = " ".join((problem.get("message") or problem.text or "").split())
+        lines.append(f"- {case.get('name')}: {message[:300]}")
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+def _write_round_feedback(path: Path, result_dir: Path, auto_result: dict) -> None:
+    """다음 라운드 리뷰 CLI의 --error-path로 넘길 실패 요약을 쓴다(비밀값은 마스킹, 소유자만 읽기)."""
+    limit = max(1, int(project_config.MULTI_PERSONA_AUTO_APPLY_FEEDBACK_MAX_FAILURES))
+    lines = ["[자동 수정 검증 실패 — 직전 수정안을 테스트로 확인한 결과]",
+             f"사유: {auto_result.get('reason') or '일부 테스트 실패(부분 적용)'}",
+             f"통과 테스트 수: 적용 전 {auto_result.get('tests_passed_before', '?')} → "
+             f"적용 후 {auto_result.get('tests_passed_after', '?')} / 전체 {auto_result.get('tests_total', '?')}"]
+    newly = auto_result.get("newly_failed") or []
+    if newly:
+        lines.append("원래 통과하다가 새로 실패한 테스트(퇴행 — 다른 오류에 가려져 있던 결함일 수 있음, 반드시 해결):")
+        lines.extend(f"- {name}" for name in newly)
+    failures = _junit_failures(result_dir / "junit_after.xml", limit)
+    if failures:
+        lines.append(f"실패한 테스트와 메시지(최대 {limit}개):")
+        lines.extend(failures)
+    else:
+        lines.extend(["pytest 출력 끝부분:", auto_result.get("test_output_tail") or "(없음)"])
+    lines.append("위 실패가 모두 사라지도록 입력 소스를 고치세요. 이미 통과하는 동작은 바꾸지 마세요.")
+    path.write_text(_mask_secrets("\n".join(lines)), encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _run_feedback_rounds(request: dict, job_dir: Path, source: Path, first_proposed: Path,
+                         first_result: dict, started: float, timeout: int):
+    """1차 자동 적용이 실패하면 실패 테스트를 피드백으로 주고 같은 AI로 리뷰를 다시 돌린다.
+
+    반환: (최종 auto_apply 결과, 라운드 기록 목록, 마지막 제안 파일)
+    - 최대 라운드: config.MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS(1 이하이면 재시도 없음)
+    - 남은 시간 < config.MULTI_PERSONA_AUTO_APPLY_RETRY_MIN_SECONDS 이면 멈춘다(그 절반은 테스트·저장 여유).
+    - 입력 소스: 직전 라운드가 (일부) 적용됐으면 지금 원본, 아니면 직전 제안 소스(고친 것을 잃지 않게).
+    - 판정 기준선은 '그 라운드 시작 때 디스크의 원본'이다(auto_apply 규칙 그대로 = 나빠지면 반영 안 함).
+    """
+    rounds = [{"round": 1, "verified": True, **_round_view(first_result)}]
+    auto_result, last_proposed, last_dir = first_result, first_proposed, job_dir
+    max_rounds = int(project_config.MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS)
+    min_seconds = int(project_config.MULTI_PERSONA_AUTO_APPLY_RETRY_MIN_SECONDS)
+    _, review_cli, provider_args = _review_cli(request.get("provider"))
+    for number in range(2, max_rounds + 1):
+        if not _needs_retry(auto_result):
+            break
+        remaining = timeout - (monotonic() - started)
+        if remaining < min_seconds:
+            rounds.append({"round": number, "skipped": "not enough time left", "remaining_seconds": round(remaining)})
+            break
+        round_dir = job_dir / f"round{number}"
+        round_dir.mkdir(mode=0o700, exist_ok=True)
+        candidate = round_dir / source.name
+        candidate.write_bytes((source if auto_result.get("applied") else last_proposed).read_bytes())
+        feedback = round_dir / "feedback.txt"
+        _write_round_feedback(feedback, last_dir, auto_result)
+        round_sha = hashlib.sha256(source.read_bytes()).hexdigest()  # 라운드 도중 외부 변경 감지용
+        command = [str(PROJECT_ROOT / "venv/bin/python"), "-u", str(review_cli), *provider_args,
+                   "--source-path", str(candidate), "--error-path", str(feedback),
+                   "--output-dir", str(round_dir)]
+        round_started = monotonic()
+        try:
+            completed = subprocess.run(command, cwd=str(PROJECT_ROOT), stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, timeout=max(1, int(remaining - min_seconds / 2)),
+                                       check=False)
+        except subprocess.TimeoutExpired:
+            rounds.append({"round": number, "verified": False, "reason": "review timed out",
+                           "review_seconds": round(monotonic() - round_started, 3)})
+            break
+        text = _mask_secrets(completed.stdout.decode("utf-8", errors="replace"))
+        log = round_dir / "review_output.txt"
+        log.write_text(text + _mask_secrets(completed.stderr.decode("utf-8", errors="replace")), encoding="utf-8")
+        log.chmod(0o600)
+        proposed = round_dir / "proposed.py"
+        verified, reasons = _judge_verification(text, proposed)
+        entry = {"round": number, "verified": verified, "review_seconds": round(monotonic() - round_started, 3)}
+        if completed.returncode != 0 or not verified:
+            rounds.append({**entry, "returncode": completed.returncode, "reasons": reasons})
+            break
+        auto_result = _auto_apply(source, proposed, round_dir, request,
+                                  budget=timeout - (monotonic() - started), expected_sha256=round_sha)
+        last_proposed, last_dir = proposed, round_dir
+        rounds.append({**entry, **_round_view(auto_result)})
+    return auto_result, rounds, last_proposed
 
 
 async def review_python_source(
@@ -208,15 +346,19 @@ async def review_python_source(
     test_paths: list[str] | None = None,
     provider: str | None = None,
 ) -> dict:
-    """Review Python source with a durable Multi-Persona Gemini job under the configured timeout.
+    """Self-fixing source review app (스스로 고치는 소스 리뷰 앱).
 
-    Default dry-run validates paths without starting Python or an LLM.
-    Set dry_run=False to start a review and receive a job_id immediately.
-    Call again with the same source_path and job_id to read status/results.
-    MCP responses stay short; a disconnect does not cancel the configured job.
-    auto_apply (default from config) applies only a verified proposal: the original is backed up
-    to the job folder, the new source is compiled, test_paths (inside tests/ or harness/tests/)
-    are run with pytest, and any failure restores the original automatically.
+    An AI reviews the Python source and proposes a full fixed source; the app applies it by itself
+    only when tests prove it is better, and otherwise restores the original and retries with feedback.
+    - provider: gemini | openai | claude | ollama (config.MULTI_PERSONA_REVIEW_PROVIDERS).
+    - Default dry-run validates paths without starting Python or an LLM.
+    - dry_run=False starts a durable job and returns job_id; call again with the same source_path
+      and job_id to read status/results. A disconnect does not cancel the job.
+    - auto_apply (default from config): back up the original, compile, run test_paths (inside tests/
+      or harness/tests/) with pytest. Policy "improve": apply when no previously passing test breaks
+      and more tests pass; otherwise restore the original automatically.
+    - Feedback rounds: if tests still fail, the failing tests are sent back to the same AI and the
+      review runs again (config.MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS). Git commit is left to a human.
     """
     source = _project_path(source_path, "source_path")
     if job_id is not None:
@@ -355,6 +497,15 @@ def _run_review_job(job_id: str) -> None:
     else:
         auto_result = {"auto_apply": True, "applied": False, "rolled_back": False,
                        "reason": "review not verified"}
+    # 2026-11-11: 1차 적용이 실패/부분이면 실패 테스트를 피드백으로 주고 같은 AI로 다시 고치게 한다.
+    rounds, final_proposed = None, proposed
+    if request.get("auto_apply") and success and request.get("test_paths"):
+        try:
+            auto_result, rounds, final_proposed = _run_feedback_rounds(
+                request, request_path.parent, source, proposed, auto_result, started,
+                int(request["timeout_seconds"]))
+        except Exception as error:  # 재시도 중 오류가 1차 결과 저장을 막지 않게 한다
+            rounds = [{"round": "retry", "error": _mask_secrets(f"{type(error).__name__}: {error}")[:300]}]
     limit = request["output_limit"]
     result.update(state="timed_out" if timed_out else ("completed" if success else "failed"),
                   success=success, process_completed=process_completed,
@@ -363,6 +514,9 @@ def _run_review_job(job_id: str) -> None:
                   model_verified=success,
                   verification_reasons=verification_reasons,
                   auto_apply_result=auto_result,
+                  auto_apply_rounds=rounds,
+                  final_proposed_path=(str(final_proposed.relative_to(PROJECT_ROOT))
+                                       if final_proposed.is_file() else None),
                   tests_executed=bool(auto_result.get("test_returncode") is not None),
                   proposed_path=str(proposed.relative_to(PROJECT_ROOT)) if proposed.is_file() else None,
                   report_path=str(report.relative_to(PROJECT_ROOT)),

@@ -641,6 +641,18 @@ MULTI_PERSONA_REVIEW_AUTO_APPLY = True
 MULTI_PERSONA_AUTO_APPLY_TEST_TIMEOUT_SECONDS = 600
 # 자동 적용 검증에 쓸 수 있는 테스트 폴더(이 밖의 경로는 거부).
 MULTI_PERSONA_AUTO_APPLY_TEST_ROOTS = ("tests", "harness/tests")
+# 2026-11-11 자동 적용 규칙(LuckyBoys 요청: 일부라도 반영). harness/mcp/tools/auto_apply.py가 읽는다.
+#   "all_pass": 테스트 전부 통과해야 적용 / "improve": 원본 대비 퇴행 없이 통과 수가 늘면 적용(partial).
+#   improve는 원본으로 테스트를 한 번 더 돌리므로 검증 시간이 약 2배가 된다.
+MULTI_PERSONA_AUTO_APPLY_POLICY = "improve"
+# 2026-11-11 실패 피드백 재시도(LuckyBoys 결정). review_python_source 워커가 읽는다.
+#   자동 적용이 되돌려지거나 일부만 적용되면, 실패한 테스트 목록·메시지를 오류 로그로 만들어
+#   직전 수정안과 함께 같은 AI에게 다시 리뷰시킨다. 1이면 재시도 없음(1차만).
+MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS = 2
+# 다음 라운드를 시작하려면 리뷰 제한 시간 중 이만큼은 남아 있어야 한다(초). 절반은 테스트·저장 여유로 남긴다.
+MULTI_PERSONA_AUTO_APPLY_RETRY_MIN_SECONDS = 180
+# 피드백에 넣을 실패 테스트 최대 개수(프롬프트가 너무 길어지지 않게).
+MULTI_PERSONA_AUTO_APPLY_FEEDBACK_MAX_FAILURES = 40
 # 2026-11-10: apply_source_proposal(어느 AI든 수정 코드를 넘겨 적용하는 MCP 도구) 설정.
 # MCP 요청 안에서 바로 pytest를 돌리므로 테스트 시간을 짧게 둔다(클라이언트 응답 대기 한도 고려).
 APPLY_PROPOSAL_TEST_TIMEOUT_SECONDS = 120
@@ -661,6 +673,10 @@ MULTI_PERSONA_REVIEW_PROVIDERS = {
     "ollama_gemma": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_Ollama_Gemma4_e4b.py", "llm": None},
 }
 MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER = "gemini"
+# 2026-11-12 (LuckyBoys 선택 B): 소스 리뷰 job에서 Tavily 웹 검색 사용 여부. False면 공용 CLI에
+# --no-web-search를 넘겨 검색 → router 재호출(토큰 낭비)을 막는다. 일반 질문 경로에는 영향 없음.
+# 다시 켜려면 True로 바꾼다.
+MULTI_PERSONA_REVIEW_WEB_SEARCH = False
 # 2026-11-10: common/llm_provider.py가 읽는 LLM 공급자별 생성 정보(키 값은 환경변수에만 둔다).
 # default_model이 빈 문자열이면 model_env 환경변수를 반드시 설정해야 한다(모델 이름을 추측하지 않음).
 MULTI_PERSONA_LLM_PROVIDERS = {
@@ -938,3 +954,64 @@ SPS_PERSONA_SOURCE = {
     "max_output_tokens": 4096,
     "max_plan_rounds": 2,
 }
+
+# 2026-11-10 LuckyBoys: 범용 자기 수리 엔진(harness/mcp/agents/self_repair_engine.py) 설정.
+# "어디서나 쓰는 스스로 고치는 앱": 등록된 대상 실행 → 판정 → 실패 시 페르소나 수리 체인 → git add(커밋 없음) → 재실행.
+# - enabled: False 면 판정만 하고 수리하지 않는다
+# - default_max_rounds: 대상 스펙에 max_rounds 가 없을 때 쓰는 수리 라운드 수(엔진 상한 5, 비용 보호)
+# - report_dir: 수리 증빙 JSON 저장 위치(대상 이름별 하위 폴더)
+# - job_dir: self_repair_run 백그라운드 job 의 request/result 저장 위치(0600 파일)
+# - job_timeout_seconds: 독립 systemd 유닛 전체 상한(실행 + 수리 + 재실행 포함)
+# - max_evidence_chars: 수리 작업문에 넣는 실행 출력 끝부분 길이
+# - repository_table: MariaDB 등록소 테이블 이름(2차 DDL 승인 전에는 미생성 → repository 백엔드는 명확히 거부)
+SELF_REPAIR = {
+    "enabled": True,
+    "default_max_rounds": 2,
+    "report_dir": "harness/reports/self_repair",
+    "job_dir": "harness/memory/self_repair_jobs",
+    "job_timeout_seconds": 36000,
+    "max_evidence_chars": 4000,
+    "repository_table": "sps_self_repair_target",
+}
+
+# 2026-11-10 LuckyBoys: document_collect 대상(수집 건수가 목표보다 적어도 수리)이 쓰는 수집기 실행 설정.
+# - collector_script: 사이트 비종속 수집기(FastAPI 쪽 원래 위치 그대로 연결, 사이트 이름 하드코딩 없음)
+# - collect_time_limit_seconds: 수집기 1회 실행 상한(수집기 자체 상한보다 크면 작은 값을 쓴다, 이어받기 지원)
+# - collector_grace_seconds: 수집기 프로세스 강제 종료 전 결과(status.json) 저장 여유
+SELF_REPAIR_COLLECT = {
+    "collector_script": BASE_DIR / "FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py",
+    "collect_time_limit_seconds": 30000,
+    "collector_grace_seconds": 60,
+}
+
+# >>> SELF_REPAIR_TARGETS (generated)
+# 자동 생성: self_repair_target_register 가 관리한다. 손으로 고치지 말 것.
+SELF_REPAIR_TARGETS = {
+    "document_collect": {
+        "name": "document_collect",
+        "command": {"module": "harness.mcp.tools.document_collect_target"},
+        "args_template": ["--collect", "{name}", "{company_name}", "{expected_min_count}"],
+        "params": ["name", "company_name", "expected_min_count"],
+        "verdict": {"type": "json_min", "source": "stdout", "field": "success",
+                    "min_param": "expected_min_count"},
+        "scope": {
+            "allowed_paths": [
+                "FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py",
+                "FastAPI/LangGraph/Agent_Import_PFDs/profile_autodiscover.py",
+            ],
+            "regression_tests": [
+                "harness/tests/test_public_document_catalog_collector.py",
+                "harness/tests/test_collector_seedless_post_download.py",
+                "harness/tests/test_collector_self_heal.py",
+                "harness/tests/test_collector_worker_self_heal.py",
+                "harness/tests/test_profile_autodiscover_inference.py",
+                "harness/tests/test_autodiscover_failure_classification.py",
+                "harness/tests/test_autodiscover_self_repair.py",
+                "harness/tests/test_document_collect_target_20261111.py",
+            ],
+        },
+        "max_rounds": 2,
+        "timeout_seconds": 36000,
+    },
+}
+# <<< SELF_REPAIR_TARGETS

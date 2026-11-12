@@ -66,7 +66,14 @@ load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
 from common.llm_provider import available_providers, create_chat_model
 _provider_parser = argparse.ArgumentParser(add_help=False)
 _provider_parser.add_argument("--provider", default=None)
-LLM_PROVIDER = (_provider_parser.parse_known_args()[0].provider
+# 2026-11-12 (LuckyBoys 선택 B): 소스 리뷰 job은 --no-web-search를 넘겨 Tavily 웹 검색을 끈다.
+# 이유: router에 Tavily가 붙어 있으면 검색 → router 재호출(LLM 2번)로 토큰이 크게 늘었다(job 06c76ff2).
+# 도구는 모듈 import 시점에 만들어지므로 --provider처럼 본 argparse보다 먼저 읽는다.
+# 이 인자가 없으면(일반 질문·직접 실행) 지금처럼 Tavily를 쓴다.
+_provider_parser.add_argument("--no-web-search", action="store_true")
+_early_args = _provider_parser.parse_known_args()[0]
+NO_WEB_SEARCH = bool(_early_args.no_web_search)
+LLM_PROVIDER = (_early_args.provider
                 or os.getenv("MULTI_PERSONA_LLM_PROVIDER", "").strip()
                 or project_config.MULTI_PERSONA_LLM_DEFAULT_PROVIDER)
 
@@ -84,8 +91,10 @@ router_llm = initialize_llm(temp=0.1)
 agent_llm = initialize_llm(temp=0.4)
 verifier_llm = initialize_llm(temp=0.1)
 
-# TAVILY_API_KEY가 있을 때만 Tavily 검색 도구를 활성화합니다.
-tavily_tool = TavilySearch(max_results=3) if os.getenv("TAVILY_API_KEY", "").strip() else None
+# TAVILY_API_KEY가 있고 --no-web-search가 아닐 때만 Tavily 검색 도구를 활성화합니다.
+# 도구가 없으면 router/agent에 bind_tools가 걸리지 않고 tools 노드도 만들지 않아 router는 1번만 호출된다.
+tavily_tool = (TavilySearch(max_results=3)
+               if os.getenv("TAVILY_API_KEY", "").strip() and not NO_WEB_SEARCH else None)
 agent_tools = [tavily_tool] if tavily_tool is not None else []
 
 # 호출 상한은 프로젝트 공용 config.py에서 읽습니다.
@@ -1341,6 +1350,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--provider", default=None, choices=available_providers(),
         help="리뷰에 쓸 LLM (gemini/openai/claude/ollama). 생략하면 환경변수 또는 config 기본값"
+    )
+    # 2026-11-12: 실제 적용은 파일 상단(NO_WEB_SEARCH)에서 이미 끝났고, 여기서는 도움말 표시만 담당한다.
+    parser.add_argument(
+        "--no-web-search", action="store_true",
+        help="Tavily 웹 검색을 끈다 (소스 리뷰 job 전용: router 재호출·토큰 낭비 방지)"
     )
     args = parser.parse_args()
 
