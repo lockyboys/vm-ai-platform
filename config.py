@@ -982,6 +982,10 @@ SELF_REPAIR_COLLECT = {
     "collector_script": BASE_DIR / "FastAPI/LangGraph/Agent_Import_PFDs/public_document_catalog_collector.py",
     "collect_time_limit_seconds": 30000,
     "collector_grace_seconds": 60,
+    # 2026-11-12 LuckyBoys: self_repair_collect_tools 가 읽는데 없던 키(KeyError, KNOWN_BROKEN 해소).
+    # job_timeout_seconds 는 LuckyBoys 지정 36,000초, job_dir 은 엔진(self_repair_jobs)과 섞이지 않게 별도 폴더.
+    "job_timeout_seconds": 36000,
+    "job_dir": "harness/memory/self_repair_collect_jobs",
 }
 
 # >>> SELF_REPAIR_TARGETS (generated)
