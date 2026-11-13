@@ -90,6 +90,20 @@ def run_collector_subprocess(request: dict) -> tuple[dict, str, str]:
     return json.loads(status_path.read_text(encoding="utf-8")), str(status_path), tail
 
 
+def normalize_success(status: dict) -> dict:
+    """엔진 json_min 판정용으로 success 를 항상 정수로 맞춘다 (2026-11-12 메리츠 판정 불일치 수정).
+
+    수집기는 다운로드 단계에서만 success(받은 건수)를 쓴다. 탐색(DISCOVER) 단계에서 실패하면 키가 없어서
+    엔진이 KeyError → 'unreadable' 로만 보고했고 몇 건인지 알 수 없었다(job da702ac6…).
+    정수가 아니거나 없으면 '받은 건수 0' 으로 보고 success_missing=True 로 표시한다(숨기지 않음).
+    bool 은 int 하위형이라 따로 거부한다. 원래 status 의 다른 값은 그대로 둔다.
+    """
+    value = status.get("success")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return {**status, "success": 0, "success_missing": True}
+    return {**status, "success_missing": False}
+
+
 def main(argv: list[str], run_collector: Callable[[dict], tuple[dict, str, str]] = None) -> int:
     """'--collect name company expected' → 수집 → status 를 stdout 마지막 줄 JSON 으로 출력."""
     if len(argv) != 4 or argv[0] != "--collect":
@@ -103,6 +117,7 @@ def main(argv: list[str], run_collector: Callable[[dict], tuple[dict, str, str]]
         return 1
     if collector_stderr:
         print(collector_stderr, file=sys.stderr)             # 수리 작업문 증빙용
+    status = normalize_success(status)                       # success 없음 → 0 + 표시(판정: shortfall)
     print(json.dumps({**status, "status_path": status_path}, ensure_ascii=False, default=str))
     return 0
 

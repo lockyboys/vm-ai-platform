@@ -199,7 +199,9 @@ def test_register_config_apply_writes_block_and_backup(tmp_path):
 def test_register_config_keeps_original_when_compile_fails(tmp_path, monkeypatch):
     path = tmp_path / "config_copy.py"
     path.write_text(CONFIG_TEXT, encoding="utf-8")
-    monkeypatch.setattr(engine, "_render_block", lambda targets: "SELF_REPAIR_TARGETS = {(\n")
+    # 2026-11-12 분리: 등록소 본체가 harness/selffix/registry.py 로 옮겨져 그 모듈의 _render_block 을 바꿔치기한다
+    from harness.selffix import registry
+    monkeypatch.setattr(registry, "_render_block", lambda targets: "SELF_REPAIR_TARGETS = {(\n")
     with pytest.raises(ValueError):
         engine.register_target(_spec(), backend="config", dry_run=False, config_path=path)
     assert path.read_text(encoding="utf-8") == CONFIG_TEXT
