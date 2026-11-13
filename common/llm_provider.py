@@ -17,6 +17,15 @@
     - 패키지가 없거나(예: langchain_anthropic 미설치) 키가 없으면 명확한 오류로 즉시 실패한다.
     - Ollama는 키가 없고, 주소는 common_function.resolve_ollama_base_url()로 자동 선택한다.
 """
+# 모듈	                                                하는 일	                                            사용하는 곳
+# harness/mcp/tools/auto_apply.py	                    백업 → 적용 → 테스트 → 실패하면 원래대로 되돌림	        review_python_source, apply_source_proposal
+# common/llm_provider.py	                            AI 4종(Gemini·ChatGPT·Claude·Ollama) 모델 생성	    리뷰 실행 프로그램
+# FastAPI/LangGraph/multi_persona/review_contract.py	리뷰 답변 형식·import·코드 생략 여부 검사	            리뷰 실행 프로그램, apply_source_proposal
+# 켜는 방법 (둘 중 하나)
+
+# 방법	                                어디서	                            명령
+# ① 노트북 GPU (RTX 3060)	            노트북에서 Ollama를 켠 뒤 터널 열기	    ssh -N -R 11435:127.0.0.1:11434 jeaje@turing-enigma-dev
+# ② GPU 서버 (turing-enigma-ai, L4)	    Google Cloud 콘솔 또는 gcloud	    gcloud compute instances start turing-enigma-ai --zone=<존>
 from __future__ import annotations
 
 import importlib
