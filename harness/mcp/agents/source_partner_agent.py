@@ -354,8 +354,16 @@ def _build_model() -> Any:
                 "timeout": project_config.SPS_SOURCE_PARTNER_OLLAMA_TIMEOUT_SECONDS,
             },
         )
+    if provider in ("openai", "claude"):
+        # 2026-11-12 LuckyBoys: Gemini 402(크레딧 소진) 때 수리 체인을 openai/claude 로 돌릴 수 있게 추가.
+        # 이미 검증된 공용 팩토리(common/llm_provider.py)를 그대로 쓴다: 키·모델 이름은 환경변수
+        # (OPENAI_API_KEY/OPENAI_MODEL, ANTHROPIC_API_KEY/ANTHROPIC_MODEL)에서만 읽고 추측하지 않으며,
+        # 패키지·키·모델이 없으면 명확한 ValueError 로 즉시 실패한다. temperature 0 은 기존 PARTNER 와 같다
+        # (temperature 를 거부하는 모델은 config supports_temperature=False 로 팩토리가 빼고 보낸다).
+        from common import llm_provider  # 지연 import: 테스트에서 팩토리를 바꿔치기할 수 있게
+        return llm_provider.create_chat_model(provider, temperature=0)
     raise ValueError(
-        "model provider must be 'gemini' or 'ollama' (SPS_SOURCE_PARTNER_MODEL_PROVIDER)")
+        "model provider must be 'gemini', 'ollama', 'openai' or 'claude' (SPS_SOURCE_PARTNER_MODEL_PROVIDER)")
 
 
 def build_source_partner_graph(*, model: Any, tools: Sequence[BaseTool], system_prompt: str | None = None):
