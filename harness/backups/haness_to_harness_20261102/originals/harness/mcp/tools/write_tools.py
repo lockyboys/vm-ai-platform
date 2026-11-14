@@ -1,0 +1,136 @@
+# =============================================================================
+# File Name   : harness/mcp/tools/write_tools.py
+# Purpose     : 프로젝트 파일을 안전하게 새로 만들거나 저장하는 도구
+# =============================================================================
+# CHANGE HISTORY
+# =============================================================================
+# 20260902 | Codex | Harness 표준 파일 헤더와 기록 무결성 역할을 보강했음
+# =============================================================================
+# 이 파일은 무엇을 하나요?
+# - source_write는 받은 글을 지정한 프로젝트 파일에 저장합니다.
+# - 저장한 뒤 파일이 바뀌지 않았는지 확인할 수 있도록 SHA-256 값을 돌려줍니다.
+# 주의: 허용된 프로젝트 폴더 안의 파일만 다루며, 너무 큰 파일은 저장하지 않습니다.
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+from haness.mcp.tools.source_edit_guard import validate_python, require_entrypoint
+
+
+PROJECT_ROOT = Path("/data/vm_project").resolve()
+MAX_WRITE_BYTES = 2 * 1024 * 1024
+EXCLUDED_DIRECTORY_NAMES = {
+    ".git",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".home",
+}
+DENIED_FILE_NAMES = {".env", ".env.local", ".env.production", "secrets.env"}
+DENIED_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
+
+
+def source_write(
+    path: str,
+    content: str,
+    overwrite: bool = False,
+    create_parent: bool = True,
+) -> dict[str, Any]:
+    """
+    Atomically write one UTF-8 text file inside /data/vm_project.
+    """
+
+    normalized_path = path.strip()
+    if not normalized_path:
+        raise ValueError("path must not be empty.")
+
+    relative_path = Path(normalized_path)
+
+    if relative_path.is_absolute():
+        raise ValueError(
+            "path must be relative to the project root."
+        )
+    if any(part in {"", ".", ".."} for part in relative_path.parts):
+        raise ValueError("Dot segments are not allowed in source paths.")
+    if any(part in EXCLUDED_DIRECTORY_NAMES for part in relative_path.parts):
+        raise ValueError("Writing to an excluded directory is not allowed.")
+    if relative_path.name in DENIED_FILE_NAMES:
+        raise ValueError("Writing environment files is not allowed.")
+    if relative_path.suffix.lower() in DENIED_SUFFIXES:
+        raise ValueError("Writing secret-key files is not allowed.")
+
+    target_path = (
+        PROJECT_ROOT / relative_path
+    ).resolve()
+
+    if (
+        target_path != PROJECT_ROOT
+        and PROJECT_ROOT not in target_path.parents
+    ):
+        raise ValueError(
+            "The requested path is outside the project root."
+        )
+
+    existing_yn = target_path.exists()
+
+    if existing_yn and overwrite:
+        raise ValueError("Existing files must be changed with source_patch; source_write overwrite is blocked by the source-edit guard.")
+
+    if existing_yn and not overwrite:
+        raise FileExistsError(
+            f"File already exists: {path}"
+        )
+
+    if create_parent:
+        target_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+    elif not target_path.parent.exists():
+        raise FileNotFoundError(
+            f"Parent directory does not exist: "
+            f"{target_path.parent}"
+        )
+
+    encoded_content = content.encode("utf-8")
+    if target_path.suffix == ".py":
+        validate_python(content, path=str(target_path))
+        if "harness/mcp" in str(target_path) and "sps_harness_server.py" in str(target_path):
+            require_entrypoint(content)
+    if len(encoded_content) > MAX_WRITE_BYTES:
+        raise ValueError(
+            f"content exceeds the {MAX_WRITE_BYTES}-byte write limit."
+        )
+
+    temporary_path = target_path.with_name(
+        f".{target_path.name}.{uuid4().hex}.tmp"
+    )
+
+    try:
+        with temporary_path.open("x", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, target_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+    return {
+        "path": str(
+            target_path.relative_to(PROJECT_ROOT)
+        ),
+        "operation": (
+            "UPDATED"
+            if existing_yn
+            else "CREATED"
+        ),
+        "bytes": len(encoded_content),
+        "sha256": hashlib.sha256(
+            encoded_content
+        ).hexdigest(),
+    }
