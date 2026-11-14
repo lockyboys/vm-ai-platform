@@ -97,8 +97,11 @@ async def self_repair_run(target: str, params_json: str = "{}", dry_run: bool = 
     params = validate_params(spec, _parse_json(params_json, "params_json"))
     timeout = int(_SETTINGS["job_timeout_seconds"])
     new_id = uuid4().hex
+    # 2026-11-14 LuckyBoys 선택 A: 자기 수리 유닛만 수명 상한을 job_timeout_seconds(36,000초)로 올린다
+    # (기본 일반 유닛 상한 3600에 잘려 1시간에 강제 종료되던 문제. 다른 작업은 영향 없음).
     unit, command = _systemd_command(
-        ["-m", "harness.mcp.agents.self_repair_engine", "--job-worker", new_id], timeout, "self-repair")
+        ["-m", "harness.mcp.agents.self_repair_engine", "--job-worker", new_id], timeout, "self-repair",
+        runtime_cap=timeout)
     command = [argument for argument in command if argument not in {"--wait", "--pipe"}]  # 독립 유닛
     plan = {"dry_run": bool(dry_run), "executed": False, "job_id": new_id, "unit": unit, "command": command,
             "timeout_seconds": timeout, "target": spec["name"], "params": params, "argv": _argv(spec, params)}

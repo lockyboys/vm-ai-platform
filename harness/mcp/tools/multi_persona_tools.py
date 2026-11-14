@@ -80,14 +80,22 @@ def _project_path(value: str, field_name: str) -> Path:
     return path
 
 
-def _systemd_command(arguments: list[str], timeout: int, purpose: str) -> tuple[str, list[str]]:
+def _systemd_command(arguments: list[str], timeout: int, purpose: str,
+                     runtime_cap: int | None = None) -> tuple[str, list[str]]:
     """Build a fixed-account transient worker without reading secret file contents."""
     # 요청 작업 시간에 결과 저장 여유를 더한 값을 systemd 상한으로 유지한다.
     unit = "sps-" + purpose + "-" + uuid4().hex
     # 2026-10-31 회귀 수정: 유닛 수명은 config.SPS_GENERAL_UNIT_RUNTIME_SECONDS(현재 3600)를
     # 넘지 않는다. 호출자가 더 큰 값(예: 30010, 3600+grace)을 넘겨도 RuntimeMaxSec는 상한으로 고정한다.
     # 상한값은 하드코딩하지 않고 루트 config.py에서 읽는다(Repository/Metadata 우선 원칙).
-    runtime_max = min(int(timeout), int(project_config.SPS_GENERAL_UNIT_RUNTIME_SECONDS))
+    # 2026-11-14 LuckyBoys 선택 A: 자기 수리(self_repair_run)만 config.SELF_REPAIR['job_timeout_seconds']
+    # (36,000초)를 runtime_cap 으로 넘겨 상한을 올린다. runtime_cap=None(기본)이면 기존 동작 그대로.
+    # 잘못된 runtime_cap(양의 정수 아님, bool 포함)은 명령을 만들기 전에 거부한다.
+    if runtime_cap is not None and (isinstance(runtime_cap, bool) or not isinstance(runtime_cap, int)
+                                    or runtime_cap < 1):
+        raise ValueError("runtime_cap must be a positive integer")
+    cap = int(project_config.SPS_GENERAL_UNIT_RUNTIME_SECONDS) if runtime_cap is None else runtime_cap
+    runtime_max = min(int(timeout), cap)
     command = ["sudo", "-n", "systemd-run", "--wait", "--collect", "--pipe",
                "--quiet", "--unit=" + unit,
                "-p", "User=" + project_config.SPS_MCP_WORKER_USER,
