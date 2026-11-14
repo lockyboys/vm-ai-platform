@@ -851,3 +851,41 @@ def resolve_ollama_base_url(pinned: Any, candidates: Any, timeout_seconds: Any,
         tried.append({"url": url, "ok": True, "error": ""})
         return {"base_url": url, "mode": "auto", "tried": tried}
     raise RuntimeError("no ollama candidate responded: " + json.dumps(tried, ensure_ascii=False))
+
+
+# =============================================================================
+# 2026-11-14 (LuckyBoys 요청): LLM 크레딧 부족(402)·키 오류(401)는 바로 멈추고 보고
+# 배경: Gemini 402 "prepayment credits are depleted"를 '잠시 후 다시 시도'로 처리해
+#       리뷰 한 번에 402 호출이 8번 반복됐고, 자가 수정 앱은 같은 라운드를 또 시도했다.
+# =============================================================================
+def fatal_provider_error_reason(error_text: str) -> str | None:
+    """LLM 오류 문장이 '다시 불러도 소용없는 오류'인지 판정해 보고용 이유를 돌려준다.
+
+    - 판정표: config.MULTI_PERSONA_FATAL_PROVIDER_ERRORS (키를 소문자로 비교, 설정 순서대로 첫 일치)
+    - 치명적이 아니면(429 일시 오류, 일반 문장) None
+    - 문자열이 아닌 입력은 ValueError (bytes·None을 조용히 '정상'으로 넘기지 않음)
+    """
+    if not isinstance(error_text, str):
+        raise ValueError(f"error_text must be str, got {type(error_text).__name__}")
+    import config as _config  # 테스트에서 설정을 바꿔도 반영되게 호출 시점에 읽는다
+    lowered = error_text.lower()
+    for pattern, reason in _config.MULTI_PERSONA_FATAL_PROVIDER_ERRORS.items():
+        if pattern.lower() in lowered:
+            return reason
+    return None
+
+
+def stop_on_fatal_provider_error(error_text: str, node_name: str) -> None:
+    """치명적 공급자 오류이면 표시 줄을 출력하고 프로세스를 끝낸다(SystemExit). 아니면 None.
+
+    표시 줄: "<MULTI_PERSONA_FATAL_PROVIDER_MARKER> <이유> — 리뷰를 멈춥니다. 노드=<node_name> 원문=<앞 300자>"
+    종료 코드: config.MULTI_PERSONA_FATAL_PROVIDER_EXIT_CODE
+    SystemExit는 Exception이 아니어서 LangGraph 노드의 일반 except에 잡히지 않고 그래프 전체를 멈춘다.
+    """
+    reason = fatal_provider_error_reason(error_text)
+    if reason is None:
+        return None
+    import config as _config
+    print(f"{_config.MULTI_PERSONA_FATAL_PROVIDER_MARKER} {reason} — 리뷰를 멈춥니다. "
+          f"노드={node_name} 원문={' '.join(error_text.split())[:300]}", flush=True)
+    raise SystemExit(int(_config.MULTI_PERSONA_FATAL_PROVIDER_EXIT_CODE))

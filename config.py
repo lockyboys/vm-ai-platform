@@ -686,6 +686,20 @@ MULTI_PERSONA_REVIEW_DEFAULT_PROVIDER = "gemini"
 # --no-web-search를 넘겨 검색 → router 재호출(토큰 낭비)을 막는다. 일반 질문 경로에는 영향 없음.
 # 다시 켜려면 True로 바꾼다.
 MULTI_PERSONA_REVIEW_WEB_SEARCH = False
+# 2026-11-14 (LuckyBoys 요청): 다시 불러도 소용없는 LLM 공급자 오류(크레딧 소진·키 오류)는 바로 멈추고 보고한다.
+# 오류 문장에 키(소문자로 비교)가 들어 있으면 값(보고용 이유)으로 판정한다. 429 같은 일시 오류는 넣지 않는다.
+# 숫자 '402'만으로는 판정하지 않는다(일반 문장의 숫자와 헷갈리지 않게 공급자 오류 문구와 함께 적는다).
+MULTI_PERSONA_FATAL_PROVIDER_ERRORS = {
+    "credits are depleted": "LLM 크레딧 부족(402)",
+    "402 resource_exhausted": "LLM 크레딧 부족(402)",
+    "402 payment required": "LLM 크레딧 부족(402)",
+    "invalid_api_key": "LLM API 키 오류(401)",
+    "error code: 401": "LLM API 키 오류(401)",
+}
+# 리뷰 CLI가 치명적 오류로 멈출 때 출력하는 표시 줄의 머리말과 종료 코드.
+# 앱(harness/mcp/tools/multi_persona_tools.py)은 이 머리말로 멈춘 이유를 찾아 결과에 보고한다.
+MULTI_PERSONA_FATAL_PROVIDER_MARKER = "[치명적 공급자 오류]"
+MULTI_PERSONA_FATAL_PROVIDER_EXIT_CODE = 3
 # 2026-11-10: common/llm_provider.py가 읽는 LLM 공급자별 생성 정보(키 값은 환경변수에만 둔다).
 # default_model이 빈 문자열이면 model_env 환경변수를 반드시 설정해야 한다(모델 이름을 추측하지 않음).
 MULTI_PERSONA_LLM_PROVIDERS = {

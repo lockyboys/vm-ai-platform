@@ -1084,6 +1084,11 @@ def safe_invoke_llm(llm, messages, node_name: str):
     except Exception as e:
         error_msg = str(e)
         print(f"🔥 [{node_name} 치명적 에러 발생]: {error_msg}")
+        # 2026-11-14 (LuckyBoys 요청): 크레딧 부족(402)·키 오류(401)는 다시 불러도 소용없으므로
+        # 경고 답을 만들어 다음 노드로 넘기지 않고, 표시 줄을 출력한 뒤 프로세스를 바로 끝낸다.
+        # (예전: '할당량 초과, 잠시 후 다시 시도' 답을 돌려주고 노드마다 다시 호출 → job 하나에 402 8번)
+        from common.common_function import stop_on_fatal_provider_error
+        stop_on_fatal_provider_error(error_msg, node_name)
         if "NOT_FOUND" in error_msg and "model" in error_msg.lower():
             return AIMessage(
                 content=(

@@ -305,6 +305,19 @@ def _contract_errors(text: str) -> list[str]:
             if line.startswith("[출력 검증] 오류=") and not line.startswith("[출력 검증] 오류=[]")]
 
 
+def _provider_fatal(text: str) -> str | None:
+    """리뷰 CLI 출력에서 치명적 공급자 오류 표시 줄(크레딧 부족 402·키 오류 401)을 찾는다(2026-11-14).
+
+    표시 줄 머리말은 config.MULTI_PERSONA_FATAL_PROVIDER_MARKER. 있으면 그 줄(최대 500자), 없으면 None.
+    이 줄이 있으면 다시 시도해도 같은 오류이므로 재시도·다음 라운드를 하지 않고 결과에 보고한다.
+    """
+    marker = project_config.MULTI_PERSONA_FATAL_PROVIDER_MARKER
+    for line in text.splitlines():
+        if line.startswith(marker):
+            return line.strip()[:500]
+    return None
+
+
 def _round_temperature(number) -> float:
     """재시도 라운드 번호(1부터)의 작업 AI temperature (2026-11-14, LuckyBoys 결정: 1차 0.4 → 2차 0.2 → 3차 0.0).
 
@@ -381,9 +394,12 @@ def _run_feedback_rounds(request: dict, job_dir: Path, source: Path, first_propo
             entry["agent_temperature"] = temperature
         if attempt:
             entry["attempt"] = attempt
+        # 2026-11-14: 크레딧 부족(402)·키 오류(401)로 멈췄으면 이유를 남기고 같은 라운드 재시도도 하지 않는다.
+        fatal = _provider_fatal(text)
         if completed.returncode != 0 or not verified:
-            rounds.append({**entry, "returncode": completed.returncode, "reasons": reasons})
-            if completed.returncode == 0 and attempt < format_retries:
+            rounds.append({**entry, "returncode": completed.returncode, "reasons": reasons,
+                           **({"provider_fatal_error": fatal} if fatal else {})})
+            if completed.returncode == 0 and not fatal and attempt < format_retries:
                 # 같은 라운드를 다시 시도한다: 거부 이유(검증 사유 + 출력 검사 오류 줄)를 피드백에 넣는다.
                 attempt += 1
                 rejected = reasons + _contract_errors(text)
@@ -535,6 +551,8 @@ def _run_review_job(job_id: str) -> None:
         errors = str(error).encode("utf-8", errors="replace")
     text = _mask_secrets(output.decode("utf-8", errors="replace"))
     stderr = _mask_secrets(errors.decode("utf-8", errors="replace"))
+    # 2026-11-14: 리뷰 CLI가 치명적 공급자 오류(크레딧 부족 402·키 오류 401)로 멈췄는지 확인한다.
+    provider_fatal = _provider_fatal(text + "\n" + stderr)
     source = _project_path(request["source_path"], "source_path")
     unchanged = source.is_file() and hashlib.sha256(source.read_bytes()).hexdigest() == request["source_sha256"]
     report = request_path.parent.parent / ("review_" + job_id + ".txt")
@@ -555,8 +573,9 @@ def _run_review_job(job_id: str) -> None:
         auto_result = _auto_apply(source, proposed, request_path.parent, request,
                                   budget=int(request["timeout_seconds"]) - (monotonic() - started))
     else:
+        # 2026-11-14: 크레딧 부족(402)·키 오류(401)로 멈췄으면 그 이유를 그대로 보고한다.
         auto_result = {"auto_apply": True, "applied": False, "rolled_back": False,
-                       "reason": "review not verified"}
+                       "reason": provider_fatal or "review not verified"}
     # 2026-11-11: 1차 적용이 실패/부분이면 실패 테스트를 피드백으로 주고 같은 AI로 다시 고치게 한다.
     rounds, final_proposed = None, proposed
     if request.get("auto_apply") and success and request.get("test_paths"):
@@ -566,8 +585,12 @@ def _run_review_job(job_id: str) -> None:
                 int(request["timeout_seconds"]))
         except Exception as error:  # 재시도 중 오류가 1차 결과 저장을 막지 않게 한다
             rounds = [{"round": "retry", "error": _mask_secrets(f"{type(error).__name__}: {error}")[:300]}]
+    # 2026-11-14: 재시도 라운드에서 치명적 공급자 오류로 멈췄으면 그 이유도 결과 맨 위 항목으로 올린다.
+    if provider_fatal is None and rounds and isinstance(rounds[-1], dict):
+        provider_fatal = rounds[-1].get("provider_fatal_error")
     limit = request["output_limit"]
     result.update(state="timed_out" if timed_out else ("completed" if success else "failed"),
+                  provider_fatal_error=provider_fatal,
                   success=success, process_completed=process_completed,
                   timed_out=timed_out, returncode=returncode,
                   elapsed_seconds=round(monotonic() - started, 3), source_unchanged=unchanged,
