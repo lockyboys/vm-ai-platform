@@ -1,0 +1,29 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/selffix_demo/calculator.py, 입력 문자 수=1525
+🔥 [router_node 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6vwJsXy5Cd8bdNeJTa'}
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → PARTNER
+🔥 [agent_PROMPT_ENGINEER 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6vyaJqb8a8MbiWbRZH'}
+🔥 [agent_PARTNER 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6vzyPaYVp2cauwVGNf'}
+🔥 [verifier_node 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6w2LVvYxGaT1gm4dgr'}
+🔥 [agent_PARTNER 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6w3nJx342un8yUFjWE'}
+🔥 [verifier_node 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6w5CQ5tdz3vtTEZ2yW'}
+🔥 [agent_PARTNER 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6w6bjK9y1SHXsYN6bS'}
+🔥 [verifier_node 치명적 에러 발생]: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'temperature: Extra inputs are not permitted'}, 'request_id': 'req_011Cgu6w7xqD5sg7mNdkQ2ZC'}
+[출력 검증] 오류=['누락 제목: ## 1. 전문가적 견해 및 종합 평가', '누락 제목: ## 2. 위험도 및 진단 리포트', '누락 제목: ## 3. 최종 수정 전체 소스 코드', '닫힌 전체 Python 코드 블록 없음'], 보고서=/data/vm_project/harness/memory/source_reviews/job_0b2d2ebe7e2c45a7826715a14d39297e/review.md
+[main] 최종 응답 문자 수: 237
+[main] 호출 집계: 페르소나=4, Tavily=0, LLM=8
+
+[검증 미완료 - 초안 대체 답변]:
+
+[검증 미완료 — 미검증 초안입니다.]
+
+### PROMPT_ENGINEER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.
+
+### PARTNER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.
+
+### PARTNER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.
+
+### PARTNER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.

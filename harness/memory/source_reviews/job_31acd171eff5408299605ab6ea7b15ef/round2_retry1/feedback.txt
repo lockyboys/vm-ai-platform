@@ -1,0 +1,19 @@
+[직전 답이 출력 검사에서 거부됨 — 수정 내용은 버려졌으니 아래를 지켜 다시 제출]
+- LLM verifier 미통과(초안 대체 답변 또는 출력 없음)
+- 출력 계약 오류 또는 계약 검사 결과 없음
+- 제안 소스 파일 미생성: proposed.py
+- [출력 검증] 오류=['누락 제목: ## 1. 전문가적 견해 및 종합 평가', '누락 제목: ## 2. 위험도 및 진단 리포트', '누락 제목: ## 3. 최종 수정 전체 소스 코드', '닫힌 전체 Python 코드 블록 없음'], 보고서=/data/vm_project/harness/memory/source_reviews/job_31acd171eff5408299605ab6ea7b15ef/round2/review.md
+2번 진단에서 수정할 함수는 '수정 필요'로, 고치지 않을 함수는 '수정 불필요'로 분명히 나누고, '수정 필요'로 적은 함수는 3번 전체 소스에서 실제 실행 코드까지 고치세요. 3번에는 전체 소스를 닫힌 python 코드 블록 하나로 출력하세요.
+[자동 수정 검증 실패 — 직전 수정안을 테스트로 확인한 결과]
+사유: 일부 테스트 실패(부분 적용)
+통과 테스트 수: 적용 전 240 → 적용 후 266 / 전체 274
+실패한 테스트와 메시지(최대 40개):
+- test_case[c075]: AssertionError: m.percent_change(-100, -50) -> ('ok', -50.0), 기대 ('ok', 50.0) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', -50.0), ('ok', 50.0)) + where <function matches at 0x7fc4992045e0> = bs.matches
+- test_case[c207]: AssertionError: m.tokenize('1 + 2') -> ('ok', ['1', '+', '2']), 기대 ('ok', [1.0, '+', 2.0]) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', ['1', '+', '2']), ('ok', [1.0, '+', 2.0])) + where <function matches at 0x7fc4992045e0> = bs.matches
+- test_case[c208]: AssertionError: m.tokenize('-3 * (2 - -1)') -> ('ok', ['-3', '*', '(', '2', '-', '-1', ')']), 기대 ('ok', [-3.0, '*', '(', 2.0, '-', -1.0, ')']) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', ['-3', '*', '(', '2', '-', '-1', ...]), ('ok', [-3.0, '*', '(', 2.0, '-', -1.0, ...]
+- test_case[c209]: AssertionError: m.tokenize('2.5/0.5') -> ('ok', ['2.5', '/', '0.5']), 기대 ('ok', [2.5, '/', 0.5]) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', ['2.5', '/', '0.5']), ('ok', [2.5, '/', 0.5])) + where <function matches at 0x7fc4992045e0> = bs.matches
+- test_case[c211]: AssertionError: m.tokenize('4 - 1') -> ('ok', ['4', '-', '1']), 기대 ('ok', [4.0, '-', 1.0]) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', ['4', '-', '1']), ('ok', [4.0, '-', 1.0])) + where <function matches at 0x7fc4992045e0> = bs.matches
+- test_case[c213]: AssertionError: m.tokenize('(-.5)') -> ('ok', ['(', '-.5', ')']), 기대 ('ok', ['(', -0.5, ')']) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', ['(', '-.5', ')']), ('ok', ['(', -0.5, ')'])) + where <function matches at 0x7fc4992045e0> = bs.matches
+- test_case[c214]: AssertionError: m.tokenize('10-2') -> ('ok', ['10', '-', '2']), 기대 ('ok', [10.0, '-', 2.0]) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', ['10', '-', '2']), ('ok', [10.0, '-', 2.0])) + where <function matches at 0x7fc4992045e0> = bs.matches
+- test_case[c266]: AssertionError: m.tokenize('1\t+\t2') -> ('ok', ['1', '+', '2']), 기대 ('ok', [1.0, '+', 2.0]) assert False + where False = <function matches at 0x7fc4992045e0>(('ok', ['1', '+', '2']), ('ok', [1.0, '+', 2.0])) + where <function matches at 0x7fc4992045e0> = bs.matches
+위 실패가 모두 사라지도록 입력 소스를 고치세요. 이미 통과하는 동작은 바꾸지 마세요.

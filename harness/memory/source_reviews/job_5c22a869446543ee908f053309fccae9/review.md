@@ -1,0 +1,239 @@
+## 1. 전문가적 견해 및 종합 평가
+
+### 초안 검증 및 근거
+1. **PROMPT_ENGINEER 제안 검증 (기각)**
+   - **`<source_code>` 태그 도입 제안**: `validate_review`는 `source_block(query)`를 통해 원본 질의에서 원본 AST(`old`)를 추출합니다. 질의문의 펜스를 XML 태그로 바꾸면 `source_block`이 원본 소스를 추출하지 못해 `old = None`이 되며, 결과적으로 심볼 보존 검증 및 함수 본문 수정 검증이 완전히 무력화됩니다.
+   - **`source_block`의 비탐욕(`.*?`) 파싱 제안**: 파이썬 독스트링 내부에 예시 코드 블록(펜스)이 포함되어 있을 경우 첫 닫는 백틱에서 조기 분할되어 `SyntaxError`를 유발합니다. 마지막 닫는 펜스까지 읽도록 한 기존 탐욕 매칭(`.*`)은 의도된 설계 사양입니다.
+   - **`normalize_plan` 예외 제거 제안**: LangGraph 검토 및 전체 소스 작성이 요구될 때 최소 2인(`PROMPT_ENGINEER`, `PARTNER`) 배치는 파이프라인 계약이므로 예외를 발생시키는 것이 타당합니다.
+
+2. **PARTNER 초안 검증 (부분 승인 및 결함 보완)**
+   - **`_resolve_project_root` 및 `_module_exists` 예외 방어 (승인)**: 깊이 4단계 미만 환경에서의 `IndexError` 방어와 시스템 디렉터리 순회 시 `OSError`/`PermissionError` 처리는 프로세스 중단을 방지하는 적절한 조치입니다.
+   - **`validate_review`의 단순 전수 검사 변경 (결함 식별 및 수정)**: PARTNER는 `not any(...)`의 허점을 막기 위해 백틱으로 추출된 모든 심볼(`named`)에 대해 전수 검사를 수행하도록 변경했습니다. 그러나 이 방식은 2번 리포트에서 "수정 불필요(정상)"로 진단된 함수까지 수정 대상(`unmodified`)으로 오탐하여 검증을 실패(False Positive)시키는 치명적인 문제를 야기합니다. 따라서 2번 본문에서 **"수정 필요"로 명시된 함수만 전수 검사**하고 "수정 불필요" 항목은 제외하는 정밀 필터링 로직으로 수정해야 합니다.
+
+### 미확인 사항
+- 대상 프로젝트 내 동적 로더 기반의 C 확장 네임스페이스 모듈이나 `.whl`/`.zip` 아카이브 내부 모듈은 파일 시스템 정적 탐색 특성상 부재 모듈(`unresolved_imports`)로 판정될 가능성이 여전히 존재합니다.
+
+---
+
+## 2. 위험도 및 진단 리포트
+
+| 위험도 | 대상 함수/심볼 | 진단 내용 및 근거 | 수정 필요 여부 |
+| :--- | :--- | :--- | :--- |
+| **치명적 (High)** | `validate_review` | PARTNER 초안의 `unmodified` 로직은 2번 진단 표에 언급된 모든 함수를 수정 대상으로 취급하여 "수정 불필요"로 판정된 함수까지 미수정 오류로 오탐합니다. 반면 원본의 `not any`는 1개만 수정되어도 전체를 통과시킵니다. 따라서 각 라인에서 "수정 필요"가 명시된 함수들만 타깃으로 추출하여 전수 검증하고, 구분 키워드가 없는 경우에만 기존 폴백으로 처리하도록 분기해야 합니다. | **수정 필요** (실행 코드 반영) |
+| **보통 (Medium)** | `_DEFAULT_PROJECT_ROOT` | `parents[3]` 하드코딩은 저장소 루트가 얕은 경로(컨테이너 루트 등)에 마운트된 경우 `IndexError`를 발생시킵니다. 부모 디렉터리 깊이를 검사하는 안전한 루트 결정 로직이 필요합니다. | **수정 필요** (실행 코드 반영) |
+| **보통 (Medium)** | `_module_exists` | 모듈 경로 탐색 중 접근 권한이 없는 디렉터리나 순환 심볼릭 링크를 만날 경우 `PermissionError` 또는 `OSError`로 인해 검증 파이프라인 전체가 크래시됩니다. `try-except OSError` 구문으로 탐색을 건너뛰도록 처리해야 합니다. | **수정 필요** (실행 코드 반영) |
+| **낮음 (Low)** | `source_block` | 코드 펜스 시작/종료 태그 뒤에 공백이나 탭이 있을 경우 정규식 매칭에 실패할 수 있으므로 `[ \t]*` 허용 처리가 필요합니다. | **수정 필요** (실행 코드 반영) |
+| **정상 (Info)** | `build_review_query` | 마크다운 펜스 형식을 유지하여 `source_block(query)`와의 계약을 정상적으로 준수하고 있습니다. | 수정 불필요 |
+| **정상 (Info)** | `normalize_plan` | LangGraph 파이프라인 제약 조건을 명확히 강제하고 있습니다. | 수정 불필요 |
+| **정상 (Info)** | `_module_references` | AST 기반의 import 구문 및 `-m` 서브프로세스 인자 추출이 규격대로 동작합니다. | 수정 불필요 |
+| **정상 (Info)** | `unresolved_imports` | 원본 AST 대비 신규 추가된 미해결 모듈을 정확히 필터링합니다. | 수정 불필요 |
+
+---
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""전체 소스 리뷰의 출력 계약. 모델 호출 없이 누락·문법 오류를 판정합니다."""
+import ast
+import importlib.machinery
+import os
+import re
+import sys
+from pathlib import Path
+
+HEADINGS = ("## 1. 전문가적 견해 및 종합 평가", "## 2. 위험도 및 진단 리포트", "## 3. 최종 수정 전체 소스 코드")
+
+
+def _resolve_project_root() -> Path:
+    """프로젝트 루트 경로를 안전하게 확인합니다.
+    
+    경로 깊이가 4단계 미만인 환경에서도 IndexError 없이 최상위 접근 가능한 경로를 반환합니다.
+    """
+    try:
+        resolved = Path(__file__).resolve()
+        if len(resolved.parents) >= 4:
+            return resolved.parents[3]
+        return resolved.parents[-1]
+    except (IndexError, OSError):
+        return Path(os.getcwd()).resolve()
+
+
+# review_contract.py는 FastAPI/LangGraph/multi_persona/ 아래에 있으므로 parents[3]이 저장소 루트다.
+_DEFAULT_PROJECT_ROOT = _resolve_project_root()
+
+
+def build_review_query(path, code, previous_error=""):
+    """프롬프트 구분자만 줄바꿈하고 입력 소스의 escape는 보존합니다."""
+    return (
+        f"Python 소스 리뷰: {path}\n메모리·동시성·예외·리소스 해제를 확인하세요.\n"
+        "LangChain/LangGraph가 있으면 설계 검토에 PROMPT_ENGINEER를 포함하세요.\n"
+        + "\n".join(HEADINGS)
+        + "\n세 제목을 순서대로 출력하고 3번에는 수정된 전체 소스를 닫힌 python 코드 블록으로 출력하세요.\n"
+        "공개 함수·클래스와 기능을 보존하고 생략·플레이스홀더 없이 필요한 부분만 수정하세요.\n"
+        "2번에서 수정이 필요하다고 지목한 함수는 3번에서 실행 코드까지 실제로 고치고 근거를 설명하세요. "
+        "주석과 표현만 바꾼 코드는 수정으로 간주하지 않습니다. 수정 불필요한 진단은 명확히 구분하세요.\n"
+        + (f"이전 실행 오류 로그(원인과 재현 조건을 분석해 수정안에 반영):\n{previous_error}\n" if previous_error else "")
+        + "\n입력 소스:\n```python\n" + code + "\n```"
+    )
+
+
+def wants_full_source(query):
+    return HEADINGS[2] in query
+
+
+def source_block(text):
+    """소스 문자열 안의 예시 fence를 위해 마지막 닫는 fence까지 읽습니다."""
+    match = re.search(r"```python[ \t]*\r?\n(.*)\r?\n[ \t]*```", text, re.S)
+    return match.group(1) if match else ""
+
+
+def normalize_plan(plan, query, maximum):
+    """필수 설계 담당과 최종 구현 담당이 상한 때문에 사라지지 않게 합니다."""
+    if maximum < 1:
+        raise ValueError("Persona budget must be positive")
+    plan = list(dict.fromkeys(plan))
+    required = ["PROMPT_ENGINEER"] if any(x in query.lower() for x in ("langchain", "langgraph")) else []
+    if wants_full_source(query):
+        if required and maximum < 2:
+            raise ValueError("Full LangGraph review requires at least two personas")
+        others = [p for p in plan if p not in required and p != "PARTNER"]
+        return (required + others)[:maximum - 1] + ["PARTNER"]
+    return (required + [p for p in plan if p not in required])[:maximum] or ["REVIEWER"]
+
+
+def _module_references(tree):
+    """소스가 참조하는 절대 모듈 이름을 모은다.
+
+    - `import a.b` / `from a.b import c` (상대 import는 위치에 따라 달라지므로 제외)
+    - 리스트·튜플 안의 `"-m", "a.b"` 문자열 쌍(서브프로세스로 띄우는 모듈 경로)
+    """
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module)
+        elif isinstance(node, (ast.List, ast.Tuple)):
+            items = node.elts
+            for first, second in zip(items, items[1:]):
+                if (isinstance(first, ast.Constant) and first.value == "-m"
+                        and isinstance(second, ast.Constant) and isinstance(second.value, str)):
+                    names.add(second.value)
+    return names
+
+
+def _module_exists(name, roots):
+    """모듈을 실행하지 않고 경로만으로 존재 여부를 판단한다.
+
+    표준 라이브러리·내장 모듈은 최상위 이름만 확인한다(os.path처럼 파일이 없는 별칭이 있음).
+    그 외에는 각 검색 루트에서 a/b/c.py, a/b/c/(패키지·네임스페이스), 확장 모듈(.so 등)을 찾는다.
+    """
+    parts = name.split(".")
+    if not all(part.isidentifier() for part in parts):
+        return False  # 모듈 이름으로 쓸 수 없는 문자열은 존재하지 않는 것으로 본다.
+    top = parts[0]
+    if top in sys.builtin_module_names or top in getattr(sys, "stdlib_module_names", ()):
+        return True
+    suffixes = importlib.machinery.all_suffixes()  # .py, .pyc, .cpython-*.so 등
+    for root in roots:
+        try:
+            base = Path(root)
+            if not base.is_dir():
+                continue  # zip/egg 같은 디렉터리 아닌 경로는 검사하지 않는다.
+            for index, part in enumerate(parts):
+                last = index == len(parts) - 1
+                if last:
+                    if (base / part).is_dir() or any((base / (part + s)).is_file() for s in suffixes):
+                        return True
+                elif not (base / part).is_dir():
+                    break  # 중간 패키지가 없으면 이 루트에서는 찾을 수 없다.
+                base = base / part
+        except OSError:
+            # 접근 권한 부족, 손상된 심볼릭 링크 등 파일시스템 예외 발생 시 다음 루트 탐색
+            continue
+    return False
+
+
+def unresolved_imports(code_tree, original_tree, roots):
+    """제안 소스에서 새로 깨진 import만 돌려준다.
+
+    원본에서도 해석되지 않던 모듈(선택 의존성 등)은 제안 탓이 아니므로 제외한다.
+    """
+    original_missing = set()
+    if original_tree is not None:
+        original_missing = {n for n in _module_references(original_tree) if not _module_exists(n, roots)}
+    return sorted(n for n in _module_references(code_tree)
+                  if n not in original_missing and not _module_exists(n, roots))
+
+
+def validate_review(text, query, search_roots=None):
+    """제목·문법·기존 최상위 심볼을 확인하며 모델의 내용 정확성까지 보증하지는 않습니다."""
+    if not wants_full_source(query):
+        return []
+    errors = ["누락 제목: " + h for h in HEADINGS if h not in text]
+    positions = [text.find(h) for h in HEADINGS]
+    if not errors and positions != sorted(positions):
+        errors.append("제목 순서 오류")
+    code = source_block(text[text.find(HEADINGS[2]):]) if HEADINGS[2] in text else ""
+    if not code:
+        return errors + ["닫힌 전체 Python 코드 블록 없음"]
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as error:
+        return errors + ["수정 소스 문법 오류: " + error.msg]
+    if any(isinstance(n, ast.Constant) and n.value is Ellipsis for n in ast.walk(tree)):
+        errors.append("생략 기호 Ellipsis 발견")
+    original = source_block(query)
+    try:
+        old = ast.parse(original)
+    except SyntaxError:
+        old = None
+    if old:
+        kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        missing = {n.name for n in old.body if isinstance(n, kinds)} - {n.name for n in tree.body if isinstance(n, kinds)}
+        if missing:
+            errors.append("기존 공개 심볼 누락: " + ", ".join(sorted(missing)))
+        # 진단 표가 기존 함수를 수정 대상으로 지목했다면 실제 함수 본문 변화를 확인합니다.
+        if all(position >= 0 for position in positions):
+            diagnosis = text[positions[1] + len(HEADINGS[1]):positions[2]]
+            old_functions = {
+                node.name: node for node in ast.walk(old)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            new_functions = {
+                node.name: node for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            
+            # 2번 섹션에서 명시적으로 '수정 필요'로 분류된 함수만 전수 검사 대상으로 추출합니다.
+            targets = set()
+            for line in diagnosis.splitlines():
+                if "수정 필요" in line and "수정 불필요" not in line:
+                    targets.update(re.findall(r"`?([A-Za-z_][A-Za-z0-9_]*)`?", line))
+            targets = targets & old_functions.keys()
+
+            if targets:
+                # 수정 필요 대상으로 지목된 함수는 모두 실행 코드(AST)가 변경되었는지 전수 확인합니다.
+                unmodified = [
+                    name for name in sorted(targets)
+                    if name not in new_functions or ast.dump(old_functions[name]) == ast.dump(new_functions[name])
+                ]
+                if unmodified:
+                    errors.append("진단된 함수 수정 미반영: " + ", ".join(unmodified))
+            else:
+                # 명시적 라벨 구분이 없는 자유 서술형 진단일 경우 백틱 심볼 중 최소 1개 이상 변경 여부를 확인합니다.
+                named = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", diagnosis)) & old_functions.keys()
+                if named and not any(
+                    name in new_functions and ast.dump(old_functions[name]) != ast.dump(new_functions[name])
+                    for name in named
+                ):
+                    errors.append("진단된 함수 수정 미반영: " + ", ".join(sorted(named)))
+
+    # 2026-11-02: 문법이 맞아도 존재하지 않는 모듈을 참조하면 실행 즉시 실패하므로 오류로 본다.
+    # search_roots를 주지 않으면 저장소 루트 + 현재 sys.path에서 찾는다(테스트는 임시 루트를 넘김).
+    roots = list(search_roots) if search_roots is not None else [_DEFAULT_PROJECT_ROOT, *sys.path]
+    missing_modules = unresolved_imports(tree, old, roots)
+    if missing_modules:
+        errors.append("존재하지 않는 import 대상: " + ", ".join(missing_modules))
+    return errors
+```

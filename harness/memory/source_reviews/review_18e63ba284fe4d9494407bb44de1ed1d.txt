@@ -1,0 +1,443 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/selffix_demo/hard/tetris_engine_claude.py, 입력 문자 수=9437
+📊 [router_node 토큰 소모량] 입력: 7919 / 출력: 372 / 총합: 8291
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → BUG_HUNTER → REVIEWER → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 8193 / 출력: 7991 / 총합: 16184
+📊 [agent_BUG_HUNTER 토큰 소모량] 입력: 7282 / 출력: 9084 / 총합: 16366
+📊 [agent_REVIEWER 토큰 소모량] 입력: 9395 / 출력: 10552 / 총합: 19947
+📊 [agent_PARTNER 토큰 소모량] 입력: 7588 / 출력: 14030 / 총합: 21618
+📊 [verifier_node 토큰 소모량] 입력: 34568 / 출력: 13387 / 총합: 47955
+[출력 검증] 오류=[], 보고서=/data/vm_project/harness/memory/source_reviews/job_18e63ba284fe4d9494407bb44de1ed1d/review.md
+[제안 소스] /data/vm_project/harness/memory/source_reviews/job_18e63ba284fe4d9494407bb44de1ed1d/proposed.py
+[main] 최종 응답 문자 수: 16240
+[main] 호출 집계: 페르소나=4, Tavily=0, LLM=6
+
+[최종 검증된 답변]:
+
+## 1. 전문가적 견해 및 종합 평가
+
+**검증 결론: PARTNER 초안의 소스를 최종본으로 채택합니다. PROMPT_ENGINEER·BUG_HUNTER·REVIEWER 초안의 3번 섹션은 요청 위반이라 반려합니다.**
+
+- **반려 사유**
+  - 세 초안은 "운영 지침"을 이유로 전체 소스 대신 변경 명세만 냈습니다.
+  - 사용자는 "3번에는 수정된 전체 소스를 닫힌 python 코드 블록으로" 출력하라고 명시했습니다. 이 요청이 우선합니다.
+  - 해당 초안들의 진단 내용 자체는 대부분 맞기 때문에, 유효한 부분만 2번에 흡수했습니다.
+- **PROMPT_ENGINEER 판정**
+  - 소스에는 LangChain/LangGraph import나 사용이 없고, `LangGraph`는 경로명에만 있습니다.
+  - "있으면 포함"이라는 조건이 충족되지 않으므로 설계 검토는 **해당 없음**입니다.
+  - 초안이 `### PROMPT_ENGINEER` 제목으로 일반 리뷰를 쓴 것은 역할 배정 오류입니다.
+- **점검 관점별 결론** (정적 대조로 확인, 실행은 미확인)
+  - **메모리:** 결함이 있었고 수정했습니다.
+    - `[[0]*cols]*rows`로 행 별칭이 생김(`new_board`, `clear_lines`)
+    - 얕은 복사(`copy_board`)
+    - 입력 보드 직접 변경(`place`)
+    - 가변 기본 인자(`GameState(log=[])`)
+  - **동시성:** 실제 위험은 `log=[]`를 인스턴스끼리 공유하는 것 하나였고, 수정했습니다.
+    - PROMPT_ENGINEER 초안의 "스레드 간 상태 누수" 표현은 과장입니다. 본질은 인스턴스 간 공유입니다.
+    - 락 추가는 명세에 없으므로 **수정 불필요(권고)** 로 분류합니다.
+  - **예외:** `IndexError`/`RuntimeError`를 던지거나, 예외 대신 값을 반환하거나, 경계값이 틀린 곳이 다수였습니다. 모두 명세대로 `ValueError`로 교정했습니다.
+  - **리소스 해제:** 파일·소켓·락이 없으므로 **해당 없음**입니다.
+- **PARTNER 코드 검증 방식**
+  - 각 함수를 docstring과 한 줄씩 대조했습니다.
+  - 다음 경우를 손으로 추적했습니다.
+    - 회전: `[[1,2],[3,4]]`를 cw로 돌리면 `[[3,1],[4,2]]`, ccw로 돌리면 `[[2,4],[1,3]]`
+    - `hard_drop(new_board(), I, 0)`의 결과가 `(보드, 19, 0)`
+    - `record_clear(1)`을 두 번 호출하면 두 번째 반환값이 `40+50=90`
+  - 추적 결과 명세와 불일치하는 부분은 찾지 못했습니다.
+  - 따라서 3번 소스는 PARTNER본을 그대로 유지했습니다(주석만 정리).
+- **미확인 사항**
+  - `harness/tests/selffix_hard/` bench를 읽지도, 실행하지도 않았습니다. 완료 판정은 bench 통과 후에 해야 합니다.
+
+## 2. 위험도 및 진단 리포트
+
+근거 표기: **[확인]** = 소스와 docstring을 대조해 확정, **[미확인]** = 실행/테스트 증거 없음.
+
+### 수정함 (실행 코드 변경)
+
+| # | 위험도 | 대상 | 원본 결함 | 수정 내용 | 근거 |
+|---|---|---|---|---|---|
+| 1 | P0 | `new_board` | 행 별칭. `cols<0` 검사라 0을 통과시킴. 정수 검사 없음 | 행마다 새 리스트 생성. bool이 아닌 1 이상 정수만 허용 | [확인] `b[0][0]=1` 시 전 행이 변경됨 |
+| 2 | P0 | `copy_board` | `list(board)`는 얕은 복사 | `[list(row) for row in board]` | [확인] |
+| 3 | P0 | `place` | 입력을 직접 변경. ValueError 없음. 좌표 전치 | `can_place` 실패 시 ValueError, 복사본에 기록 | [확인] 모듈 계약 "입력 불변" 위반 |
+| 4 | P0 | `clear_lines` | `any` 판정이 반대. 빈 행 별칭. 남긴 행을 원본과 공유 | `all` 판정, 행마다 새 리스트 | [확인] |
+| 5 | P0 | `GameState.__init__` | `log=[]`를 인스턴스끼리 공유. 초기값 5개가 명세와 다름 | `log=None` 센티널, 명세 초기값 | [확인] `GameState().log is GameState().log`가 True |
+| 6 | P0 | `GameState.record_clear` | `cleared>1` 조건. lines·score 덮어쓰기. 레벨 기준 오류. `can_hold` 미복구 | 반영 전 `self.level` 사용, 누적, `can_hold=True`. 검증을 상태 변경보다 먼저 수행 | [확인] |
+| 7 | P0 | `GameState.hold` | 두 번 보관해도 예외 없음 | `can_hold` 가드 후 False로 전환 | [확인] |
+| 8 | P1 | `PIECES` T/S/L, `LINE_SCORES[4]`, `LINES_PER_LEVEL` | 주석·명세와 다름(S와 Z가 동일, 1000, 8) | T·S·L 교정, 1200, 10 | [확인] |
+| 9 | P1 | `board_to_text`, `text_to_board` | 문자가 `x`/공백, `\r\n`, 행 역순. 역변환은 bool 반환·검증 없음 | `#`/`.`, `\n`, 정순. int 0/1, ragged·잘못된 문자·0폭은 ValueError | [확인] |
+| 10 | P1 | `rotate_cw`, `rotate_ccw`, `rotate_180` | 단순 전치, 방향 반대, 행 순서 미반전 | 표준 회전식 | [확인] 수동 추적 |
+| 11 | P1 | `piece_cells`, `piece_size`, `trim_piece` | (열,행)·(너비,높이)로 뒤바뀜. `left` 계산에 행 값 사용. 슬라이스 +1 누락. 빈 조각에 ValueError 없음 | 명세대로 교정 | [확인] |
+| 12 | P1 | `can_place` | 경계가 `-1`/`>`라 음수 인덱스 랩어라운드·IndexError 발생. 겹침 판정 반대 | `0<=y<rows`, `0<=x<cols`, 블록이 있으면 False | [확인] 빈 보드에 O를 놓아도 False |
+| 13 | P1 | `full_rows` | `any` 판정, 내림차순 | `all` 판정, 오름차순 | [확인] |
+| 14 | P1 | `drop_row`, `hard_drop` | 기본 top=1. 한 칸만 이동. ValueError 없음. 지우기를 놓기보다 먼저 함. 거리 부호 반대. list 반환 | top=0, `while` 반복, ValueError. 놓기→지우기 순서, `landing-top`, tuple 반환 | [확인] docstring "기본 0" |
+| 15 | P1 | `shift`, `wall_kick`, `is_game_over` | 축·부호 오류. 기본 순서 오류. None 미반환. 판정 반대 | 명세대로 교정 | [확인] |
+| 16 | P1 | `column_heights`, `aggregate_height`, `max_height`, `count_holes`, `bumpiness` | `board[x][y]`라 기본 보드에서 IndexError. 빈 열 높이가 rows. max×폭 계산. 첫 열 누락. `seen=True`·`+=2`. abs·마지막 쌍 누락 | 명세대로 교정 | [확인] |
+| 17 | P1 | `score_for_lines`, `level_for_lines`, `lines_to_next_level`, `gravity_frames`, `combo_bonus` | 우선순위 오류(`*level+1`). 4줄 거부. 예외 타입 오류. `round` 사용. `-1`·`+5`·최소 0·100배 | 명세 공식, ValueError | [확인] |
+| 18 | P1 | `bag_sequence` | seed 미사용. 이름 대신 모양 반환. 자르지 않음. 음수에 예외 없음 | `Random(seed)`, `sorted(PIECES)`, `[:count]`, ValueError | [확인] |
+| 19 | P1 | `GameState.level` | `max(...)` 사용 | `start_level + level_for_lines(lines)` | [확인] docstring "시작 레벨 + …". 테스트 기대값은 [미확인] |
+
+### 수정 불필요 (진단만)
+
+- **리소스 해제:** 대상 자원이 없습니다. `random.Random`은 지역 객체입니다.
+- **`GameState` 락:** 명세에 스레드 안전 계약이 없습니다. 여러 스레드가 공유한다면 호출 측에서 동기화해야 합니다(권고).
+- **`PIECES` Z·J, `import random`:** 명세와 일치합니다.
+- **`lines_to_next_level` 음수 입력:** 명세에 예외 규정이 없어 동작을 추가하지 않았습니다.
+  - PROMPT_ENGINEER 초안은 ValueError 추가를 제안했지만 명세에 없는 동작이라 **기각**했습니다.
+
+### 초안 검증 메모
+
+- 공개 이름·시그니처는 보존했습니다. 기본값 변경(`drop_row`/`hard_drop`의 `top=0`, `wall_kick`의 offsets 순서)은 docstring 명세에 맞춘 것입니다.
+- BUG_HUNTER의 회귀 기대값(`record_clear(1)` 연속 2회 시 90)은 추적 결과와 일치합니다.
+- **[미확인]** bench 테스트 실행 결과는 없습니다. 권장 명령: `pytest harness/tests/selffix_hard/`
+- **추가 회귀 테스트 권장**
+  - 행 별칭이 없는지
+  - `place` 후 입력 보드가 불변인지
+  - `log`가 인스턴스마다 독립인지
+  - 경계값: `cols=0`, `cleared=4/5`, `count=-1/0`
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""시연용 테트리스 엔진(화면 없음) (스스로 고치는 리뷰 앱 어려운 시험용, 2026-11-11).
+
+보드는 rows x cols 리스트(0=빈칸, 1=블록), 조각은 0/1 2차원 리스트. top은 행, left는 열(0부터).
+각 함수의 docstring이 명세다. 입력 보드·조각은 바꾸지 않고 새 객체를 돌려준다.
+테스트: harness/tests/selffix_hard/ 아래 bench 파일.
+"""
+import random
+
+# 표준 테트로미노 모양(#=블록, .=빈칸, 위 행부터):
+#   I: ####   O: ##/##   T: ###/.#.   S: .##/##.   Z: ##./.##   J: #../###   L: ..#/###
+# 수정: T·S·L 모양을 위 주석(명세)과 일치시킴. Z·J는 원래 정확해 그대로 둠.
+PIECES = {
+    "I": [[1, 1, 1, 1]],
+    "O": [[1, 1], [1, 1]],
+    "T": [[1, 1, 1], [0, 1, 0]],
+    "S": [[0, 1, 1], [1, 1, 0]],
+    "Z": [[1, 1, 0], [0, 1, 1]],
+    "J": [[1, 0, 0], [1, 1, 1]],
+    "L": [[0, 0, 1], [1, 1, 1]],
+}
+# 한 번에 지운 줄 수(0~4줄)별 기본 점수: 0, 40, 100, 300, 1200점(NES 방식).
+# 수정: 4줄 점수 1000 -> 1200(명세 값).
+LINE_SCORES = [0, 40, 100, 300, 1200]
+# 레벨당 줄 수. 수정: 8 -> 10(level_for_lines/lines_to_next_level 명세 "10줄마다").
+LINES_PER_LEVEL = 10
+
+
+# ---------------------------------------------------------------- 보드
+def new_board(rows=20, cols=10):
+    """빈 보드. rows·cols는 1 이상 정수, 아니면 ValueError."""
+    # 예외: bool·비정수·1 미만이면 ValueError(bool은 int 하위형이라 명시적으로 제외).
+    for value in (rows, cols):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError("rows and cols must be positive integers")
+    # 주의: [[0]*cols]*rows는 모든 행이 같은 객체를 공유하므로 행마다 새로 만든다.
+    return [[0] * cols for _ in range(rows)]
+
+
+def copy_board(board):
+    """행까지 새로 만든 복사본."""
+    # 행 리스트까지 새로 생성해 원본 보드와의 별칭을 끊는다.
+    return [list(row) for row in board]
+
+
+def board_to_text(board):
+    """블록은 '#', 빈칸은 '.'으로 위 행부터 한 줄씩, 줄 사이는 '\\n'."""
+    # 인덱스 0 = 맨 위 행. 줄 구분은 '\n'(끝 개행 없음).
+    return "\n".join("".join("#" if cell else "." for cell in row) for row in board)
+
+
+def text_to_board(text):
+    """board_to_text의 역변환(첫 줄이 맨 위 행, 칸은 int 0/1). 빈 문자열, 길이가 다른 줄, '#'/'.' 이외 문자는 ValueError."""
+    # 예외: 빈 문자열, 0폭 줄, 길이가 다른 줄, 허용되지 않은 문자 -> ValueError.
+    if not text:
+        raise ValueError("empty text")
+    lines = text.splitlines()
+    width = len(lines[0])
+    if width == 0:
+        # 0폭 보드는 new_board 계약(cols >= 1)과 맞지 않아 거부한다.
+        raise ValueError("empty board line")
+    board = []
+    for line in lines:
+        if len(line) != width:
+            raise ValueError("ragged board text")
+        if any(ch not in "#." for ch in line):
+            raise ValueError("invalid board character")
+        # 첫 줄이 맨 위 행이므로 순서대로 append, 칸은 int 0/1.
+        board.append([1 if ch == "#" else 0 for ch in line])
+    return board
+
+
+# ---------------------------------------------------------------- 조각
+def rotate_cw(piece):
+    """시계 방향 90도: 위쪽 행이 오른쪽 열이 된다."""
+    # 행 순서를 뒤집은 뒤 전치하면 시계 방향 회전(새 리스트 반환).
+    return [list(row) for row in zip(*piece[::-1])]
+
+
+def rotate_ccw(piece):
+    """반시계 방향 90도: 위쪽 행이 왼쪽 열이 된다(뒤집힌 순서)."""
+    # 전치한 뒤 행 순서를 뒤집으면 반시계 방향 회전(새 리스트 반환).
+    return [list(row) for row in zip(*piece)][::-1]
+
+
+def rotate_180(piece):
+    """180도: 행 순서와 각 행의 칸 순서를 모두 뒤집는다."""
+    # 행 순서와 칸 순서를 모두 뒤집는다(슬라이스로 새 리스트, 입력 보존).
+    return [row[::-1] for row in piece[::-1]]
+
+
+def piece_cells(piece):
+    """블록 칸의 (행, 열) 목록(행 우선, 왼쪽부터)."""
+    # (r, c) 순서. 원래 (c, r)로 뒤바뀌어 있었음.
+    return [(r, c) for r, row in enumerate(piece) for c, cell in enumerate(row) if cell]
+
+
+def trim_piece(piece):
+    """바깥쪽의 빈 행·빈 열을 잘라낸다. 블록이 하나도 없으면 ValueError."""
+    cells = piece_cells(piece)
+    if not cells:
+        raise ValueError("piece has no blocks")
+    top = min(r for r, _ in cells)
+    bottom = max(r for r, _ in cells)
+    left = min(c for _, c in cells)
+    right = max(c for _, c in cells)
+    # max는 포함 경계이므로 슬라이스 끝은 +1. list()로 새 행을 만들어 입력과 분리한다.
+    return [list(row[left:right + 1]) for row in piece[top:bottom + 1]]
+
+
+def piece_size(piece):
+    """(높이, 너비)."""
+    # (행 수, 첫 행의 칸 수). 빈 조각이면 너비 0.
+    return len(piece), (len(piece[0]) if piece else 0)
+
+
+# ---------------------------------------------------------------- 놓기·지우기
+def can_place(board, piece, top, left):
+    """조각의 블록 칸이 모두 보드 안이고 기존 블록과 겹치지 않으면 True(빈칸은 밖에 있어도 된다)."""
+    rows = len(board)
+    cols = len(board[0]) if board else 0
+    for r, c in piece_cells(piece):
+        y, x = top + r, left + c
+        # 경계: 0 <= y < rows, 0 <= x < cols(원래 -1·> 비교로 랩어라운드·IndexError 가능).
+        if y < 0 or y >= rows or x < 0 or x >= cols:
+            return False
+        # 기존 블록과 겹치면 불가(원래 판정이 반대였음).
+        if board[y][x]:
+            return False
+    return True
+
+
+def place(board, piece, top, left):
+    """조각을 놓은 새 보드. 놓을 수 없으면 ValueError. 조각의 빈칸은 기존 블록을 지우지 않는다."""
+    # 입력 보드를 바꾸지 않도록 복사본에 기록한다.
+    if not can_place(board, piece, top, left):
+        raise ValueError("piece cannot be placed here")
+    result = copy_board(board)
+    for r, c in piece_cells(piece):
+        result[top + r][left + c] = 1
+    return result
+
+
+def full_rows(board):
+    """가득 찬 행 번호 목록(오름차순)."""
+    return [y for y, row in enumerate(board) if all(row)]
+
+
+def clear_lines(board):
+    """가득 찬 행을 지우고 위에 빈 행을 채운 (새 보드, 지운 행 수). 높이·너비는 그대로."""
+    # 남긴 행과 새 빈 행 모두 새 리스트(별칭 방지).
+    cols = len(board[0]) if board else 0
+    kept = [list(row) for row in board if not all(row)]
+    cleared = len(board) - len(kept)
+    return [[0] * cols for _ in range(cleared)] + kept, cleared
+
+
+def drop_row(board, piece, left, top=0):
+    """top(기본 0 = 맨 위 행)에서 아래로 떨어뜨렸을 때 멈추는 행. 시작 위치에 놓을 수 없으면 ValueError."""
+    if not can_place(board, piece, top, left):
+        raise ValueError("piece cannot be placed at the start position")
+    # 아래 칸이 막힐 때까지 반복(원래는 한 칸만 이동).
+    while can_place(board, piece, top + 1, left):
+        top += 1
+    return top
+
+
+def hard_drop(board, piece, left, top=0):
+    """top(기본 0)에서 끝까지 떨어뜨려 놓은 뒤 줄을 지운 튜플 (새 보드, 떨어진 칸 수, 지운 행 수)."""
+    # 순서: 착지 행 계산 -> 놓기 -> 줄 지우기(원래는 놓기 전에 지웠음).
+    landing = drop_row(board, piece, left, top)
+    placed = place(board, piece, landing, left)
+    cleared_board, cleared = clear_lines(placed)
+    return cleared_board, landing - top, cleared
+
+
+def shift(board, piece, top, left, dx):
+    """좌우로 dx칸 옮길 수 있으면 새 left, 막히면 원래 left(한 번에 dx칸, 중간 칸은 보지 않는다)."""
+    if can_place(board, piece, top, left + dx):
+        return left + dx
+    return left
+
+
+def wall_kick(board, piece, top, left, offsets=((0, 0), (0, -1), (0, 1), (-1, 0))):
+    """offsets(행, 열 이동)를 순서대로 시도해 처음 놓을 수 있는 (top, left). 모두 막히면 None.
+
+    기본 시도 순서: 제자리 (0, 0) → 왼쪽 (0, -1) → 오른쪽 (0, 1) → 위 (-1, 0).
+    """
+    for dy, dx in offsets:
+        if can_place(board, piece, top + dy, left + dx):
+            return top + dy, left + dx
+    return None
+
+
+def is_game_over(board, piece, left):
+    """맨 위(top=0)에 조각을 놓을 수 없으면 True."""
+    return not can_place(board, piece, 0, left)
+
+
+# ---------------------------------------------------------------- 보드 분석
+def column_heights(board):
+    """열마다 맨 위 블록부터 바닥까지의 높이(블록이 없으면 0)."""
+    rows = len(board)
+    heights = []
+    for x in range(len(board[0])):
+        height = 0
+        for y in range(rows):
+            if board[y][x]:  # 원래 board[x][y]로 인덱스가 뒤바뀌어 있었음.
+                height = rows - y
+                break
+        heights.append(height)
+    return heights
+
+
+def aggregate_height(board):
+    """열 높이의 합."""
+    return sum(column_heights(board))
+
+
+def max_height(board):
+    """가장 높은 열의 높이."""
+    return max(column_heights(board))
+
+
+def count_holes(board):
+    """구멍 수: 어떤 열에서 블록 아래에 있는 빈칸."""
+    holes = 0
+    for x in range(len(board[0])):
+        seen_block = False
+        for y in range(len(board)):
+            if board[y][x]:
+                seen_block = True
+            elif seen_block:
+                holes += 1
+    return holes
+
+
+def bumpiness(board):
+    """이웃한 열 높이 차이의 절댓값 합."""
+    heights = column_heights(board)
+    return sum(abs(heights[i] - heights[i + 1]) for i in range(len(heights) - 1))
+
+
+# ---------------------------------------------------------------- 점수·레벨
+def score_for_lines(cleared, level):
+    """한 번에 지운 줄 수(0~4)의 점수 = LINE_SCORES[cleared] * (level + 1).
+    cleared가 0~4가 아니거나 level이 음수면 ValueError."""
+    if cleared < 0 or cleared > 4:
+        raise ValueError("cleared must be between 0 and 4")
+    if level < 0:
+        raise ValueError("level must not be negative")
+    return LINE_SCORES[cleared] * (level + 1)
+
+
+def level_for_lines(total_lines):
+    """누적 줄 수로 레벨(10줄마다 1). 음수면 ValueError."""
+    if total_lines < 0:
+        raise ValueError("total_lines must not be negative")
+    return total_lines // LINES_PER_LEVEL
+
+
+def lines_to_next_level(total_lines):
+    """다음 레벨까지 남은 줄 수(1~10)."""
+    return LINES_PER_LEVEL - total_lines % LINES_PER_LEVEL
+
+
+def gravity_frames(level):
+    """한 칸 떨어지는 데 걸리는 프레임: 48 - 5*level, 최소 1."""
+    return max(1, 48 - 5 * level)
+
+
+def combo_bonus(combo, level):
+    """연속으로 줄을 지운 횟수 combo(1부터)의 보너스 = 50 * combo * (level + 1). combo가 0 이하면 0."""
+    if combo <= 0:
+        return 0
+    return 50 * combo * (level + 1)
+
+
+def bag_sequence(count, seed):
+    """7-bag 순서: 조각 이름('I','O','T','S','Z','J','L' 문자열) 7종을 이름순으로 한 묶음씩 random.Random(seed)로 섞어
+    이어 붙인 앞 count개(seed가 같으면 같은 순서). count < 0이면 ValueError."""
+    if count < 0:
+        raise ValueError("count must not be negative")
+    # seed로 만든 지역 RNG(재현성 확보, 전역 random 상태 오염 없음).
+    rng = random.Random(seed)
+    sequence = []
+    while len(sequence) < count:
+        bag = sorted(PIECES)  # 조각 모양이 아닌 이름 문자열을 이름순으로.
+        rng.shuffle(bag)
+        sequence.extend(bag)
+    return sequence[:count]
+
+
+# ---------------------------------------------------------------- 게임 상태
+class GameState:
+    """점수·줄 수·콤보·보관(hold)을 관리한다. 인스턴스마다 상태를 따로 가진다."""
+
+    # 주의: 스레드 안전하지 않음. 여러 스레드가 한 인스턴스를 공유하면 호출 측에서 동기화해야 한다.
+
+    def __init__(self, level=0, log=None):
+        # 초기 상태: 점수·줄 수·콤보 0, 시작 레벨 = level, 보관 조각 없음(None), 보관 가능, 기록은 빈 목록.
+        # log=[] 가변 기본 인자는 모든 인스턴스가 공유하므로 None 센티널로 인스턴스마다 새 목록을 만든다.
+        self.score = 0
+        self.lines = 0
+        self.start_level = level
+        self.combo = 0
+        self.held = None
+        self.can_hold = True
+        self.log = [] if log is None else log
+
+    @property
+    def level(self):
+        """시작 레벨 + 누적 줄로 오른 레벨."""
+        return self.start_level + level_for_lines(self.lines)
+
+    def record_clear(self, cleared):
+        """조각 하나를 놓은 뒤 지운 줄 수를 반영한다. 점수는 반영 전 레벨로 계산한다.
+        지웠으면 combo += 1 후 줄 점수 + 콤보 보너스(2번째 연속부터, combo-1 기준), 못 지웠으면 combo = 0.
+        놓을 때마다 다시 보관할 수 있게 된다. 반환: 이번에 얻은 점수."""
+        # 반영 전 레벨로 계산. score_for_lines의 ValueError가 상태 변경 전에 나도록 먼저 호출한다.
+        level = self.level
+        gained = score_for_lines(cleared, level)
+        if cleared > 0:
+            self.combo += 1
+            # 첫 클리어(combo=1)는 combo_bonus(0)=0이라 2번째 연속부터 보너스가 붙는다.
+            gained += combo_bonus(self.combo - 1, level)
+        else:
+            self.combo = 0
+        self.lines += cleared
+        self.score += gained
+        self.can_hold = True
+        self.log.append((cleared, gained))
+        return gained
+
+    def hold(self, current):
+        """현재 조각 이름을 보관하고 이전 보관 조각(없으면 None)을 돌려준다.
+        한 번 놓기 전에 두 번 보관하면 ValueError."""
+        if not self.can_hold:
+            raise ValueError("cannot hold twice before placing a piece")
+        previous, self.held = self.held, current
+        self.can_hold = False
+        return previous
+```
+
+**미확인:** 위 소스는 실행이나 bench 테스트로 검증하지 않았습니다. `pytest harness/tests/selffix_hard/` 통과를 확인한 뒤 완료로 판정하세요.

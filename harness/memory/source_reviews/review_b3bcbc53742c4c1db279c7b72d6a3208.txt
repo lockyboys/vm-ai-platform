@@ -1,0 +1,99 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/selffix_demo/calculator.py, 입력 문자 수=1525
+📊 [router_node 토큰 소모량] 입력: 2160 / 출력: 929 / 총합: 3089
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → ARCHITECT → BUG_HUNTER → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 2510 / 출력: 2172 / 총합: 4682
+📊 [agent_ARCHITECT 토큰 소모량] 입력: 2209 / 출력: 2179 / 총합: 4388
+📊 [agent_BUG_HUNTER 토큰 소모량] 입력: 1979 / 출력: 2164 / 총합: 4143
+📊 [agent_PARTNER 토큰 소모량] 입력: 2151 / 출력: 2632 / 총합: 4783
+📊 [verifier_node 토큰 소모량] 입력: 5534 / 출력: 2397 / 총합: 7931
+[출력 검증] 오류=[], 보고서=/data/vm_project/harness/memory/source_reviews/job_b3bcbc53742c4c1db279c7b72d6a3208/review.md
+[제안 소스] /data/vm_project/harness/memory/source_reviews/job_b3bcbc53742c4c1db279c7b72d6a3208/proposed.py
+[main] 최종 응답 문자 수: 3228
+[main] 호출 집계: 페르소나=4, Tavily=0, LLM=6
+
+[최종 검증된 답변]:
+
+## 1. 전문가적 견해 및 종합 평가
+
+제공된 `calculator.py`는 간단한 계산기 기능을 구현하고 있으나, **P0 수준의 치명적인 기능적 결함**과 **P0 수준의 예외 처리 계약 위반**을 포함하고 있습니다.
+
+1.  **기능적 결함 (`subtract`):** `subtract` 함수가 의도와 달리 덧셈을 수행하고 있어, 핵심 비즈니스 로직의 정확성이 심각하게 훼손되어 있습니다.
+2.  **계약 위반 (`divide`):** `divide` 함수는 문서상 `ValueError`를 발생시킨다고 명시했으나, 실제로는 0으로 나누는 경우 파이썬 기본 예외인 `ZeroDivisionError`를 발생시킵니다. 이는 API/사용자 계약 불일치입니다.
+3.  **견고성 부족 (`calculate`):** `calculate` 함수에서 입력 문자열을 `float()`으로 변환하는 과정에서 숫자가 아닌 값이 들어올 경우, 명시적인 오류 처리 없이 `ValueError`가 발생합니다. 이는 시스템의 견고성(Robustness)을 저해하므로, `try-except` 블록을 사용하여 사용자 친화적인 오류 메시지를 제공하도록 개선해야 합니다.
+
+전반적인 구조는 순수 함수(Pure Function)로 구성되어 있어 메모리, 동시성, 리소스 해제 측면에서는 완벽하게 안전합니다. 따라서 수정은 오직 기능적 정확성(Functional Correctness)과 예외 처리의 일관성(Exception Consistency)에 집중되어야 합니다.
+
+## 2. 위험도 및 진단 리포트
+
+| 위험도 | 진단 항목 | 상세 내용 및 근거 | 수정 필요성 | 근거 및 조치 |
+| :---: | :--- | :--- | :---: | :--- |
+| **P0** | **`subtract` 로직 오류** | `subtract` 함수가 `a - b` 대신 `a + b`를 반환합니다. (기능적 정합성 위반) | **필수 수정** | `return a + b`를 `return a - b`로 수정하여 정확한 뺄셈 연산을 수행하도록 변경했습니다. |
+| **P0** | **`divide` 예외 계약 위반** | 문서상 `ValueError`를 발생시킨다고 명시했으나, 실제로는 `ZeroDivisionError`가 발생합니다. (계약 위반) | **필수 수정** | 0으로 나누는 경우를 명시적으로 체크하고, 문서화된 계약을 준수하기 위해 `ValueError`를 발생시키도록 로직을 수정했습니다. |
+| **P1** | **입력값 타입 안정성** | `calculate` 함수에서 `float()` 변환 시, 입력 문자열이 숫자가 아닌 경우 암묵적인 `ValueError`가 발생합니다. | **필수 개선** | `calculate` 함수 내에 `try-except` 블록을 추가하여, 숫자가 아닌 입력에 대해 명확하고 사용자 친화적인 `ValueError`를 반환하도록 개선했습니다. |
+| P2 | **메모리/동시성** | 해당 코드는 순수 함수로 구성되어 있어 메모리 누수나 동시성 문제가 발생할 여지가 없습니다. | **수정 불필요** | 해당 없음. |
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""스스로 고치는 리뷰 앱 시연용 간단 계산기 (2026-11-10).
+
+⚠ 시연을 위해 일부러 넣은 결함이 수정되었습니다.
+   테스트: harness/tests/test_selffix_demo_calculator_20261110.py
+
+[수정 사항 요약]
+1. subtract 함수: 논리적 결함 수정 (a + b -> a - b).
+2. divide 함수: 예외 처리 계약 준수 (ZeroDivisionError -> ValueError).
+3. calculate 함수: 입력값 변환 시 try-except를 적용하여 견고성(Robustness)을 확보했습니다.
+"""
+
+
+def add(a: float, b: float) -> float:
+    """두 수를 더한다."""
+    return a + b
+
+
+def subtract(a: float, b: float) -> float:
+    """a에서 b를 뺀다."""
+    # 수정 근거: 기존의 a + b 결함을 a - b로 수정하여 기능적 정확성을 확보했습니다.
+    return a - b
+
+
+def multiply(a: float, b: float) -> float:
+    """두 수를 곱한다."""
+    return a * b
+
+
+def divide(a: float, b: float) -> float:
+    """a를 b로 나눈다. 0으로 나누면 ValueError를 낸다."""
+    # 수정 근거: 문서화된 계약(ValueError)을 준수하기 위해 0 나누기 전 명시적으로 검사합니다.
+    if b == 0.0:
+        raise ValueError("Cannot divide by zero.")
+    return a / b
+
+
+def calculate(expression: str) -> float:
+    """'3 + 4' 처럼 '숫자 연산자 숫자' 형식의 식을 계산한다. 형식이 틀리면 ValueError."""
+    parts = expression.split()
+    if len(parts) != 3:
+        raise ValueError("expression must look like '<number> <op> <number>'")
+    left_str, op, right_str = parts
+    operations = {"+": add, "-": subtract, "*": multiply, "/": divide}
+    if op not in operations:
+        raise ValueError(f"unknown operator: {op}")
+    
+    try:
+        # 수정 근거: float() 변환 과정에서 숫자가 아닌 값이 들어올 경우 발생하는 ValueError를 명시적으로 처리합니다.
+        left_val = float(left_str)
+        right_val = float(right_str)
+    except ValueError:
+        # 숫자가 아닌 문자열이 입력되었을 때 발생합니다.
+        raise ValueError("Input numbers must be valid floating-point numbers.")
+        
+    return operations[op](left_val, right_val)
+```
+[2026-11-10 21:25:59] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"
+[2026-11-10 21:30:41] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"
+[2026-11-10 21:39:15] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"
+[2026-11-10 21:44:34] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"
+[2026-11-10 21:51:58] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"
+[2026-11-10 21:59:56] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"

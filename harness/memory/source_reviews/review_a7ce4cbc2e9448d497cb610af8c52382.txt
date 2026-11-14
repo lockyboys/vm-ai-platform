@@ -1,0 +1,110 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/selffix_demo/tetris_core.py, 입력 문자 수=2301
+📊 [router_node 토큰 소모량] 입력: 2201 / 출력: 164 / 총합: 2365
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → REVIEWER → BUG_HUNTER → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 2744 / 출력: 965 / 총합: 3709
+📊 [agent_REVIEWER 토큰 소모량] 입력: 3434 / 출력: 1341 / 총합: 4775
+📊 [agent_BUG_HUNTER 토큰 소모량] 입력: 2187 / 출력: 1384 / 총합: 3571
+📊 [agent_PARTNER 토큰 소모량] 입력: 2369 / 출력: 2683 / 총합: 5052
+📊 [verifier_node 토큰 소모량] 입력: 3835 / 출력: 1732 / 총합: 5567
+[출력 검증] 오류=[], 보고서=/data/vm_project/harness/memory/source_reviews/job_a7ce4cbc2e9448d497cb610af8c52382/review.md
+[제안 소스] /data/vm_project/harness/memory/source_reviews/job_a7ce4cbc2e9448d497cb610af8c52382/proposed.py
+[main] 최종 응답 문자 수: 3629
+[main] 호출 집계: 페르소나=4, Tavily=0, LLM=6
+
+[최종 검증된 답변]:
+
+## 1. 전문가적 견해 및 종합 평가
+
+초안의 핵심 진단인 회전 방향 오류와 줄 삭제 후 높이 감소는 소스상 확인됩니다. 다만 여러 초안은 수정된 전체 소스를 제공하지 않아 요청을 충족하지 못했습니다. PARTNER 제안은 전체 소스를 포함하며 두 오류를 수정합니다.
+
+검토는 **제공된 소스와 초안에 대한 정적 검토**입니다. 실제 파일 내용과 테스트 실행 결과는 확인하지 못했습니다. 경로 이름과 달리 제공된 코드에는 LangChain/LangGraph 사용이 없어 PROMPT_ENGINEER 설계 검토 대상은 확인되지 않았습니다.
+
+## 2. 위험도 및 진단 리포트
+
+| 위험도 | 진단 및 조치 |
+|---|---|
+| 중간 | **`rotate` 수정:** 전치만 하면 시계 방향 회전이 아닙니다. 행을 역순으로 전치합니다. 불규칙한 조각은 열이 조용히 누락되지 않도록 `ValueError`로 거부합니다. |
+| 중간 | **`clear_lines` 수정:** 삭제한 행 수만큼 독립적인 빈 행을 위에 추가해 높이를 보존합니다. 빈 보드는 `([], 0)`으로 처리하고, 너비가 0이거나 행 길이가 다른 보드는 `ValueError`로 거부합니다. 이는 경계 입력에 대한 제안 계약이며 기존 호출 측 기대는 미확인입니다. |
+| 중간 | **`can_place` 수정:** 불규칙 보드에서 첫 행의 길이가 아닌 해당 행의 길이로 경계를 검사해 `IndexError`를 방지합니다. 이 함수와 `place`는 불규칙 보드를 허용하지만 `clear_lines`는 거부하므로, 호출 측의 보드 형태 계약 확인이 필요합니다. 빈 조각은 기존처럼 배치 가능으로 판단합니다. |
+| 중간 | **`place` 수정:** 보드와 조각을 복사한 뒤 동일한 복사본으로 검사하고 배치합니다. 다만 복사 자체는 원자적이지 않으므로 공유 입력의 동시 변경은 호출자가 막아야 합니다. 공유 게임 상태의 읽기·배치·갱신 전체에도 호출 측 동기화가 필요합니다. |
+| 수정 불필요 | **메모리·리소스:** 새 보드 반환에 따른 복사 비용이 있으며, 명시적으로 해제할 파일·소켓 등의 리소스는 없습니다. 보드 크기 제한 필요성은 호출 환경이 없어 미확인입니다. |
+
+회전, 일부·전체 줄 삭제, 행 간 독립성, 원본 불변성 및 경계 입력에 대한 회귀 테스트는 **실행하지 않았습니다**.
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""스스로 고치는 리뷰 앱 시연용 테트리스 핵심 로직(화면 없음) (2026-11-10).
+
+보드는 rows x cols 리스트(0=빈칸, 1=블록). 화면·입력 처리는 넣지 않아 테스트만으로 검증할 수 있다.
+테스트: harness/tests/test_selffix_demo_tetris_20261110.py
+공유 보드나 조각을 다른 실행 흐름이 변경할 수 있다면 호출자가 동기화해야 한다.
+"""
+
+
+def new_board(rows: int = 20, cols: int = 10) -> list[list[int]]:
+    """빈 보드를 만든다."""
+    if rows < 1 or cols < 1:
+        raise ValueError("rows and cols must be positive")
+    return [[0] * cols for _ in range(rows)]
+
+
+def rotate(piece: list[list[int]]) -> list[list[int]]:
+    """직사각형 조각을 시계 방향으로 90도 돌린다.
+
+    빈 조각은 빈 리스트를 반환하고, 행 길이가 다르면 ValueError를 발생시킨다.
+    """
+    if not piece:
+        return []
+    width = len(piece[0])
+    if any(len(row) != width for row in piece):
+        raise ValueError("piece must be rectangular")
+    return [list(row) for row in zip(*reversed(piece))]
+
+
+def can_place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> bool:
+    """채워진 조각 칸이 보드 안에 있고 기존 블록과 겹치지 않으면 True.
+
+    불규칙한 보드는 각 행의 실제 길이를 기준으로 검사한다.
+    """
+    for r, row in enumerate(piece):
+        for c, cell in enumerate(row):
+            if not cell:
+                continue
+            y, x = top + r, left + c
+            if y < 0 or y >= len(board) or x < 0 or x >= len(board[y]) or board[y][x]:
+                return False
+    return True
+
+
+def place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> list[list[int]]:
+    """조각을 놓은 새 보드를 돌려준다(원래 보드는 바꾸지 않는다).
+
+    놓을 수 없으면 ValueError. 복사 중 입력의 동시 변경은 호출자가 방지해야 한다.
+    """
+    result = [row[:] for row in board]
+    piece_snapshot = [row[:] for row in piece]
+    if not can_place(result, piece_snapshot, top, left):
+        raise ValueError("piece cannot be placed here")
+    for r, row in enumerate(piece_snapshot):
+        for c, cell in enumerate(row):
+            if cell:
+                result[top + r][left + c] = 1
+    return result
+
+
+def clear_lines(board: list[list[int]]) -> tuple[list[list[int]], int]:
+    """가득 찬 줄을 지우고 위에 빈 줄을 채운 (새 보드, 지운 줄 수)를 돌려준다.
+
+    빈 보드는 ([], 0)을 반환한다. 너비가 0이거나 행 길이가 다르면
+    ValueError를 발생시킨다.
+    """
+    if not board:
+        return [], 0
+    cols = len(board[0])
+    if cols == 0 or any(len(row) != cols for row in board):
+        raise ValueError("board must be rectangular and have positive width")
+    kept = [row[:] for row in board if not all(row)]
+    cleared = len(board) - len(kept)
+    return [[0] * cols for _ in range(cleared)] + kept, cleared
+```

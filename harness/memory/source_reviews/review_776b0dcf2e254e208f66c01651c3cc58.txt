@@ -1,0 +1,30 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/multi_persona/review_contract.py, 입력 문자 수=7760
+🔥 [router_node 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → PARTNER
+🔥 [agent_PROMPT_ENGINEER 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+🔥 [agent_PARTNER 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+🔥 [verifier_node 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+🔥 [agent_PARTNER 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+🔥 [verifier_node 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+🔥 [agent_PARTNER 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+🔥 [verifier_node 치명적 에러 발생]: Error calling model 'gemini-3.8-flash' (PERMISSION_DENIED): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'There are issues with your billing account, please resolve / pay your outstanding balance for project: projects/1082397456806', 'status': 'PERMISSION_DENIED'}}
+[출력 검증] 오류=['누락 제목: ## 1. 전문가적 견해 및 종합 평가', '누락 제목: ## 2. 위험도 및 진단 리포트', '누락 제목: ## 3. 최종 수정 전체 소스 코드', '닫힌 전체 Python 코드 블록 없음'], 보고서=/data/vm_project/harness/memory/source_reviews/job_776b0dcf2e254e208f66c01651c3cc58/review.md
+[main] 최종 응답 문자 수: 237
+[main] 호출 집계: 페르소나=4, Tavily=0, LLM=8
+
+[검증 미완료 - 초안 대체 답변]:
+
+[검증 미완료 — 미검증 초안입니다.]
+
+### PROMPT_ENGINEER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.
+
+### PARTNER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.
+
+### PARTNER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.
+
+### PARTNER
+[시스템 경고] API 인증 실패 또는 네트워크 오류가 발생했습니다.
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.

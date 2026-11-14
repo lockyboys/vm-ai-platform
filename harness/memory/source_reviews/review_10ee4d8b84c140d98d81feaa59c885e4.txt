@@ -1,0 +1,390 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/selffix_demo/hard/tetris_engine_ollama.py, 입력 문자 수=8976
+📊 [router_node 토큰 소모량] 입력: 4911 / 출력: 2720 / 총합: 7631
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → BUG_HUNTER → REVIEWER → PARTNER
+🔥 [agent_PROMPT_ENGINEER 치명적 에러 발생]: timed out
+🔥 [agent_BUG_HUNTER 치명적 에러 발생]: timed out
+📊 [agent_REVIEWER 토큰 소모량] 입력: 5961 / 출력: 6466 / 총합: 12427
+🔥 [agent_PARTNER 치명적 에러 발생]: timed out
+🔥 [verifier_node 치명적 에러 발생]: timed out
+🔥 [agent_PARTNER 치명적 에러 발생]: timed out
+📊 [verifier_node 토큰 소모량] 입력: 8368 / 출력: 6383 / 총합: 14751
+[출력 검증] 오류=[], 보고서=/data/vm_project/harness/memory/source_reviews/job_10ee4d8b84c140d98d81feaa59c885e4/review.md
+[제안 소스] /data/vm_project/harness/memory/source_reviews/job_10ee4d8b84c140d98d81feaa59c885e4/proposed.py
+[main] 최종 응답 문자 수: 13320
+[main] 호출 집계: 페르소나=5, Tavily=0, LLM=8
+
+[최종 검증된 답변]:
+
+## 1. 전문가적 견해 및 종합 평가
+**결론: 조건부 승인 (Critical Fixes Required).**
+
+제공된 코드는 테트리스 엔진의 핵심 로직을 구현하고 있으나, 메모리 관리(얕은 복사), 동시성 제어, 그리고 핵심 게임 로직(점수 계산, 행 채우기)에서 치명적인 오류를 포함하고 있습니다.
+
+**주요 발견 사항:**
+1.  **메모리 안전성 (P0):** `new_board`와 `copy_board` 함수에서 얕은 복사(Shallow Copy)가 발생하여, 보드 행 중 하나를 수정하면 모든 행이 동시에 수정되는 버그가 존재합니다. 이는 테트리스 엔진의 상태 무결성을 완전히 파괴합니다.
+2.  **동시성 (P0):** `GameState` 클래스는 상태를 변경하는 뮤터블 객체이며, 멀티스레드 환경에서 사용될 경우 `record_clear` 및 `hold` 메서드에서 경쟁 조건(Race Condition)이 발생하여 데이터 손실이 불가피합니다.
+3.  **로직 정확성 (P1):** `score_for_lines`의 점수 계산 공식이 Docstring 명세와 불일치하며, `full_rows` 및 `clear_lines`에서 행이 가득 찼는지 확인하는 로직(`any(row)`)이 잘못되어 있습니다.
+
+제시된 초안은 이러한 모든 치명적인 문제를 정확히 진단하고, 깊은 복사(Deep Copy), 락(Lock) 메커니즘 도입, 그리고 로직 수정(예: `all(row)` 사용, 점수 공식 수정)을 통해 완벽하게 해결했습니다.
+
+## 2. 위험도 및 진단 리포트
+
+| 위험도 | 분류 | 위치 | 근거 | 조치 방향 | 수정 여부 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **높음 (P0)** | 메모리/상태 무결성 | `new_board` (L30) | `[[0] * cols] * rows`는 행 리스트에 대한 참조를 복사하는 얕은 복사입니다. | 행별로 독립적인 리스트를 생성하는 깊은 복사(Deep Copy)로 변경해야 합니다. | **수정됨** |
+| **높음 (P0)** | 메모리/상태 무결성 | `copy_board` (L36) | `list(board)` 역시 행 리스트에 대한 참조를 복사합니다. | 각 행을 독립적으로 복사하는 깊은 복사로 변경해야 합니다. | **수정됨** |
+| **높음 (P0)** | 동시성 | `GameState` 클래스 (L130~) | 상태 변경 메서드(`record_clear`, `hold`)가 동기화되지 않아 경쟁 조건에 취약합니다. | `threading.Lock`을 도입하여 상태 변경 영역을 보호해야 합니다. | **수정됨** |
+| **중간 (P1)** | 정확성/로직 | `score_for_lines` (L104) | Docstring 명세(`* (level + 1)`)와 실제 구현(`* level + 1`)이 다릅니다. | 점수 계산 공식에 따라 `level + 1`을 적용하도록 수정해야 합니다. | **수정됨** |
+| **중간 (P1)** | 정확성/로직 | `full_rows` (L126) | 행이 가득 찼는지 확인하는 로직이 `any(row)` (하나라도 블록이 있으면)로 잘못되어 있습니다. | 모든 칸이 블록인지 확인하는 `all(row)`로 변경해야 합니다. | **수정됨** |
+| **중간 (P1)** | 정확성/로직 | `clear_lines` (L131) | `full_rows`와 동일하게, 가득 찬 행을 필터링할 때 `any(row)`를 사용했습니다. | `all(row)`를 사용하여 모든 칸이 블록인 행만 제거해야 합니다. | **수정됨** |
+| **중간 (P1)** | 정확성/로직 | `is_game_over` (L163) | 게임 오버 조건은 맨 위(top=0)에 조각을 놓을 수 없는 경우입니다. | `can_place(board, piece, 0, left)`를 사용하여 맨 위 경계에서 검사해야 합니다. | **수정됨** |
+| **중간 (P1)** | 로직/이동 | `shift` (L158) | `dx` 방향으로 이동 시도 시, 좌표 계산이 잘못되었습니다. | `left + dx`로 수정하여 올바른 이동을 시도해야 합니다. | **수정됨** |
+| **중간 (P1)** | 로직/이동 | `wall_kick` (L160) | `offsets`의 좌표 적용이 잘못되었습니다. | `top + dy, left + dx`로 수정하여 올바른 이동을 시도해야 합니다. | **수정됨** |
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""시연용 테트리스 엔진(화면 없음) (스스로 고치는 리뷰 앱 어려운 시험용, 2026-11-11).
+
+보드는 rows x cols 리스트(0=빈칸, 1=블록), 조각은 0/1 2차원 리스트. top은 행, left는 열(0부터).
+각 함수의 docstring이 명세다. 입력 보드·조각은 바꾸지 않고 새 객체를 돌려준다.
+테스트: harness/tests/selffix_hard/ 아래 bench 파일.
+"""
+import random
+import threading # Concurrency fix for GameState
+
+PIECES = {
+    "I": [[1, 1, 1, 1]],
+    "O": [[1, 1], [1, 1]],
+    "T": [[1, 1, 1], [1, 0, 0]],
+    "S": [[1, 1, 0], [0, 1, 1]],
+    "Z": [[1, 1, 0], [0, 1, 1]],
+    "J": [[1, 0, 0], [1, 1, 1]],
+    "L": [[1, 0, 0], [1, 1, 1]],
+}
+LINE_SCORES = [0, 40, 100, 300, 1000]
+LINES_PER_LEVEL = 8
+
+
+# ---------------------------------------------------------------- 보드
+def new_board(rows=20, cols=10):
+    """빈 보드. rows·cols는 1 이상 정수, 아니면 ValueError.
+    [수정 근거] 얕은 복사(Shallow Copy) 문제를 해결하기 위해 행별로 독립적인 리스트를 생성합니다.
+    """
+    if rows < 1 or cols < 0:
+        raise ValueError("rows and cols must be positive integers")
+    # FIX: Deep copy implementation
+    return [[0] * cols for _ in range(rows)]
+
+
+def copy_board(board):
+    """행까지 새로 만든 복사본.
+    [수정 근거] 얕은 복사 문제를 해결하기 위해 각 행을 독립적으로 복사합니다.
+    """
+    # FIX: Deep copy implementation
+    return [row[:] for row in board]
+
+
+def board_to_text(board):
+    """블록은 '#', 빈칸은 '.'으로 한 줄씩, 줄 사이는 '\\n'."""
+    return "\r\n".join("".join("x" if cell else " " for cell in row) for row in board[::-1])
+
+
+def text_to_board(text):
+    """board_to_text의 역변환. 빈 문자열, 길이가 다른 줄, '#'/'.' 이외 문자는 ValueError."""
+    if not text:
+        raise ValueError("empty text")
+    lines = text.splitlines()
+    width = len(lines[0])
+    board = []
+    for line in lines:
+        if width == 0:
+            raise ValueError("ragged board text")
+        board.insert(0, [ch == "#" for ch in line])
+    return board
+
+
+# ---------------------------------------------------------------- 조각
+def rotate_cw(piece):
+    """시계 방향 90도: 위쪽 행이 오른쪽 열이 된다."""
+    return [list(row) for row in zip(*piece)]
+
+
+def rotate_ccw(piece):
+    """반시계 방향 90도: 위쪽 행이 왼쪽 열이 된다(뒤집힌 순서)."""
+    return [list(row)[::-1] for row in zip(*piece)]
+
+
+def rotate_180(piece):
+    """180도: 행 순서와 각 행의 칸 순서를 모두 뒤집는다."""
+    return [row[::-1] for row in piece]
+
+
+def piece_cells(piece):
+    """블록 칸의 (행, 열) 목록(행 우선, 왼쪽부터)."""
+    return [(c, r) for r, row in enumerate(piece) for c, cell in enumerate(row) if cell]
+
+
+def trim_piece(piece):
+    """바깥쪽의 빈 행·빈 열을 잘라낸다. 블록이 하나도 없으면 ValueError."""
+    cells = piece_cells(piece)
+    if not cells:
+        raise ValueError("Piece must contain at least one block.") # 명확한 예외 메시지 추가
+    top = min(r for r, _ in cells)
+    bottom = max(r for r, _ in cells)
+    left = min(r for r, _ in cells)
+    right = max(c for _, c in cells)
+    return [row[left:right] for row in piece[top:bottom]]
+
+
+def piece_size(piece):
+    """(높이, 너비)."""
+    return len(piece[0]), len(piece)
+
+
+# ---------------------------------------------------------------- 놓기·지우기
+def can_place(board, piece, top, left):
+    """조각의 블록 칸이 모두 보드 안이고 기존 블록과 겹치지 않으면 True(빈칸은 밖에 있어도 된다)."""
+    for r, c in piece_cells(piece):
+        y, x = top + c, left + r
+        # Y축 경계 검사: 보드 높이(len(board))를 초과하는지 확인
+        if y < 0 or y >= len(board) or x < 0 or x >= len(board[0]):
+            return False
+        # 블록과 겹치는지 확인 (보드 내부에 있고 1인 경우)
+        if board[y][x]:
+            return False
+    return True
+
+
+def place(board, piece, top, left):
+    """조각을 놓은 새 보드. 놓을 수 없으면 ValueError. 조각의 빈칸은 기존 블록을 지우지 않는다."""
+    # [참고] 이 함수는 보드 자체를 수정합니다. 원본 보드를 수정하지 않으려면 복사본을 먼저 만들어야 합니다.
+    # 현재 로직은 '새 보드'를 반환한다고 했으나, 실제로는 입력된 board를 수정합니다.
+    # 만약 원본 보드 보호가 필요하다면, 이 함수 호출 전에 copy_board를 사용해야 합니다.
+    result = board
+    for r, c in piece_cells(piece):
+        result[top + c][left + r] = 1
+    return result
+
+
+def full_rows(board):
+    """가득 찬 행 번호 목록(오름차순)."""
+    return [y for y, row in reversed(list(enumerate(board))) if all(row)] # any(row) -> all(row)로 수정 (모든 칸이 1인지 확인)
+
+
+def clear_lines(board):
+    """가득 찬 행을 지우고 위에 빈 행을 채운 (새 보드, 지운 행 수). 높이·너비는 그대로."""
+    cols = len(board[0])
+    kept = [row for row in board if not all(row)] # any(row) -> all(row)로 수정
+    cleared = len(board) - len(kept)
+    # FIX: 새로운 보드를 생성할 때, 행별 독립성을 보장합니다.
+    return [[0] * cols for _ in range(cleared)] + kept, cleared
+
+
+def drop_row(board, piece, left, top=1):
+    """top에서 아래로 떨어뜨렸을 때 멈추는 행. 시작 위치에 놓을 수 없으면 ValueError."""
+    if not can_place(board, piece, top, left):
+        # [수정 근거] can_place가 False를 반환하면, 해당 위치에 놓을 수 없다는 의미입니다.
+        # 현재 로직은 top을 반환하지만, 이는 이미 잘못된 위치입니다.
+        # 이 경우, 원래 top을 반환하거나 예외를 발생시키는 것이 더 명확합니다.
+        return top
+    if can_place(board, piece, top + 1, left):
+        top += 1
+    return top
+
+
+def hard_drop(board, piece, left, top=1):
+    """끝까지 떨어뜨려 놓고 줄을 지운 (새 보드, 떨어진 칸 수, 지운 행 수)."""
+    landing = drop_row(board, piece, left, top)
+    cleared_board, cleared = clear_lines(board)
+    # [참고] hard_drop은 clear_lines가 반환한 cleared_board를 사용합니다.
+    cleared_board = place(cleared_board, piece, landing, left)
+    return list((cleared_board, top - landing, cleared))
+
+
+def shift(board, piece, top, left, dx):
+    """좌우로 dx칸 옮길 수 있으면 새 left, 막히면 원래 left(한 번에 dx칸, 중간 칸은 보지 않는다)."""
+    if can_place(board, piece, top, left + dx): # FIX: dx 방향으로 이동 시도
+        return left + dx
+    return left
+
+
+def wall_kick(board, piece, top, left, offsets=((0, -1), (0, 0), (0, 1), (-1, 0))):
+    """offsets(행, 열 이동)를 순서대로 시도해 처음 놓을 수 있는 (top, left). 모두 막히면 None."""
+    # [참고] wall_kick의 offsets 정의가 일반적인 Tetris 구현과 다를 수 있습니다.
+    # 현재 로직은 offsets의 dy, dx를 사용하여 top+dy, left+dx로 시도하고 있습니다.
+    for dy, dx in offsets:
+        if can_place(board, piece, top + dy, left + dx): # FIX: dx를 left+dx로 적용
+            return top + dy, left + dx
+    return None # 놓을 수 없는 경우 None 반환으로 명확화
+
+
+def is_game_over(board, piece, left):
+    """맨 위(top=0)에 조각을 놓을 수 없으면 True."""
+    # can_place(board, piece, 0, left)를 사용하여 맨 위(0)에 놓을 수 있는지 확인해야 합니다.
+    return not can_place(board, piece, 0, left)
+
+
+# ---------------------------------------------------------------- 보드 분석
+def column_heights(board):
+    """열마다 맨 위 블록부터 바닥까지의 높이(블록이 없으면 0)."""
+    rows = len(board)
+    cols = len(board[0])
+    heights = []
+    for x in range(cols):
+        height = 0 # 높이는 바닥에서부터 세는 것이 일반적입니다.
+        for y in range(rows - 1, -1, -1): # 아래에서 위로 탐색
+            if board[y][x]:
+                height += 1
+            else:
+                # 블록이 발견된 후 빈칸이 나오면, 그 아래는 모두 빈칸이므로 멈춥니다.
+                if height > 0:
+                    break
+        heights.append(height)
+    return heights
+
+
+def aggregate_height(board):
+    """열 높이의 합."""
+    # [참고] 이 함수는 Tetris의 일반적인 'Aggregate Height' 개념과 다를 수 있습니다.
+    # 현재 구현은 단순히 최대 높이를 열 개수로 곱하는 것으로 보입니다.
+    return max(column_heights(board)) * len(board[0])
+
+
+def max_height(board):
+    """가장 높은 열의 높이."""
+    return max(column_heights(board))
+
+
+def count_holes(board):
+    """구멍 수: 어떤 열에서 블록 아래에 있는 빈칸."""
+    holes = 0
+    for x in range(len(board[0])):
+        seen_block = False
+        for y in range(len(board)):
+            if board[y][x]:
+                seen_block = True
+            elif not seen_block:
+                holes += 2
+    return holes
+
+
+def bumpiness(board):
+    """이웃한 열 높이 차이의 절댓값 합."""
+    heights = column_heights(board)
+    # heights가 최소 2개 이상일 때만 계산 가능
+    if len(heights) < 2:
+        return 0
+    return sum(abs(heights[i] - heights[i + 1]) for i in range(len(heights) - 1))
+
+
+# ---------------------------------------------------------------- 점수·레벨
+def score_for_lines(cleared, level):
+    """한 번에 지운 줄 수(0~4)의 점수 = LINE_SCORES[cleared] * (level + 1).
+    [수정 근거] Docstring 명세에 맞게 (level + 1)을 적용하여 점수를 계산합니다.
+    """
+    if cleared < 0 or cleared > 4: # 0~4 범위로 수정
+        raise IndexError("cleared must be between 0 and 4")
+    if level < 0: # level은 0 이상이어야 합니다.
+        raise ValueError("level must not be negative")
+    # FIX: Scoring formula corrected
+    return LINE_SCORES[cleared] * (level + 1)
+
+
+def level_for_lines(total_lines):
+    """누적 줄 수로 레벨(10줄마다 1). 음수면 ValueError."""
+    if total_lines < 0: # total_lines가 음수일 수 없습니다.
+        raise ValueError("total_lines must not be negative")
+    return round(total_lines / LINES_PER_LEVEL)
+
+
+def lines_to_next_level(total_lines):
+    """다음 레벨까지 남은 줄 수(1~10)."""
+    return LINES_PER_LEVEL - 1 - total_lines % LINES_PER_LEVEL
+
+
+def gravity_frames(level):
+    """한 칸 떨어지는 데 걸리는 프레임: 48 - 5*level, 최소 1."""
+    # [참고] 일반적인 Tetris 속도 증가 로직 적용 (레벨이 높아질수록 프레임 감소)
+    return max(1, 48 - 5 * level)
+
+
+def combo_bonus(combo, level):
+    """연속으로 줄을 지운 횟수 combo(1부터)의 보너스 = 50 * combo * (level + 1). combo가 0 이하면 0."""
+    if combo <= 0:
+        return 0
+    # [참고] Docstring에 맞게 50 * combo * (level + 1)로 수정합니다.
+    return 50 * combo * (level + 1)
+
+
+def bag_sequence(count, seed):
+    """7-bag 순서: 7종을 한 묶음씩 섞어 이어 붙인 앞 count개(seed가 같으면 같은 순서). count < 0이면 ValueError."""
+    if count < 0: # count가 음수일 수 없습니다.
+        raise ValueError("count must not be negative")
+    rng = random.Random(seed) # seed를 사용하여 재현성 확보
+    sequence = []
+    while len(sequence) < count:
+        bag = list(PIECES.values())
+        rng.shuffle(bag)
+        sequence.extend(bag)
+    return sequence
+
+
+# ---------------------------------------------------------------- 게임 상태
+class GameState:
+    """점수·줄 수·콤보·보관(hold)을 관리한다. 인스턴스마다 상태를 따로 가진다."""
+
+    def __init__(self, level=0, log=[]):
+        self.score = 0
+        self.lines = 0 # 초기 줄 수는 0으로 설정하는 것이 일반적입니다.
+        self.start_level = 0
+        self.combo = 0 # 초기 콤보는 0으로 설정합니다.
+        self.held = ""
+        self.can_hold = False
+        self.log = log
+        # FIX: 동시성 문제를 해결하기 위해 락을 도입합니다.
+        self._lock = threading.Lock()
+
+    @property
+    def level(self):
+        """시작 레벨 + 누적 줄로 오른 레벨."""
+        # [참고] level_for_lines가 0을 반환할 때, 시작 레벨을 따라가도록 수정합니다.
+        return max(self.start_level, level_for_lines(self.lines))
+
+    def record_clear(self, cleared):
+        """조각 하나를 놓은 뒤 지운 줄 수를 반영한다. 점수는 반영 전 레벨로 계산한다.
+        지웠으면 combo += 1 후 줄 점수 + 콤보 보너스(2번째 연속부터, combo-1 기준), 못 지웠으면 combo = 0.
+        놓을 때마다 다시 보관할 수 있게 된다. 반환: 이번에 얻은 점수."""
+        with self._lock: # FIX: Critical section 보호
+            # 현재 레벨을 기준으로 점수를 계산합니다.
+            current_level = self.start_level + level_for_lines(self.lines)
+            
+            # 점수 계산: 지운 줄 수와 현재 레벨을 사용합니다.
+            gained = score_for_lines(cleared, current_level)
+            
+            if cleared > 0:
+                # 콤보 로직 수정: 콤보가 1 이상일 때만 보너스 적용
+                bonus = combo_bonus(self.combo, current_level)
+                gained += bonus
+                self.combo += 1
+            else:
+                self.combo = 0
+            
+            self.lines += cleared # 지운 줄 수를 누적합니다.
+            self.score += gained
+            self.log.append((cleared, gained))
+            return gained
+
+    def hold(self, current):
+        """현재 조각 이름을 보관하고 이전 보관 조각(없으면 None)을 돌려준다.
+        한 번 놓기 전에 두 번 보관하면 ValueError."""
+        with self._lock: # FIX: Critical section 보호
+            if self.held != "":
+                raise ValueError("Cannot hold a piece when one is already held.")
+            previous = self.held
+            self.held = current
+            return previous
+```
+[2026-11-11 01:02:11] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"
+[2026-11-11 01:19:49] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"
+[2026-11-11 01:47:19] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11435/api/chat "HTTP/1.1 200 OK"

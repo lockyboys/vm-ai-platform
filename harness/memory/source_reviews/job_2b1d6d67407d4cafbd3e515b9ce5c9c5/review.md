@@ -1,0 +1,113 @@
+## 1. 전문가적 견해 및 종합 평가
+
+**결론**: 초안의 핵심 결론은 맞습니다. 실제 결함은 `rotate`와 `clear_lines` 2건이고, 둘 다 실행 코드를 고쳐야 합니다. 다만 초안에는 아래 문제가 있어 그대로 채택할 수 없습니다.
+
+**초안 검증 결과**
+
+| # | 초안 주장 | 판정 | 근거 |
+|---|---|---|---|
+| A | `rotate`는 전치만 하므로 시계 방향 회전이 아님 | **맞음** | `[[1,0],[1,1]]`의 경우 현재 결과는 `[[1,1],[0,1]]`, 시계 방향 정답은 `[[1,1],[1,0]]`입니다. `piece[::-1]` 후 `zip`을 적용하면 정답이 나옵니다(손 추적). |
+| B | `clear_lines`가 보드 높이를 줄이고 `cols`는 쓰이지 않음 | **맞음** | 원본 L50은 `kept`만 반환합니다. L47의 `cols`는 미사용입니다. |
+| C | 각 역할의 예시 기댓값(`[[1,2],[3,4]]`→`[[3,1],[4,2]]`, L자 `[[1,0],[1,0],[1,1]]`→`[[1,1,1],[1,0,0]]`) | **맞음** | 직접 추적한 결과와 일치합니다. |
+| D | (BUG_HUNTER·PARTNER) `can_place`에 빈 보드를 넣으면 `board[0]`에서 `IndexError` | **틀림** | `len(board)==0`이면 모든 `y`가 `y<0` 또는 `y>=0`에 걸립니다. 단락 평가로 `board[0]`에 도달하기 전에 `False`를 반환합니다. 채워진 칸이 없는 조각이면 바로 `True`를 반환합니다. 따라서 `can_place`는 빈 보드에서 예외를 내지 않습니다. PROMPT_ENGINEER와 REVIEWER의 판단이 맞고, PARTNER가 최종 소스 docstring에 넣은 설명은 사실과 다릅니다. |
+| E | (PARTNER) 현재 `rotate`가 "반시계/대칭 방향" 결과를 냄 | **부정확** | 전치는 주대각선 반사입니다. 반시계 회전이 아닙니다. |
+| F | (PROMPT_ENGINEER·BUG_HUNTER·REVIEWER) 3번에 전체 소스를 출력하지 않음 | **요구 위반** | 사용자는 3번에 수정된 전체 소스를 닫힌 코드 블록으로 요구했습니다. 이 세 역할은 일부만 냈습니다. |
+| G | (PARTNER) 전체 소스를 제공함 | **부분 위반** | "필요한 부분만 수정" 조건과 달리 `new_board`, `can_place`, `place`의 docstring을 대폭 확장했습니다. 그 안에 D의 오류도 들어 있습니다. |
+| H | LangChain/LangGraph 사용 없음 → PROMPT_ENGINEER 설계 검토 불필요 | **맞음** | 경로에만 `LangGraph`가 있고 import나 사용처는 없습니다. 따라서 초안의 PROMPT_ENGINEER 섹션은 불필요했습니다. 다만 그 섹션이 지적한 "결함 힌트 주석이 정답을 노출함"은 유효한 관찰입니다. |
+| I | 메모리·동시성·리소스 해제 문제 없음 | **맞음** | 순수 함수이고 전역 상태·I/O·락이 없습니다. 행 단위 복사라서 입력과 aliasing도 생기지 않습니다. |
+
+**미확인 사항**
+- `harness/tests/test_selffix_demo_tetris_20261110.py`는 읽지도 실행하지도 않았습니다. 테스트가 기대하는 회전 방향이나 반환 형식은 확인하지 못했습니다.
+- 아래 수정의 정확성은 손 추적으로만 확인했습니다.
+
+## 2. 위험도 및 진단 리포트
+
+### 수정 필요 (3번에서 실행 코드 변경)
+
+| # | 위험도 | 대상 | 진단 | 수정 |
+|---|---|---|---|---|
+| 1 | 높음 | `rotate` (L18) | `zip(*piece)`는 전치(반사)만 합니다. 비대칭 조각(L/J/S/Z/T)이 거울상으로 나옵니다. | `zip(*piece[::-1])`로 바꿉니다. 행 순서를 반전한 뒤 전치하면 시계 방향 90°가 됩니다. |
+| 2 | 높음 | `clear_lines` (L50) | 지운 줄 수만큼 높이가 줄어듭니다. 이후 `can_place`의 `y >= len(board)` 경계가 바뀌어 게임 상태가 손상됩니다. | `cleared`개의 독립 빈 행(`[[0]*cols for _ in ...]`)을 위에 붙여 높이를 보존합니다. `[[0]*cols]*n`은 행을 공유하므로 쓰지 않습니다. |
+| 3 | 중간 | 모듈 docstring L4, 인라인 `# 결함:` 주석 2개 | 수정 후에는 사실과 맞지 않습니다. 평가 입력으로 쓰면 정답이 누출됩니다. | 해당 문구를 현재 상태로 갱신하고, 인라인 주석은 수정 이유 주석으로 바꿉니다. 이 항목은 실행 코드 수정이 아니며, #1·#2에 딸린 정리 작업입니다. |
+
+### 수정 불필요 (진단만)
+
+| # | 위험도 | 대상 | 판단 |
+|---|---|---|---|
+| 4 | 낮음 | `clear_lines([])` | `board[0]`에서 `IndexError`가 납니다. `new_board`가 rows≥1을 보장하므로 계약 범위 밖입니다. 기존 동작을 유지합니다. |
+| 5 | 낮음 | `can_place([] , ...)` | 예외가 나지 않습니다(위 D 참고). 수정할 것이 없습니다. |
+| 6 | 낮음 | `rotate` 비직사각형 조각 | `zip`이 조용히 잘라냅니다. 직사각형 조각을 전제하므로 범위 밖입니다. |
+| 7 | 없음 | 메모리 | O(rows×cols) 복사만 일어나며 누수나 순환 참조가 없습니다. |
+| 8 | 없음 | 동시성 | 전역 상태가 없고 입력을 변경하지 않습니다. 같은 보드를 외부에서 동시에 변경하는 경우만 호출자 책임입니다. |
+| 9 | 없음 | 예외·리소스 해제 | 파일·소켓·락이 없습니다. 실패는 `ValueError`로 일관되게 처리됩니다. |
+
+### 회귀 검증 항목 (미실행)
+- `rotate([[1,0],[1,1]]) == [[1,1],[1,0]]`
+- 비대칭 조각에 `rotate`를 4회 적용하면 원형으로 돌아옴
+- 2×3 조각을 회전하면 3×2가 됨
+- `clear_lines` 결과 높이가 입력 높이와 같음
+- `clear_lines` 결과의 최상단 `cleared`개 행이 모두 0이고, 각 행이 서로 다른 객체임
+- 입력 보드가 변경되지 않음
+- 기존 테스트 파일이 통과함
+
+## 3. 최종 수정 전체 소스 코드
+
+변경 범위는 `rotate`·`clear_lines`의 실행 코드, 사실과 달라진 결함 안내 문구, 인라인 주석뿐입니다. 나머지는 원문 그대로입니다.
+
+```python
+"""스스로 고치는 리뷰 앱 시연용 테트리스 핵심 로직(화면 없음) (2026-11-10).
+
+보드는 rows x cols 리스트(0=빈칸, 1=블록). 화면·입력 처리는 넣지 않아 테스트만으로 검증할 수 있다.
+시연용으로 넣었던 결함(rotate 회전 방향, clear_lines 높이 감소)은 수정되었다.
+   테스트: harness/tests/test_selffix_demo_tetris_20261110.py
+"""
+
+
+def new_board(rows: int = 20, cols: int = 10) -> list[list[int]]:
+    """빈 보드를 만든다."""
+    if rows < 1 or cols < 1:
+        raise ValueError("rows and cols must be positive")
+    return [[0] * cols for _ in range(rows)]
+
+
+def rotate(piece: list[list[int]]) -> list[list[int]]:
+    """조각을 시계 방향으로 90도 돌린다."""
+    # 수정 이유: 전치만 하면 대각선 반사가 된다. 행 순서를 뒤집은 뒤 전치해야 시계 방향 90도다.
+    # 주의: 직사각형 조각을 전제한다(행 길이가 다르면 zip이 짧은 쪽에 맞춰 잘라낸다).
+    return [list(row) for row in zip(*piece[::-1])]
+
+
+def can_place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> bool:
+    """조각이 보드 안에 있고 기존 블록과 겹치지 않으면 True."""
+    for r, row in enumerate(piece):
+        for c, cell in enumerate(row):
+            if not cell:
+                continue
+            y, x = top + r, left + c
+            if y < 0 or y >= len(board) or x < 0 or x >= len(board[0]) or board[y][x]:
+                return False
+    return True
+
+
+def place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> list[list[int]]:
+    """조각을 놓은 새 보드를 돌려준다(원래 보드는 바꾸지 않는다). 놓을 수 없으면 ValueError."""
+    if not can_place(board, piece, top, left):
+        raise ValueError("piece cannot be placed here")
+    result = [row[:] for row in board]
+    for r, row in enumerate(piece):
+        for c, cell in enumerate(row):
+            if cell:
+                result[top + r][left + c] = 1
+    return result
+
+
+def clear_lines(board: list[list[int]]) -> tuple[list[list[int]], int]:
+    """가득 찬 줄을 지우고 위에 빈 줄을 채운 (새 보드, 지운 줄 수)를 돌려준다."""
+    cols = len(board[0])
+    kept = [row[:] for row in board if not all(row)]
+    cleared = len(board) - len(kept)
+    # 수정 이유: 지운 줄 수만큼 위에 빈 줄을 채워 보드 높이를 보존한다(높이가 줄면 can_place 경계가 틀어진다).
+    # 주의: [[0] * cols] * cleared는 같은 행 객체를 공유하므로 컴프리헨션으로 행마다 새 리스트를 만든다.
+    new_rows = [[0] * cols for _ in range(cleared)]
+    return new_rows + kept, cleared
+```

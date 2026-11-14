@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="6" time="0.106" timestamp="2026-11-11T15:16:34.602679+09:00" hostname="turing-enigma-dev"><testcase classname="harness.tests.test_selffix_demo_tetris_20261110" name="test_rotate_clockwise" time="0.002"><failure message="assert [[1, 1, 1], [0, 0, 1]] == [[1, 1, 1], [1, 0, 0]]&#10;  &#10;  At index 1 diff: [0, 0, 1] != [1, 0, 0]&#10;  Use -v to get more diff">def test_rotate_clockwise():
+        # L 모양: 시계 방향 90도 회전 결과
+        piece = [[1, 0],
+                 [1, 0],
+                 [1, 1]]
+&gt;       assert t.rotate(piece) == [[1, 1, 1],
+                                   [1, 0, 0]]
+E       assert [[1, 1, 1], [0, 0, 1]] == [[1, 1, 1], [1, 0, 0]]
+E         
+E         At index 1 diff: [0, 0, 1] != [1, 0, 0]
+E         Use -v to get more diff
+
+harness/tests/test_selffix_demo_tetris_20261110.py:12: AssertionError</failure></testcase><testcase classname="harness.tests.test_selffix_demo_tetris_20261110" name="test_place_and_collision" time="0.001" /><testcase classname="harness.tests.test_selffix_demo_tetris_20261110" name="test_clear_lines_keeps_board_height" time="0.001"><failure message="assert [[0, 0, 0], [1, 0, 1]] == [[0, 0, 0], [...0], [1, 0, 1]]&#10;  &#10;  At index 1 diff: [1, 0, 1] != [0, 0, 0]&#10;  Right contains one more item: [1, 0, 1]&#10;  Use -v to get more diff">def test_clear_lines_keeps_board_height():
+        board = [[0, 0, 0],
+                 [1, 1, 1],
+                 [1, 0, 1]]
+        new, cleared = t.clear_lines(board)
+        assert cleared == 1
+&gt;       assert new == [[0, 0, 0],
+                       [0, 0, 0],
+                       [1, 0, 1]]
+E       assert [[0, 0, 0], [1, 0, 1]] == [[0, 0, 0], [...0], [1, 0, 1]]
+E         
+E         At index 1 diff: [1, 0, 1] != [0, 0, 0]
+E         Right contains one more item: [1, 0, 1]
+E         Use -v to get more diff
+
+harness/tests/test_selffix_demo_tetris_20261110.py:30: AssertionError</failure></testcase><testcase classname="harness.tests.test_selffix_demo_tetris_20261110" name="test_bad_board_size_rejected[0-10]" time="0.001" /><testcase classname="harness.tests.test_selffix_demo_tetris_20261110" name="test_bad_board_size_rejected[20-0]" time="0.001" /><testcase classname="harness.tests.test_selffix_demo_tetris_20261110" name="test_bad_board_size_rejected[-1-5]" time="0.001" /></testsuite></testsuites>

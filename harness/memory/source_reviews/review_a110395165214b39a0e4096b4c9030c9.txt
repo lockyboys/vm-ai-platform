@@ -1,0 +1,364 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/multi_persona/review_contract.py, 입력 문자 수=8684
+📊 [router_node 토큰 소모량] 입력: 4665 / 출력: 2647 / 총합: 7312
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → REVIEWER → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 4868 / 출력: 2550 / 총합: 7418
+📊 [agent_REVIEWER 토큰 소모량] 입력: 5568 / 출력: 5153 / 총합: 10721
+📊 [agent_PARTNER 토큰 소모량] 입력: 4509 / 출력: 13513 / 총합: 18022
+📊 [verifier_node 토큰 소모량] 입력: 11743 / 출력: 19585 / 총합: 31328
+[출력 검증] 오류=['생략 기호 Ellipsis 발견'], 보고서=/data/vm_project/harness/memory/source_reviews/job_a110395165214b39a0e4096b4c9030c9/review.md
+[main] 최종 응답 문자 수: 15674
+[main] 호출 집계: 페르소나=3, Tavily=0, LLM=5
+
+[검증 미완료 - 초안 대체 답변]:
+
+## 1. 전문가적 견해 및 종합 평가
+
+### 초안 검증 및 종합 평가
+제시된 초안(PROMPT_ENGINEER, REVIEWER, PARTNER)은 정적 분석 기반의 무결성 검증 파이프라인이라는 모듈의 목적을 대체로 잘 이해하고 개선 방향을 제시했습니다. 특히 REVIEWER가 지적한 **"독스트링(`Expr(Constant)`) 변경만으로 AST 차이를 발생시켜 실제 실행 코드를 수정하지 않고 우회하는 취약점"**과 PARTNER가 지목한 **"표준 라이브러리 서브모듈 과다 허용(`os.invalid_mod` 환각)"** 및 **"코드 블록 정규식 탐욕 매칭 오류"**는 프로덕션 환경에서 발생할 수 있는 중대한 결함입니다.
+
+그러나 초안 간의 상충 및 누락 사항이 다음과 같이 확인되었습니다:
+1. **REVIEWER 지적 사항의 PARTNER 구현 누락**: REVIEWER는 독스트링 우회 방지를 위한 실행 노드 분리(`_extract_executable_body`)와 괄호 표기 허용 정규식(`re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`")`)을 명확히 요구했으나, PARTNER의 최종 소스 코드 구현에서는 `ast.dump(old) != ast.dump(new)`를 그대로 사용하여 독스트링 변경만으로 검증을 우회할 수 있는 보안 취약점이 여전히 방치되었습니다.
+2. **`build_review_query` 변경 위험 격리**: PROMPT_ENGINEER가 제안한 경계 태그(`<source_code>`) 도입은 계약된 헤딩 구조(`HEADINGS`)와 프롬프트 인터페이스 규격을 변경시킬 위험이 있어, 공개 API 안정성을 위해 원본 인터페이스를 보존하면서도 검증 파서(`source_block`)의 정규식 견고성을 높이는 방향이 타당합니다.
+
+### 검증 근거 및 미확인 사항
+* **근거**:
+  * 파이썬의 `ast.dump()`는 독스트링 노드(`ast.Expr(value=ast.Constant(value='...'))`)의 변화도 AST 트리의 변화로 인식합니다. 따라서 "주석과 표현만 바꾼 코드는 수정으로 간주하지 않는다"는 계약을 강제하려면 함수 본문 첫 문장의 문자열 상수를 제외한 실행 노드 덤프를 대조해야 합니다.
+  * `re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", line)`는 LLM이 진단 표에 `` `func_name()` `` 형태로 괄호를 붙여 기재했을 때 함수명을 캡처하지 못하고 누락합니다.
+  * `_module_exists`에서 `top in sys.stdlib_module_names`만 확인하면 `os.non_existent`와 같은 서브모듈 환각을 걸러내지 못하므로, 서브모듈은 `os.path` 등 가상 모듈을 제외하고 실제 경로 검사를 거쳐야 합니다.
+* **미확인 사항**:
+  * 정적 컴파일된 커스텀 임베디드 파이썬 환경이나 ziparchive 내부에 패키징된 C 확장 모듈의 경우 파일 시스템 경로 기반 존재 검사 시 오탐(부재로 판정)될 가능성이 있으나, 표준 `sys.path` 배포 환경에서는 정상 동작함을 확인했습니다.
+
+---
+
+## 2. 위험도 및 진단 리포트
+
+| 대상 함수 / 심볼 | 심각도 | 진단 내용 및 위험 요인 | 수정 필요 여부 |
+| :--- | :--- | :--- | :--- |
+| `validate_review` | **High** | 1) `ast.dump` 전체 비교로 인해 독스트링만 수정해도 변경된 것으로 오판하여 우회 통과됨.<br>2) 진단 표의 `` `func()` `` 표기를 인식하지 못하는 정규식 결함.<br>3) 멀티스레드 환경에서 `sys.path` 순회 중 컬렉션 변경 동시성 위험. | **수정 필요** (실행 코드 개선) |
+| `_module_exists` | **High** | `top in sys.stdlib_module_names` 조건으로 인해 최상위 패키지가 표준 라이브러리면 `sys.invalid_mod` 같은 가상 서브모듈도 실존하는 것으로 오판함. 루프 내 `base` 변수 오염 및 심볼릭 링크 순환 예외(`RuntimeError`) 미포획. | **수정 필요** (실행 코드 개선) |
+| `source_block` | **Medium** | 정규식 `.*` (탐욕적) 매칭으로 인해 코드 블록 후미에 다른 언어 블록이나 마크다운 fence가 붙으면 구문 분석 실패(`SyntaxError`) 발생. | **수정 필요** (실행 코드 개선) |
+| `_module_references` | **Low** | `tree` 파라미터가 `None`으로 전달될 경우 `ast.walk`에서 `TypeError` 예외 발생 위험. | **수정 필요** (실행 코드 개선) |
+| `unresolved_imports` | **Low** | `code_tree`가 `None`일 때 방어 부재 및 전달된 `roots`가 제너레이터일 경우 순회 후 소진되는 문제. | **수정 필요** (실행 코드 개선) |
+| `build_review_query` | Informational | 공개 인터페이스 및 쿼리 계약 형식을 유지하고 있으며 문자열 포맷팅이 정상 동작함. | **수정 불필요** |
+| `wants_full_source` | Informational | 필수 헤딩 포함 여부를 판단하는 단순 조건문으로 결함 없음. | **수정 불필요** |
+| `normalize_plan` | Informational | 페르소나 상한 검사 및 필수 페르소나 우선순위 정렬 로직이 정상 동작함. | **수정 불필요** |
+
+### 상세 수정 근거
+1. **`validate_review`**:
+   - `_executable_ast_signature` 함수를 신설하여 데코레이터, 인자, 반환 타입, 그리고 독스트링을 제외한 실행 구문 노드만을 덤프하여 대조하도록 수정했습니다. 이를 통해 주석·독스트링만 바꾼 우회 시도를 차단합니다.
+   - 진단 표 추출 정규식을 `r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`"`로 확장하여 함수명 뒤에 `()`가 붙은 경우도 정상 인식하도록 개선했습니다.
+   - `_collect_functions_scoped`를 통해 클래스 메서드 및 중첩 함수 간 이름 중복 시 덮어쓰기 왜곡을 방지하고, `tuple(sys.path)` 스냅샷을 생성하여 동시성 안정성을 확보했습니다.
+2. **`_module_exists`**:
+   - `len(parts) == 1`일 때만 표준 라이브러리 목록을 즉각 신뢰하고, 하위 서브모듈은 `_STDLIB_SPECIAL_SUBMODULES`(`os.path`)를 제외하고 실제 `roots` 경로에서 물리적 파일/디렉터리를 탐색하도록 분기했습니다.
+   - 바깥 루프 변수의 오염을 막기 위해 `curr_dir` 지역 변수를 분리하고, 순환 링크 등에 대비해 `RuntimeError`를 예외 포획 대상에 추가했습니다.
+3. **`source_block`**:
+   - 마크다운 fence 끝점들을 수집한 뒤, 가장 긴 후보 블록을 우선 파싱하되 문법 오류 시 유효한 파이썬 AST를 만족하는 최장 블록으로 역순 폴백하는 메커니즘을 적용했습니다.
+4. **`_module_references` & `unresolved_imports`**:
+   - `tree is None` 및 `code_tree is None`에 대한 입력 방어 처리를 추가하고, `roots`를 `tuple`로 복사하여 다중 순회 시 이터레이터 소진 문제를 방지했습니다.
+
+---
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""전체 소스 리뷰의 출력 계약. 모델 호출 없이 누락·문법 오류를 판정합니다."""
+import ast
+import importlib.machinery
+import re
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+HEADINGS = ("## 1. 전문가적 견해 및 종합 평가", "## 2. 위험도 및 진단 리포트", "## 3. 최종 수정 전체 소스 코드")
+
+# 파일 확장자 탐색용 접미사 캐시 (.py, .pyc, .so 등)
+_MODULE_SUFFIXES: Tuple[str, ...] = tuple(importlib.machinery.all_suffixes())
+
+# 표준 라이브러리 중 물리적 파일 없이 런타임에 동적 매핑되는 서브모듈 화이트리스트
+_STDLIB_SPECIAL_SUBMODULES: Set[str] = {"os.path"}
+
+
+def build_review_query(path: str, code: str, previous_error: str = "") -> str:
+    """프롬프트 구분자만 줄바꿈하고 입력 소스의 escape는 보존합니다."""
+    return (
+        f"Python 소스 리뷰: {path}\n메모리·동시성·예외·리소스 해제를 확인하세요.\n"
+        "LangChain/LangGraph가 있으면 설계 검토에 PROMPT_ENGINEER를 포함하세요.\n"
+        + "\n".join(HEADINGS)
+        + "\n세 제목을 순서대로 출력하고 3번에는 수정된 전체 소스를 닫힌 python 코드 블록으로 출력하세요.\n"
+        "공개 함수·클래스와 기능을 보존하고 생략·플레이스홀더 없이 필요한 부분만 수정하세요.\n"
+        "2번에서 수정이 필요하다고 지목한 함수는 3번에서 실행 코드까지 실제로 고치고 근거를 설명하세요. "
+        "주석과 표현만 바꾼 코드는 수정으로 간주하지 않습니다. 수정 불필요한 진단은 명확히 구분하세요.\n"
+        + (f"이전 실행 오류 로그(원인과 재현 조건을 분석해 수정안에 반영):\n{previous_error}\n" if previous_error else "")
+        + "\n입력 소스:\n```python\n" + code + "\n```"
+    )
+
+
+def wants_full_source(query: str) -> bool:
+    return HEADINGS[2] in query
+
+
+def source_block(text: str) -> str:
+    """소스 문자열 안의 예시 fence를 위해 마지막 닫는 fence까지 읽되,
+    후속 텍스트나 타 언어 블록으로 문법 오류 발생 시 점진적으로 유효한 최장 블록을 탐색합니다.
+    """
+    start_match = re.search(r"```python[ \t]*\r?\n", text)
+    if not start_match:
+        return ""
+
+    code_start = start_match.end()
+    remaining = text[code_start:]
+
+    fence_pattern = re.compile(r"(?:\r?\n)```[ \t]*(?:\r?\n|$)")
+    fence_matches = list(fence_pattern.finditer(remaining))
+    if not fence_matches:
+        return ""
+
+    # 1. 중첩 fence 예시 보존을 위해 가장 마지막 fence까지를 우선 추출하여 AST 검증
+    longest_candidate = remaining[:fence_matches[-1].start()]
+    try:
+        ast.parse(longest_candidate)
+        return longest_candidate
+    except SyntaxError:
+        pass
+
+    # 2. 후속 마크다운 블록이 합쳐져 파싱 실패 시, 뒤에서부터 유효한 파이썬 AST 블록을 탐색
+    for fence in reversed(fence_matches[:-1]):
+        candidate = remaining[:fence.start()]
+        try:
+            ast.parse(candidate)
+            return candidate
+        except SyntaxError:
+            continue
+
+    return longest_candidate
+
+
+def normalize_plan(plan: Sequence[str], query: str, maximum: int) -> List[str]:
+    """필수 설계 담당과 최종 구현 담당이 상한 때문에 사라지지 않게 합니다."""
+    if maximum < 1:
+        raise ValueError("Persona budget must be positive")
+    plan_dedup = list(dict.fromkeys(plan))
+    required = ["PROMPT_ENGINEER"] if any(x in query.lower() for x in ("langchain", "langgraph")) else []
+    if wants_full_source(query):
+        if required and maximum < 2:
+            raise ValueError("Full LangGraph review requires at least two personas")
+        others = [p for p in plan_dedup if p not in required and p != "PARTNER"]
+        return (required + others)[:maximum - 1] + ["PARTNER"]
+    return (required + [p for p in plan_dedup if p not in required])[:maximum] or ["REVIEWER"]
+
+
+# ---------------------------------------------------------------------------
+# import 대상 실존 검사
+# review_contract.py는 FastAPI/LangGraph/multi_persona/ 아래에 있으므로 parents[3]이 저장소 루트다.
+# 단, 얕은 디렉터리 경로에서 실행되는 환경을 위해 길이를 안전하게 검사한다.
+# ---------------------------------------------------------------------------
+_parents = Path(__file__).resolve().parents
+_DEFAULT_PROJECT_ROOT = _parents[3] if len(_parents) > 3 else _parents[-1]
+
+
+def _module_references(tree: Optional[ast.AST]) -> Set[str]:
+    """소스가 참조하는 절대 모듈 이름을 모은다.
+
+    - `import a.b` / `from a.b import c` (상대 import는 위치에 따라 달라지므로 제외)
+    - 리스트·튜플 안의 `"-m", "a.b"` 문자열 쌍(서브프로세스로 띄우는 모듈 경로)
+    """
+    if tree is None:
+        return set()
+
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module)
+        elif isinstance(node, (ast.List, ast.Tuple)):
+            items = node.elts
+            for first, second in zip(items, items[1:]):
+                if (isinstance(first, ast.Constant) and first.value == "-m"
+                        and isinstance(second, ast.Constant) and isinstance(second.value, str)):
+                    names.add(second.value)
+    return names
+
+
+def _module_exists(name: str, roots: Sequence[Any]) -> bool:
+    """모듈을 import(실행)하지 않고 파일 시스템 경로 및 빌트인 명단만으로 존재 여부를 판단합니다.
+
+    표준 라이브러리·내장 모듈은 단일 식별자(최상위 이름)만 즉각 인정하며,
+    서브모듈은 알려진 가상 모듈(os.path 등)을 제외하고 파일 시스템에서 실존 여부를 검증합니다.
+    """
+    parts = name.split(".")
+    if not all(part.isidentifier() for part in parts):
+        return False  # 모듈 이름으로 쓸 수 없는 문자열은 존재하지 않는 것으로 본다.
+
+    top = parts[0]
+    stdlib_names = getattr(sys, "stdlib_module_names", ())
+    if len(parts) == 1:
+        if top in sys.builtin_module_names or top in stdlib_names:
+            return True
+    else:
+        if name in _STDLIB_SPECIAL_SUBMODULES:
+            return True
+
+    seen_roots: Set[Path] = set()
+    for root in roots:
+        try:
+            base = Path(root).resolve() if root else Path.cwd().resolve()
+            if base in seen_roots or not base.is_dir():
+                continue
+            seen_roots.add(base)
+
+            curr_dir = base
+            for index, part in enumerate(parts):
+                last = (index == len(parts) - 1)
+                target_dir = curr_dir / part
+                if last:
+                    if target_dir.is_dir() or any((curr_dir / f"{part}{s}").is_file() for s in _MODULE_SUFFIXES):
+                        return True
+                elif not target_dir.is_dir():
+                    break  # 중간 패키지가 없으면 이 루트에서는 찾을 수 없다.
+                curr_dir = target_dir
+        except (OSError, RuntimeError, ValueError):
+            # 권한 거부, 깨진 심볼릭 링크 순환, 잘못된 경로 예외 발생 시 안전하게 건너뜀
+            continue
+    return False
+
+
+def unresolved_imports(
+    code_tree: Optional[ast.AST],
+    original_tree: Optional[ast.AST],
+    roots: Sequence[Any]
+) -> List[str]:
+    """제안 소스에서 새로 깨진 import만 돌려준다.
+
+    원본에서도 해석되지 않던 모듈(선택 의존성 등)은 제안 탓이 아니므로 제외한다.
+    """
+    if code_tree is None:
+        return []
+
+    safe_roots = tuple(roots)
+    original_missing: Set[str] = set()
+    if original_tree is not None:
+        original_missing = {n for n in _module_references(original_tree) if not _module_exists(n, safe_roots)}
+    return sorted(n for n in _module_references(code_tree)
+                  if n not in original_missing and not _module_exists(n, safe_roots))
+
+
+def _executable_ast_signature(func_node: ast.AST) -> Tuple[Any, ...]:
+    """함수의 독스트링을 제외한 실행 노드 및 시그니처 덤프를 반환합니다.
+    주석이나 설명문만 수정한 우회 코드를 검출하기 위함입니다.
+    """
+    if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return (ast.dump(func_node),)
+
+    decorators = [ast.dump(d) for d in func_node.decorator_list]
+    args = ast.dump(func_node.args)
+    returns = ast.dump(func_node.returns) if func_node.returns else ""
+
+    body = func_node.body
+    # 첫 번째 문장이 문자열 리터럴(독스트링)인 경우 실행 로직 비교에서 제외
+    if (body and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
+        body = body[1:]
+
+    body_dump = [ast.dump(stmt) for stmt in body]
+    return (decorators, args, returns, tuple(body_dump))
+
+
+def _collect_functions_scoped(tree: ast.AST) -> Dict[str, ast.AST]:
+    """AST 내의 함수 정의 노드를 고유 스코프 경로를 부여하여 수집합니다."""
+    functions: Dict[str, ast.AST] = {}
+
+    def _traverse(node: ast.AST, scope: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                func_path = f"{scope}.{child.name}" if scope else child.name
+                functions[func_path] = child
+                _traverse(child, func_path)
+            elif isinstance(child, ast.ClassDef):
+                class_path = f"{scope}.{child.name}" if scope else child.name
+                _traverse(child, class_path)
+
+    _traverse(tree, "")
+    return functions
+
+
+def validate_review(text: str, query: str, search_roots: Optional[Sequence[Any]] = None) -> List[str]:
+    """제목·문법·기존 최상위 심볼을 확인하며 모델의 내용 정확성까지 보증하지는 않습니다."""
+    if not wants_full_source(query):
+        return []
+    errors: List[str] = ["누락 제목: " + h for h in HEADINGS if h not in text]
+    positions = [text.find(h) for h in HEADINGS]
+    if not errors and positions != sorted(positions):
+        errors.append("제목 순서 오류")
+    code = source_block(text[text.find(HEADINGS[2]):]) if HEADINGS[2] in text else ""
+    if not code:
+        return errors + ["닫힌 전체 Python 코드 블록 없음"]
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as error:
+        return errors + ["수정 소스 문법 오류: " + error.msg]
+    if any(isinstance(n, ast.Constant) and n.value is Ellipsis for n in ast.walk(tree)):
+        errors.append("생략 기호 Ellipsis 발견")
+    original = source_block(query)
+    try:
+        old = ast.parse(original)
+    except SyntaxError:
+        old = None
+    if old:
+        kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        missing = {n.name for n in old.body if isinstance(n, kinds)} - {n.name for n in tree.body if isinstance(n, kinds)}
+        if missing:
+            errors.append("기존 공개 심볼 누락: " + ", ".join(sorted(missing)))
+
+        # 진단 표가 기존 함수를 수정 대상으로 지목했다면 실제 함수 본문 변화를 확인합니다.
+        if all(position >= 0 for position in positions):
+            diagnosis = text[positions[1] + len(HEADINGS[1]):positions[2]]
+            old_functions = _collect_functions_scoped(old)
+            new_functions = _collect_functions_scoped(tree)
+
+            # 단순 함수 이름 집합 생성
+            old_names_to_scoped: Dict[str, List[str]] = {}
+            for scoped_name in old_functions:
+                bare_name = scoped_name.split(".")[-1]
+                old_names_to_scoped.setdefault(bare_name, []).append(scoped_name)
+
+            # 라인 단위로 '수정 불필요', '수정불필요', '수정 불요' 등으로 판정된 심볼은 제외하고
+            # 실제 수정 대상으로 지목된 함수 심볼만 추출합니다 (선택적 괄호 표기 `func()` 허용).
+            target_names = set()
+            no_fix_pattern = re.compile(r"수정\s*(?:불필요|불요|없음)|변경\s*불필요", re.IGNORECASE)
+            func_pattern = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`")
+            for line in diagnosis.splitlines():
+                line_funcs = set(func_pattern.findall(line)) & old_names_to_scoped.keys()
+                if line_funcs and not no_fix_pattern.search(line):
+                    target_names.update(line_funcs)
+
+            # 지목된 함수 중 실행 코드가 실제로 변경되지 않은 함수를 검출합니다 (독스트링만 바꾼 우회 차단).
+            if target_names:
+                unmodified = []
+                for name in sorted(target_names):
+                    scoped_paths = old_names_to_scoped.get(name, [])
+                    changed = False
+                    for path in scoped_paths:
+                        if path not in new_functions:
+                            changed = True  # 함수가 리팩터링되거나 위치·시그니처가 변경된 경우
+                            break
+                        if _executable_ast_signature(old_functions[path]) != _executable_ast_signature(new_functions[path]):
+                            changed = True
+                            break
+                    if not changed:
+                        unmodified.append(name)
+
+                if unmodified:
+                    errors.append("진단된 함수 수정 미반영: " + ", ".join(unmodified))
+
+    # 문법이 맞아도 존재하지 않는 모듈을 참조하면 실행 즉시 실패하므로 오류로 본다.
+    # 멀티스레드 환경 동시성 보호를 위해 sys.path의 불변 스냅샷을 생성합니다.
+    current_sys_path = tuple(sys.path)
+    roots = list(search_roots) if search_roots is not None else [_DEFAULT_PROJECT_ROOT, *current_sys_path]
+    missing_modules = unresolved_imports(tree, old, roots)
+    if missing_modules:
+        errors.append("존재하지 않는 import 대상: " + ", ".join(missing_modules))
+    return errors
+```
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.

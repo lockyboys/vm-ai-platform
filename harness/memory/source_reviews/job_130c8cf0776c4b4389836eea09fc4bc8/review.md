@@ -1,0 +1,90 @@
+## 1. 전문가적 견해 및 종합 평가
+
+제공된 `tetris_core.py`는 테트리스 게임의 핵심 로직을 구현한 모듈로, 메모리 및 동시성 관점에서 볼 때 순수 함수(Pure Function) 기반으로 설계되어 있어 외부 자원 누수나 동시성 위험은 없습니다. 모든 연산이 인메모리 리스트 조작으로 이루어지며, 상태 불변성(Immutability)을 유지하려는 노력(예: `place` 함수에서의 깊은 복사)이 돋보입니다.
+
+그러나 게임의 핵심 메커니즘을 정의하는 두 함수, `rotate`와 `clear_lines`에 **P0 등급의 치명적인 알고리즘 결함(Functional Defects)**이 발견되었습니다.
+
+1.  **`rotate` 함수:** 단순 행렬 전치(Transpose)만을 수행하여 시계 방향 90도 회전이 불가능합니다. 이는 조각의 방향성이 완전히 틀어짐을 의미합니다.
+2.  **`clear_lines` 함수:** 라인이 지워진 후, 제거된 줄의 수만큼 위에 빈 줄을 채워 보드의 높이를 복원하지 않습니다. 이로 인해 게임 보드가 지속적으로 작아지며, 게임 상태가 영구적으로 손상됩니다.
+
+이 두 결함은 게임의 규칙을 근본적으로 위반하므로, 즉각적인 수정이 필수적입니다.
+
+## 2. 위험도 및 진단 리포트
+
+| ID | 위치 | 위험도 (Priority) | 진단 내용 | 영향 및 근거 | 수정 필요성 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **R-01** | `rotate` | P0 (Critical) | **알고리즘 오류: 회전 로직 불완전.** 현재 구현은 단순 전치(Transpose)만 수행하여 시계 방향 90도 회전이 아닙니다. | 조각이 의도된 방향으로 회전하지 않아 게임 플레이가 불가능합니다. (결함 확인: `zip(*piece)`는 전치만 수행) | **필수 수정** |
+| **R-02** | `clear_lines` | P0 (Critical) | **알고리즘 오류: 보드 높이 손실.** 가득 찬 줄을 제거한 후, 제거된 줄의 수만큼 위에 빈 줄을 채워 보드의 원래 높이를 복원하지 않습니다. | 보드가 지속적으로 작아지며, 블록이 화면 밖으로 빠져나가거나 게임이 비정상적으로 종료됩니다. | **필수 수정** |
+| R-03 | `can_place` | P2 (Minor) | **경계 조건 검증:** 경계 조건 검사(`y < 0`, `x >= len(board[0])` 등)가 정확하게 구현되어 있습니다. | - | 수정 불필요 |
+| R-04 | `place` | P1 (Robustness) | **상태 격리:** 보드 복사 시 `[row[:] for row in board]`를 사용하여 깊은 복사(Deep Copy)를 수행함으로써 원본 보드의 불변성을 잘 유지합니다. | - | 수정 불필요 |
+
+**요약:** 핵심 게임 로직(`rotate`, `clear_lines`)의 알고리즘 오류가 발견되었으며, 이는 게임의 동작을 근본적으로 망가뜨리는 P0 위험입니다.
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""스스로 고치는 리뷰 앱 시연용 테트리스 핵심 로직(화면 없음) (2026-11-10).
+
+보드는 rows x cols 리스트(0=빈칸, 1=블록). 화면·입력 처리는 넣지 않아 테스트만으로 검증할 수 있다.
+⚠ 시연을 위해 일부러 넣은 결함이 수정되었습니다.
+   테스트: harness/tests/test_selffix_demo_tetris_20261110.py
+"""
+
+
+def new_board(rows: int = 20, cols: int = 10) -> list[list[int]]:
+    """빈 보드를 만든다."""
+    if rows < 1 or cols < 1:
+        raise ValueError("rows and cols must be positive")
+    return [[0] * cols for _ in range(rows)]
+
+
+def rotate(piece: list[list[int]]) -> list[list[int]]:
+    """조각을 시계 방향으로 90도 돌린다. (수정됨)"""
+    # [수정 근거] 기존 코드는 단순 전치(Transpose)만 수행하여 시계 방향 회전이 아니었다.
+    # 시계 방향 90도 회전을 위해서는 전치(zip(*piece)) 후, 각 행을 역순으로 뒤집어야 한다.
+    return [list(reversed(row)) for row in zip(*piece)]
+
+
+def can_place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> bool:
+    """조각이 보드 안에 있고 기존 블록과 겹치지 않으면 True."""
+    for r, row in enumerate(piece):
+        for c, cell in enumerate(row):
+            if not cell:
+                continue
+            y, x = top + r, left + c
+            # 경계 조건 검사: y 또는 x가 보드 범위를 벗어나는지 확인
+            if y < 0 or y >= len(board) or x < 0 or x >= len(board[0]):
+                return False
+            # 충돌 검사: 해당 위치에 이미 블록이 있는지 확인
+            if board[y][x]:
+                return False
+    return True
+
+
+def place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> list[list[int]]:
+    """조각을 놓은 새 보드를 돌려준다(원래 보드는 바꾸지 않는다). 놓을 수 없으면 ValueError."""
+    if not can_place(board, piece, top, left):
+        raise ValueError("piece cannot be placed here")
+    # 원본 보드를 변경하지 않기 위해 깊은 복사(Deep Copy)를 수행한다.
+    result = [row[:] for row in board]
+    for r, row in enumerate(piece):
+        for c, cell in enumerate(row):
+            if cell:
+                result[top + r][left + c] = 1
+    return result
+
+
+def clear_lines(board: list[list[int]]) -> tuple[list[list[int]], int]:
+    """가득 찬 줄을 지우고 위에 빈 줄을 채운 (새 보드, 지운 줄 수)를 돌려준다. (수정됨)"""
+    cols = len(board[0])
+    
+    # 가득 찬 줄을 제외한 나머지 줄들만 'kept' 리스트에 복사한다.
+    kept = [row[:] for row in board if not all(row)]
+    cleared = len(board) - len(kept)
+    
+    # [수정 근거] 지운 줄 수(cleared)만큼 빈 행을 생성하고, 이를 'kept' 리스트 앞에 추가하여 보드 높이를 복원한다.
+    padding = [[0] * cols for _ in range(cleared)]
+    new_board = padding + kept
+    
+    return new_board, cleared
+```

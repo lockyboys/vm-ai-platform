@@ -1,0 +1,8 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/selffix_demo/hard/calc_engine_ollama.py, 입력 문자 수=12950
+🔥 [router_node 치명적 에러 발생]: timed out
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → PARTNER
+🔥 [agent_PROMPT_ENGINEER 치명적 에러 발생]: timed out
+🔥 [agent_PARTNER 치명적 에러 발생]: timed out
+🔥 [verifier_node 치명적 에러 발생]: timed out
+🔥 [agent_PARTNER 치명적 에러 발생]: timed out
+[2026-11-11 09:38:55] [INFO] [_client.py:1025] HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"

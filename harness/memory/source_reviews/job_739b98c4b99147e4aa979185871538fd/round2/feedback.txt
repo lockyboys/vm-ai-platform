@@ -1,0 +1,6 @@
+[자동 수정 검증 실패 — 직전 수정안을 테스트로 확인한 결과]
+사유: RuntimeError: proposal did not increase the number of passing tests
+통과 테스트 수: 적용 전 187 → 적용 후 187 / 전체 188
+실패한 테스트와 메시지(최대 40개):
+- test_case[c182]: AssertionError: m.text_to_board('#.\n') -> ('ok', [[1, 0]]), 기대 ('raises', 'ValueError') assert False + where False = <function matches at 0x7fdc3e1f4680>(('ok', [[1, 0]]), ('raises', 'ValueError')) + where <function matches at 0x7fdc3e1f4680> = bs.matches
+위 실패가 모두 사라지도록 입력 소스를 고치세요. 이미 통과하는 동작은 바꾸지 마세요.

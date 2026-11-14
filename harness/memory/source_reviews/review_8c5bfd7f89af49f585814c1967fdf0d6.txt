@@ -1,0 +1,5 @@
+📊 [planner_node 토큰 소모량] 입력: 383 / 출력: 512 /  총합: 895
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → PARTNER
+🤖 [Agent] PROMPT_ENGINEER 호출 (1/6)
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 3849 / 출력: 2048 /  총합: 5897
+🤖 [Agent] PARTNER 호출 (2/6)

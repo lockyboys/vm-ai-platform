@@ -1,0 +1,61 @@
+## 1. 전문가적 견해 및 종합 평가
+
+제공된 소스만 기준으로 검토했습니다. 실제 파일 조회와 테스트 실행은 하지 않았습니다. 소스에 LangChain/LangGraph 사용이 없으므로 PROMPT_ENGINEER 설계 검토 대상은 확인되지 않습니다. 경로명만으로 사용 여부를 판단할 수는 없습니다.
+
+초안의 메모리 위험과 동시성·리소스 진단은 대체로 타당합니다. 다만 외부 입력 여부와 배포 환경이 확인되지 않아 위험을 P1으로 확정할 근거는 부족합니다. PARTNER를 제외한 초안은 전체 소스를 제공하지 않아 출력 요구사항을 충족하지 못했습니다.
+
+## 2. 위험도 및 진단 리포트
+
+- **낮음 — 수정: `calculate`의 예외 일관성.** 기존에는 `None`처럼 문자열이 아닌 입력에 `AttributeError`가 발생할 수 있습니다. 문자열이 아니면 문서화된 형식 오류인 `ValueError`를 내도록 수정했습니다. 일반 문자열의 계산 동작은 유지합니다. 다만 기존에 `split()`을 제공하는 일부 비문자열 객체를 허용하던 동작과 비문자열 입력의 예외 유형은 달라질 수 있습니다.
+- **조건부 위험 — 수정 불필요: 입력 크기.** 긴 식은 분리·변환과 오류 메시지 생성에 CPU와 메모리를 사용할 수 있습니다. 허용 길이와 호출 경로가 미확인이므로 이 함수에 임의 제한을 추가하지 않았습니다. 신뢰할 수 없는 입력이라면 호출 경계의 크기 제한을 검토해야 합니다. 알 수 없는 연산자가 예외 메시지에 포함되지만, 실제 로그 기록 여부는 확인되지 않았습니다.
+- **확인 필요 — 수정 불필요: 비유한 수.** `float()`는 `nan`, `inf` 등을 허용합니다. 금지 요구사항이 없어 기존 동작을 유지합니다.
+- **수정 불필요: 동시성·리소스·0 나눗셈.** 일반적인 입력 경로에서 공유 가변 상태나 직접 해제할 외부 리소스가 없습니다. `divide`는 0 나눗셈을 `ValueError`로 변환합니다.
+
+잘못된 형식, 비문자열 입력, 0 나눗셈 및 기존 정상 계산에 대한 회귀 테스트는 미실행입니다.
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""스스로 고치는 리뷰 앱 시연용 간단 계산기 (2026-11-10).
+
+테스트: harness/tests/test_selffix_demo_calculator_20261110.py
+"""
+
+
+def add(a: float, b: float) -> float:
+    """두 수를 더한다."""
+    return a + b
+
+
+def subtract(a: float, b: float) -> float:
+    """a에서 b를 뺀다."""
+    return a - b
+
+
+def multiply(a: float, b: float) -> float:
+    """두 수를 곱한다."""
+    return a * b
+
+
+def divide(a: float, b: float) -> float:
+    """a를 b로 나눈다. 0으로 나누면 ValueError를 낸다."""
+    try:
+        return a / b
+    except ZeroDivisionError as exc:
+        raise ValueError("division by zero") from exc
+
+
+def calculate(expression: str) -> float:
+    """'3 + 4'처럼 공백으로 구분된 식을 계산한다. 형식이 틀리면 ValueError."""
+    if not isinstance(expression, str):
+        raise ValueError("expression must look like '<number> <op> <number>'")
+
+    parts = expression.split(maxsplit=3)
+    if len(parts) != 3:
+        raise ValueError("expression must look like '<number> <op> <number>'")
+    left, op, right = parts
+    operations = {"+": add, "-": subtract, "*": multiply, "/": divide}
+    if op not in operations:
+        raise ValueError(f"unknown operator: {op}")
+    return operations[op](float(left), float(right))
+```

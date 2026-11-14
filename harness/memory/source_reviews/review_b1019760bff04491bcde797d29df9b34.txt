@@ -1,0 +1,124 @@
+[입력 준비] 소스=/data/vm_project/FastAPI/LangGraph/selffix_demo/tetris_core.py, 입력 문자 수=2301
+📊 [router_node 토큰 소모량] 입력: 2201 / 출력: 195 / 총합: 2396
+🧭 [Planner] 실행 계획: PROMPT_ENGINEER → BUG_HUNTER → PARTNER
+📊 [agent_PROMPT_ENGINEER 토큰 소모량] 입력: 2744 / 출력: 756 / 총합: 3500
+📊 [agent_BUG_HUNTER 토큰 소모량] 입력: 2187 / 출력: 1112 / 총합: 3299
+📊 [agent_PARTNER 토큰 소모량] 입력: 2369 / 출력: 2177 / 총합: 4546
+📊 [verifier_node 토큰 소모량] 입력: 3175 / 출력: 2166 / 총합: 5341
+[출력 검증] 오류=[], 보고서=/data/vm_project/harness/memory/source_reviews/job_b1019760bff04491bcde797d29df9b34/review.md
+[제안 소스] /data/vm_project/harness/memory/source_reviews/job_b1019760bff04491bcde797d29df9b34/proposed.py
+[main] 최종 응답 문자 수: 3912
+[main] 호출 집계: 페르소나=3, Tavily=0, LLM=5
+
+[최종 검증된 답변]:
+
+## 1. 전문가적 견해 및 종합 평가
+
+제공된 소스에서 회전 방향과 줄 삭제 후 보드 높이 유지에 결함이 확인됩니다. 초안의 **PARTNER 코드**는 두 결함을 수정했지만, 너비가 0인 보드의 행을 `all([])` 때문에 가득 찬 줄로 집계하는 문제가 남아 있습니다. 다른 두 초안은 전체 수정 소스를 제시하지 않아 요청 형식을 충족하지 못합니다.
+
+아래 코드는 공개 함수와 정상 입력의 동작을 보존하면서 경계 입력 처리를 명시합니다. 실행 및 기존 테스트 통과 여부는 **미확인**입니다. 제공된 소스에는 LangChain/LangGraph 사용이 없어 PROMPT_ENGINEER 설계 검토는 필요하지 않습니다.
+
+## 2. 위험도 및 진단 리포트
+
+### 수정 필요
+
+- **높음 — `rotate`:** 전치만 하면 시계 방향 회전이 아닙니다. 행을 역순으로 전치하고, 불규칙한 조각은 `zip`에 의해 데이터가 잘리지 않도록 `ValueError`로 거부합니다.
+- **높음 — `clear_lines`:** 삭제한 줄 수만큼 독립적인 빈 행을 위에 추가합니다. 빈 보드는 `([], 0)`으로 처리하고, 불규칙하거나 너비가 0인 비어 있지 않은 보드는 거부합니다.
+- **중간 — `can_place`, `place`:** 불규칙한 보드는 인덱스 오류를 일으킬 수 있어 검증합니다. `place`는 보드와 조각의 복사본으로 검사와 쓰기를 수행합니다. 채워진 칸이 없는 조각은 기존처럼 배치 가능한 무동작으로 취급합니다.
+
+### 현재 수정 불필요 또는 잔여 위험
+
+- **동시성:** 복사 중에도 입력이 변경될 수 있으므로, 공유 가변 입력은 호출자가 읽기와 쓰기 전체를 같은 잠금으로 보호해야 합니다. 내부 복사만으로 원자성이 보장되지는 않습니다.
+- **메모리·리소스:** 복사는 입력 크기에 비례하는 메모리를 사용합니다. 제공된 코드에는 명시적으로 해제할 파일이나 소켓이 없습니다.
+- **검증 권장:** 비정사각형 회전, 줄 삭제 0개·1개·전체, 빈 보드와 너비 0 보드, 불규칙 입력, 반환 행의 독립성 및 원본 불변성을 테스트해야 합니다. 실제 테스트는 수행하지 않았습니다.
+
+## 3. 최종 수정 전체 소스 코드
+
+```python
+"""스스로 고치는 리뷰 앱 시연용 테트리스 핵심 로직(화면 없음) (2026-11-10).
+
+보드는 rows x cols 리스트(0=빈칸, 1=블록). 화면·입력 처리는 넣지 않아 테스트만으로 검증할 수 있다.
+테스트: harness/tests/test_selffix_demo_tetris_20261110.py
+
+공유 입력을 호출 중 다른 스레드에서 변경한다면 호출자가 동기화해야 한다.
+"""
+
+
+def new_board(rows: int = 20, cols: int = 10) -> list[list[int]]:
+    """빈 보드를 만든다."""
+    if rows < 1 or cols < 1:
+        raise ValueError("rows and cols must be positive")
+    return [[0] * cols for _ in range(rows)]
+
+
+def _validate_board(board: list[list[int]]) -> None:
+    """빈 보드 또는 양의 너비를 가진 직사각형 보드인지 검사한다."""
+    if not board:
+        return
+    cols = len(board[0])
+    if cols == 0:
+        raise ValueError("non-empty board must have positive width")
+    if any(len(row) != cols for row in board):
+        raise ValueError("board rows must have the same length")
+
+
+def rotate(piece: list[list[int]]) -> list[list[int]]:
+    """직사각형 조각을 시계 방향으로 90도 돌린다.
+
+    행 길이가 다르면 ValueError를 발생시킨다. 빈 조각은 빈 리스트를 반환한다.
+    """
+    if piece:
+        cols = len(piece[0])
+        if any(len(row) != cols for row in piece):
+            raise ValueError("piece rows must have the same length")
+    return [list(row) for row in zip(*reversed(piece))]
+
+
+def can_place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> bool:
+    """조각의 채워진 칸이 보드 안에 있고 기존 블록과 겹치지 않으면 True.
+
+    불규칙하거나 너비가 0인 비어 있지 않은 보드는 ValueError를 발생시킨다.
+    채워진 칸이 없는 조각은 배치 가능한 무동작으로 취급한다.
+    """
+    _validate_board(board)
+    for r, row in enumerate(piece):
+        for c, cell in enumerate(row):
+            if not cell:
+                continue
+            y, x = top + r, left + c
+            if y < 0 or y >= len(board) or x < 0 or x >= len(board[y]) or board[y][x]:
+                return False
+    return True
+
+
+def place(board: list[list[int]], piece: list[list[int]], top: int, left: int) -> list[list[int]]:
+    """조각을 놓은 새 보드를 돌려준다(원래 보드는 바꾸지 않는다).
+
+    놓을 수 없거나 보드가 유효하지 않으면 ValueError를 발생시킨다.
+    검사와 쓰기는 복사본에 수행하지만, 복사 중 동시 변경은 호출자가 방지해야 한다.
+    """
+    result = [row[:] for row in board]
+    piece_copy = [row[:] for row in piece]
+    if not can_place(result, piece_copy, top, left):
+        raise ValueError("piece cannot be placed here")
+    for r, row in enumerate(piece_copy):
+        for c, cell in enumerate(row):
+            if cell:
+                result[top + r][left + c] = 1
+    return result
+
+
+def clear_lines(board: list[list[int]]) -> tuple[list[list[int]], int]:
+    """가득 찬 줄을 지우고 위에 빈 줄을 채운 (새 보드, 지운 줄 수)를 돌려준다.
+
+    빈 보드는 ([], 0)을 반환한다. 불규칙하거나 너비가 0인 비어 있지 않은
+    보드는 ValueError를 발생시킨다. 반환 행은 입력 행과 공유하지 않는다.
+    """
+    _validate_board(board)
+    if not board:
+        return [], 0
+    cols = len(board[0])
+    kept = [row[:] for row in board if not all(row)]
+    cleared = len(board) - len(kept)
+    return [[0] * cols for _ in range(cleared)] + kept, cleared
+```
