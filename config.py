@@ -648,11 +648,20 @@ MULTI_PERSONA_AUTO_APPLY_POLICY = "improve"
 # 2026-11-11 실패 피드백 재시도(LuckyBoys 결정). review_python_source 워커가 읽는다.
 #   자동 적용이 되돌려지거나 일부만 적용되면, 실패한 테스트 목록·메시지를 오류 로그로 만들어
 #   직전 수정안과 함께 같은 AI에게 다시 리뷰시킨다. 1이면 재시도 없음(1차만).
-MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS = 2
+# 2026-11-14 (LuckyBoys 결정): 2 → 3. 아래 온도표대로 1차 0.4 → 2차 0.2 → 3차 0.0 으로 세 번까지 시도한다.
+MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS = 3
+# 2026-11-14 라운드별 작업 담당 AI(페르소나) temperature. 1차는 리뷰 CLI 기본값(0.4)을 그대로 쓰고,
+#   2차부터 이 값을 --agent-temperature로 넘긴다. 라운드가 더 많으면 마지막 값을 쓴다. 각 값은 0.0~1.0.
+#   이유: 같은 AI도 매번 답이 달라 재시도할수록 답을 고정해 피드백에 맞춘 수정만 하게 한다.
+MULTI_PERSONA_AUTO_APPLY_ROUND_TEMPERATURES = (0.4, 0.2, 0.0)
 # 다음 라운드를 시작하려면 리뷰 제한 시간 중 이만큼은 남아 있어야 한다(초). 절반은 테스트·저장 여유로 남긴다.
 MULTI_PERSONA_AUTO_APPLY_RETRY_MIN_SECONDS = 180
 # 피드백에 넣을 실패 테스트 최대 개수(프롬프트가 너무 길어지지 않게).
 MULTI_PERSONA_AUTO_APPLY_FEEDBACK_MAX_FAILURES = 40
+# 2026-11-14 (LuckyBoys 요청: 같은 이유로 못 고치는 일이 없게) 피드백 라운드의 답이 출력 검사에서 거부되면
+# 거부 이유를 피드백에 넣어 같은 라운드를 이 횟수만큼 다시 시도한다. 0이면 예전처럼 바로 멈춘다.
+# 사고 사례: job ca0a8c65(테트리스, Gemini) 2차 답은 맞게 고쳤는데 형식 검사에서 버려져 1건이 남았다.
+MULTI_PERSONA_AUTO_APPLY_UNVERIFIED_RETRIES = 1
 # 2026-11-10: apply_source_proposal(어느 AI든 수정 코드를 넘겨 적용하는 MCP 도구) 설정.
 # MCP 요청 안에서 바로 pytest를 돌리므로 테스트 시간을 짧게 둔다(클라이언트 응답 대기 한도 고려).
 APPLY_PROPOSAL_TEST_TIMEOUT_SECONDS = 120

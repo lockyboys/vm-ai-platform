@@ -257,11 +257,23 @@ def _junit_failures(xml_path: Path, limit: int) -> list[str]:
     return lines
 
 
-def _write_round_feedback(path: Path, result_dir: Path, auto_result: dict) -> None:
-    """다음 라운드 리뷰 CLI의 --error-path로 넘길 실패 요약을 쓴다(비밀값은 마스킹, 소유자만 읽기)."""
+def _write_round_feedback(path: Path, result_dir: Path, auto_result: dict,
+                          rejected: list[str] | None = None) -> None:
+    """다음 라운드 리뷰 CLI의 --error-path로 넘길 실패 요약을 쓴다(비밀값은 마스킹, 소유자만 읽기).
+
+    rejected(2026-11-14 추가): 직전 시도의 답이 출력 검사에서 거부된 이유. 있으면 맨 앞에 적어
+    AI가 같은 형식 실수를 반복하지 않게 한다(job ca0a8c65: 맞게 고친 2차 답이 형식 때문에 버려짐).
+    """
     limit = max(1, int(project_config.MULTI_PERSONA_AUTO_APPLY_FEEDBACK_MAX_FAILURES))
-    lines = ["[자동 수정 검증 실패 — 직전 수정안을 테스트로 확인한 결과]",
-             f"사유: {auto_result.get('reason') or '일부 테스트 실패(부분 적용)'}",
+    lines = []
+    if rejected:
+        lines.append("[직전 답이 출력 검사에서 거부됨 — 수정 내용은 버려졌으니 아래를 지켜 다시 제출]")
+        lines.extend(f"- {reason}" for reason in rejected)
+        lines.append("2번 진단에서 수정할 함수는 '수정 필요'로, 고치지 않을 함수는 '수정 불필요'로 분명히 나누고, "
+                     "'수정 필요'로 적은 함수는 3번 전체 소스에서 실제 실행 코드까지 고치세요. "
+                     "3번에는 전체 소스를 닫힌 python 코드 블록 하나로 출력하세요.")
+    lines += ["[자동 수정 검증 실패 — 직전 수정안을 테스트로 확인한 결과]",
+              f"사유: {auto_result.get('reason') or '일부 테스트 실패(부분 적용)'}",
              f"통과 테스트 수: 적용 전 {auto_result.get('tests_passed_before', '?')} → "
              f"적용 후 {auto_result.get('tests_passed_after', '?')} / 전체 {auto_result.get('tests_total', '?')}"]
     newly = auto_result.get("newly_failed") or []
@@ -279,6 +291,27 @@ def _write_round_feedback(path: Path, result_dir: Path, auto_result: dict) -> No
     path.chmod(0o600)
 
 
+def _contract_errors(text: str) -> list[str]:
+    """리뷰 CLI 출력에서 '[출력 검증] 오류=[...]' 줄을 뽑는다(오류가 없으면 빈 목록)."""
+    return [line.strip() for line in text.splitlines()
+            if line.startswith("[출력 검증] 오류=") and not line.startswith("[출력 검증] 오류=[]")]
+
+
+def _round_temperature(number) -> float:
+    """재시도 라운드 번호(1부터)의 작업 AI temperature (2026-11-14, LuckyBoys 결정: 1차 0.4 → 2차 0.2 → 3차 0.0).
+
+    config.MULTI_PERSONA_AUTO_APPLY_ROUND_TEMPERATURES에서 읽고, 라운드가 더 많으면 마지막 값을 쓴다.
+    잘못된 설정(비었거나 0.0~1.0 밖, 숫자 아님)이나 잘못된 라운드 번호는 AI를 부르기 전에 ValueError.
+    """
+    if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+        raise ValueError("round number must be a positive integer")
+    temps = project_config.MULTI_PERSONA_AUTO_APPLY_ROUND_TEMPERATURES
+    if not isinstance(temps, (list, tuple)) or not temps or any(
+            isinstance(t, bool) or not isinstance(t, (int, float)) or not 0.0 <= t <= 1.0 for t in temps):
+        raise ValueError("MULTI_PERSONA_AUTO_APPLY_ROUND_TEMPERATURES must be numbers between 0.0 and 1.0")
+    return float(temps[min(number, len(temps)) - 1])
+
+
 def _run_feedback_rounds(request: dict, job_dir: Path, source: Path, first_proposed: Path,
                          first_result: dict, started: float, timeout: int):
     """1차 자동 적용이 실패하면 실패 테스트를 피드백으로 주고 같은 AI로 리뷰를 다시 돌린다.
@@ -288,27 +321,36 @@ def _run_feedback_rounds(request: dict, job_dir: Path, source: Path, first_propo
     - 남은 시간 < config.MULTI_PERSONA_AUTO_APPLY_RETRY_MIN_SECONDS 이면 멈춘다(그 절반은 테스트·저장 여유).
     - 입력 소스: 직전 라운드가 (일부) 적용됐으면 지금 원본, 아니면 직전 제안 소스(고친 것을 잃지 않게).
     - 판정 기준선은 '그 라운드 시작 때 디스크의 원본'이다(auto_apply 규칙 그대로 = 나빠지면 반영 안 함).
+    - 2026-11-14: 라운드의 답이 출력 검사에서 거부되면(검증 미통과) 바로 멈추지 않고, 거부 이유를 피드백
+      맨 앞에 넣어 같은 라운드를 config.MULTI_PERSONA_AUTO_APPLY_UNVERIFIED_RETRIES번까지 다시 시도한다
+      (폴더 round<N>_retry<k>, 기록에는 attempt=k). 라운드 수에는 세지 않으며 0 이하이면 예전처럼 멈춘다.
+      리뷰 CLI가 비정상 종료(returncode != 0)한 경우는 다시 시도하지 않는다.
     """
     rounds = [{"round": 1, "verified": True, **_round_view(first_result)}]
     auto_result, last_proposed, last_dir = first_result, first_proposed, job_dir
     max_rounds = int(project_config.MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS)
     min_seconds = int(project_config.MULTI_PERSONA_AUTO_APPLY_RETRY_MIN_SECONDS)
+    format_retries = int(project_config.MULTI_PERSONA_AUTO_APPLY_UNVERIFIED_RETRIES)
     _, review_cli, provider_args = _review_cli(request.get("provider"))
-    for number in range(2, max_rounds + 1):
+    number, attempt, rejected = 2, 0, []  # attempt: 같은 라운드 재시도 번호, rejected: 직전 거부 이유
+    while number <= max_rounds:
         if not _needs_retry(auto_result):
             break
         remaining = timeout - (monotonic() - started)
         if remaining < min_seconds:
             rounds.append({"round": number, "skipped": "not enough time left", "remaining_seconds": round(remaining)})
             break
-        round_dir = job_dir / f"round{number}"
+        round_dir = job_dir / (f"round{number}" + (f"_retry{attempt}" if attempt else ""))
         round_dir.mkdir(mode=0o700, exist_ok=True)
         candidate = round_dir / source.name
         candidate.write_bytes((source if auto_result.get("applied") else last_proposed).read_bytes())
         feedback = round_dir / "feedback.txt"
-        _write_round_feedback(feedback, last_dir, auto_result)
+        _write_round_feedback(feedback, last_dir, auto_result, rejected)
         round_sha = hashlib.sha256(source.read_bytes()).hexdigest()  # 라운드 도중 외부 변경 감지용
-        command = [str(PROJECT_ROOT / "venv/bin/python"), "-u", str(review_cli), *provider_args,
+        # 2026-11-14: 공용 CLI(--provider를 받는 CLI)에는 라운드별 작업 AI 온도를 넘긴다(전용 CLI는 이 인자를 모름).
+        temperature = _round_temperature(number) if "--provider" in provider_args else None
+        temp_args = ["--agent-temperature", str(temperature)] if temperature is not None else []
+        command = [str(PROJECT_ROOT / "venv/bin/python"), "-u", str(review_cli), *provider_args, *temp_args,
                    "--source-path", str(candidate), "--error-path", str(feedback),
                    "--output-dir", str(round_dir)]
         round_started = monotonic()
@@ -327,13 +369,23 @@ def _run_feedback_rounds(request: dict, job_dir: Path, source: Path, first_propo
         proposed = round_dir / "proposed.py"
         verified, reasons = _judge_verification(text, proposed)
         entry = {"round": number, "verified": verified, "review_seconds": round(monotonic() - round_started, 3)}
+        if temperature is not None:
+            entry["agent_temperature"] = temperature
+        if attempt:
+            entry["attempt"] = attempt
         if completed.returncode != 0 or not verified:
             rounds.append({**entry, "returncode": completed.returncode, "reasons": reasons})
+            if completed.returncode == 0 and attempt < format_retries:
+                # 같은 라운드를 다시 시도한다: 거부 이유(검증 사유 + 출력 검사 오류 줄)를 피드백에 넣는다.
+                attempt += 1
+                rejected = reasons + _contract_errors(text)
+                continue
             break
         auto_result = _auto_apply(source, proposed, round_dir, request,
                                   budget=timeout - (monotonic() - started), expected_sha256=round_sha)
         last_proposed, last_dir = proposed, round_dir
         rounds.append({**entry, **_round_view(auto_result)})
+        number, attempt, rejected = number + 1, 0, []
     return auto_result, rounds, last_proposed
 
 

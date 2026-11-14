@@ -90,6 +90,8 @@ def test_second_round_fixes_and_applies(job, monkeypatch):
 def test_unverified_second_round_keeps_original(job, monkeypatch):
     """2차 리뷰가 검증되지 않으면 멈추고 원본을 그대로 둔다."""
     source, job_id = job
+    # 2026-11-14: 검사 거부 시 같은 라운드 재시도가 생겨(기본 1회), 이 테스트는 재시도 0 설정에서의 동작을 본다.
+    monkeypatch.setattr(review.project_config, "MULTI_PERSONA_AUTO_APPLY_UNVERIFIED_RETRIES", 0)
     run = fake_run(source, [FIRST, GOOD], verified=(True, False))
     monkeypatch.setattr(review.subprocess, "run", run)
     monkeypatch.setattr(review.auto_apply.subprocess, "run", run)

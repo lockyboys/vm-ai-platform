@@ -71,8 +71,15 @@ _provider_parser.add_argument("--provider", default=None)
 # 도구는 모듈 import 시점에 만들어지므로 --provider처럼 본 argparse보다 먼저 읽는다.
 # 이 인자가 없으면(일반 질문·직접 실행) 지금처럼 Tavily를 쓴다.
 _provider_parser.add_argument("--no-web-search", action="store_true")
+# 2026-11-14 (LuckyBoys 결정): 작업 담당(페르소나) AI의 temperature. 자가 수정 앱이 재시도 라운드마다
+# 낮춰서 넘긴다(1차 0.4 → 2차 0.2 → 3차 0.0, config.MULTI_PERSONA_AUTO_APPLY_ROUND_TEMPERATURES).
+# 모델은 import 시점에 만들어지므로 본 argparse보다 먼저 읽는다. 인자가 없으면 예전과 같은 0.4.
+_provider_parser.add_argument("--agent-temperature", type=float, default=None)
 _early_args = _provider_parser.parse_known_args()[0]
 NO_WEB_SEARCH = bool(_early_args.no_web_search)
+AGENT_TEMPERATURE = 0.4 if _early_args.agent_temperature is None else _early_args.agent_temperature
+if not 0.0 <= AGENT_TEMPERATURE <= 1.0:  # 잘못된 입력(범위 밖, nan)은 AI를 부르기 전에 멈춘다.
+    raise SystemExit(f"--agent-temperature는 0.0~1.0 사이여야 합니다: {AGENT_TEMPERATURE}")
 LLM_PROVIDER = (_early_args.provider
                 or os.getenv("MULTI_PERSONA_LLM_PROVIDER", "").strip()
                 or project_config.MULTI_PERSONA_LLM_DEFAULT_PROVIDER)
@@ -88,7 +95,8 @@ def initialize_llm(temp=0.2):
 
 
 router_llm = initialize_llm(temp=0.1)
-agent_llm = initialize_llm(temp=0.4)
+# 작업 담당 AI 온도: 기본 0.4, 자가 수정 재시도 라운드에서는 --agent-temperature로 낮춘다(2026-11-14).
+agent_llm = initialize_llm(temp=AGENT_TEMPERATURE)
 verifier_llm = initialize_llm(temp=0.1)
 
 # TAVILY_API_KEY가 있고 --no-web-search가 아닐 때만 Tavily 검색 도구를 활성화합니다.
@@ -1355,6 +1363,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no-web-search", action="store_true",
         help="Tavily 웹 검색을 끈다 (소스 리뷰 job 전용: router 재호출·토큰 낭비 방지)"
+    )
+    # 2026-11-14: 실제 적용은 파일 상단(AGENT_TEMPERATURE)에서 이미 끝났고, 여기서는 도움말 표시만 담당한다.
+    parser.add_argument(
+        "--agent-temperature", type=float, default=None,
+        help="작업 담당 AI의 temperature(0.0~1.0, 기본 0.4). 자가 수정 재시도 라운드가 낮춰서 넘긴다"
     )
     args = parser.parse_args()
 

@@ -199,20 +199,44 @@ def validate_review(text, query, search_roots=None):
             # 2026-11-10: Claude 리뷰 오탐 수정(job 24a9715c·2b1d6d67) — "회귀 검증: `add`, `multiply`는
             # 기존 동작 유지" 같은 설명 줄까지 수정 대상으로 잡혀 올바른 제안이 거부됐다.
             # 이제 '수정 필요/수정함/수정 완료' 표시가 있는 줄의 함수만 수정 대상으로 본다.
+            # 2026-11-14: Gemini 리뷰 오탐 수정(job ca0a8c65 round2, LuckyBoys 요청 "다음엔 반드시 고치게") —
+            #   ① `text_to_board(text)`처럼 괄호까지 백틱에 넣은 이름을 함수로 인식하지 못했고,
+            #   ② '### [수정 불필요 대상]' 절에 적은 함수까지 '언급된 함수'로 세어 올바른 제안을 거부했다.
+            #   이제 소제목(#로 시작하는 줄)으로 절을 나눠 '수정 불필요' 절은 대상·언급에서 빼고,
+            #   '수정 대상/수정 필요' 절에서는 굵은 글씨 머리 줄(- **`함수`...**)의 함수를 수정 대상으로 본다.
             target_names = set()
+            mentioned = set()
             no_fix_pattern = re.compile(r"수정\s*(?:불필요|불요|없음)|변경\s*불필요", re.IGNORECASE)
             fix_pattern = re.compile(r"수정\s*(?:필요|함|완료|했)")
+            fix_section_pattern = re.compile(r"수정\s*(?:대상|필요)")
+            name_pattern = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\([^`]*\))?`")  # `f` 와 `f(x)` 모두
+            bullet_head = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s*\*\*(.+?)\*\*")    # - **`f` ...** 머리 줄
+            section = None  # "fix" | "nofix" | None(절 표시 없음)
             for line in diagnosis.splitlines():
-                found = [name for name in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", line) if name in old_functions]
+                if line.lstrip().startswith("#"):
+                    heading = line.strip()
+                    section = ("nofix" if no_fix_pattern.search(heading)
+                               else "fix" if fix_section_pattern.search(heading) else None)
+                    continue
+                if section == "nofix" or no_fix_pattern.search(line):
+                    continue  # 수정하지 않는다고 밝힌 함수는 대상도, 언급도 아니다.
+                found = [name for name in name_pattern.findall(line) if name in old_functions]
+                mentioned.update(found)
+                if section == "fix":
+                    head = bullet_head.match(line)
+                    if head:
+                        target_names.update(name for name in name_pattern.findall(head.group(1))
+                                            if name in old_functions)
+                        continue
                 # 2026-11-10: 표 행(| ... |)에서는 '대상' 칸에 해당하는 첫 함수만 수정 대상으로 본다.
                 # 근거 칸에 같이 적힌 호출자(예: `divide` 행의 "`calculate` 호출자")를 대상으로 오인하지 않기 위함.
                 if line.lstrip().startswith("|"):
                     found = found[:1]
                 line_funcs = set(found)
-                if line_funcs and fix_pattern.search(line) and not no_fix_pattern.search(line):
+                if line_funcs and fix_pattern.search(line):
                     target_names.update(line_funcs)
             # 수정 표시가 한 줄도 없으면 예전 규칙(언급된 함수 중 최소 1개는 실제로 바뀌어야 함)으로 검사한다.
-            mentioned = set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", diagnosis)) & old_functions.keys()
+            # (2026-11-14: '수정 불필요'로 밝힌 줄·절의 함수는 언급에서 뺀다 — 위 반복문에서 모음)
             if not target_names and mentioned and not any(
                     name in new_functions and not _is_executable_body_unchanged(old_functions[name], new_functions[name])
                     for name in mentioned):
