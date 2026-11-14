@@ -251,6 +251,27 @@ def build_web_search_tool():
 # ---------------------------------------------------------------------------
 # 실제 LLM 단계 실행 (테스트에서는 step_fn 주입)
 # ---------------------------------------------------------------------------
+_ASYNC_RUNNER: asyncio.Runner | None = None   # 프로세스 안에서 계속 쓰는 이벤트 루프 하나
+
+
+def _run_async(coroutine: Any) -> Any:
+    """코루틴을 '프로세스 공용 이벤트 루프'에서 실행한다 (2026-11-14 LuckyBoys: Event loop is closed 수정).
+
+    왜 asyncio.run 을 쓰지 않나:
+        asyncio.run 은 부를 때마다 새 루프를 만들고 닫는다. langchain-openai 는 비동기 HTTP 클라이언트를
+        프로세스 전체에서 재사용(캐시)하므로, 첫 단계 루프에 묶인 연결을 다음 단계(새 루프)에서 쓰다가
+        RuntimeError: Event loop is closed 가 났다(메리츠 job 5acd70ce…, 재현 테스트 test_persona_chain_event_loop_20261114).
+        루프를 하나로 유지하면 캐시된 연결이 계속 같은 루프에서 쓰여 안전하다. Gemini·Ollama 동작은 바뀌지 않는다.
+    잘못된 입력: 코루틴이 아니면 실행하지 않고 TypeError.
+    """
+    global _ASYNC_RUNNER
+    if not asyncio.iscoroutine(coroutine):
+        raise TypeError("_run_async expects a coroutine object")
+    if _ASYNC_RUNNER is None:
+        _ASYNC_RUNNER = asyncio.Runner()           # 처음 한 번만 만들고 닫지 않는다(프로세스 종료 시 정리)
+    return _ASYNC_RUNNER.run(coroutine)
+
+
 def run_step(persona: str, system_prompt: str, human_text: str, tools_mode: str,
              allowed_paths: list[str] | None = None) -> dict:
     """한 페르소나 단계를 실행한다. tools_mode: none | read | write.
@@ -264,7 +285,8 @@ def run_step(persona: str, system_prompt: str, human_text: str, tools_mode: str,
     model = agent._build_model()
     timeout = int(_SETTINGS["agent_timeout_seconds"])   # 단계마다 시간 상한(멈춘 LLM 호출이 체인을 막지 않게)
     # 13개 페르소나 모두 같은 SPS MCP Client/tools/list를 사용한다.
-    mcp_tools = asyncio.run(agent._load_sps_mcp_tools(source_write_confirmed=False))
+    # 2026-11-14: asyncio.run → _run_async (단계 간 이벤트 루프 유지, Event loop is closed 방지)
+    mcp_tools = _run_async(agent._load_sps_mcp_tools(source_write_confirmed=False))
     tools = list(mcp_tools)
     effective_allowed_paths = list(_SETTINGS["allowed_paths"]) if allowed_paths is None else list(allowed_paths)
     if tools_mode != "none":
@@ -279,7 +301,7 @@ def run_step(persona: str, system_prompt: str, human_text: str, tools_mode: str,
     if tools_mode == "write":
         tools += build_source_repair_tools(allowed_paths=effective_allowed_paths)  # 2026-11-10 LuckyBoys 일반화
     graph = agent.build_source_partner_graph(model=model, tools=tools, system_prompt=system_prompt)
-    state = asyncio.run(asyncio.wait_for(
+    state = _run_async(asyncio.wait_for(              # 2026-11-14: asyncio.run → _run_async
         graph.ainvoke({"messages": [HumanMessage(content=human_text)]},
                       config={"recursion_limit": int(_SETTINGS["agent_recursion_limit"])}), timeout))
     messages = state.get("messages", [])
