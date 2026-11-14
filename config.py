@@ -910,7 +910,8 @@ AUTODISCOVER_SELF_REPAIR = {
     "enabled": True,
     "max_repair_rounds": 2,   # 1라운드 고정 순서 체인, 2라운드 ORCHESTRATOR 자율 계획(LuckyBoys 2026-10-25)
     "agent_timeout_seconds": 900,
-    "agent_recursion_limit": 64,
+    # 수리 체인 LangGraph 단계 상한. 64→20 (LuckyBoys 2026-11-14: 체인이 맴돌지 않게 최대 20, 테스트 test_repair_chain_recursion_cap_20261114.py)
+    "agent_recursion_limit": 20,
     "autodiscover_script": BASE_DIR / "FastAPI/LangGraph/Agent_Import_PFDs/profile_autodiscover.py",
     "allowed_paths": [
         "FastAPI/LangGraph/Agent_Import_PFDs/profile_autodiscover.py",
