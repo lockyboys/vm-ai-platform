@@ -6,10 +6,13 @@
 # =============================================================================
 # 20260902 | Codex | Harness 표준 파일 헤더와 커밋 대상 검증 역할을 보강했음
 # 20261025 | Claude | 삭제 staged 경로 커밋 허용, git_stage_manage(스테이징 통합 관리) 추가
+# 20261114 | Claude | git_stage_manage에 uncommit(커밋 풀기 = git reset --soft) 동작 추가 (LuckyBoys 요청,
+#                     MCP 도구 수를 늘리지 않으려고 새 도구 대신 기존 도구의 동작으로 넣음)
 # =============================================================================
 # 이 파일은 무엇을 하나요?
 # - git_add와 git_stage_delete는 사용자가 고른 파일만 커밋 준비 상태로 만듭니다.
 # - git_stage_manage는 스테이징 조회·추가·해제·전체해제·선택만 유지를 한 도구로 제공합니다.
+#   uncommit: 최근 커밋을 풀어 staged로 되돌립니다(파일 내용 그대로, 풀기 전 HEAD는 백업 ref로 보존).
 # - git_commit은 준비된 파일이 예상한 목록과 같을 때만 커밋합니다.
 # 주의: 관련 없는 파일이 섞이면 커밋하지 않으며, 원격 저장소로 push하지 않습니다.
 from __future__ import annotations
@@ -17,7 +20,11 @@ from __future__ import annotations
 import hashlib
 import re
 import subprocess
+from datetime import datetime
 from pathlib import Path
+
+# 2026-11-14: uncommit 한도·백업 ref 머리말은 루트 config.py에서 읽는다(하드코딩 금지).
+import config as project_config
 
 
 PROJECT_ROOT = Path("/data/vm_project")
@@ -376,6 +383,7 @@ GIT_STAGE_MANAGE_ACTIONS = (
     "unstage",       # 지정한 staged 파일만 스테이징 해제
     "unstage_all",   # staged 파일 전체 스테이징 해제
     "keep_only",     # 지정한 파일만 남기고 나머지 staged 파일 해제
+    "uncommit",      # 2026-11-14: target_commit 뒤의 커밋을 풀어 staged로 되돌림(git reset --soft)
 )
 
 
@@ -435,20 +443,105 @@ def _restore_staged(paths: list[str]) -> None:
         raise RuntimeError(result.stderr.strip() or "Unable to unstage files.")
 
 
+def _uncommit(target_commit: str | None, dry_run: bool) -> dict:
+    """target_commit 뒤의 커밋을 풀어 그 변경을 staged 상태로 되돌린다(= git reset --soft target).
+
+    지키는 것(2026-11-14, LuckyBoys 요청):
+    - 작업 트리 파일은 바꾸지 않는다(--soft만 사용, --hard/--mixed 금지).
+    - target_commit은 7~40자리 16진수 커밋 id만 받는다(HEAD~1·브랜치 이름처럼 뜻이 바뀌는 값 거부).
+    - target_commit은 지금 HEAD의 조상이어야 하고 HEAD 자체는 안 된다.
+    - 이미 staged 파일이 있으면 풀린 변경과 섞이므로 거부한다(먼저 unstage).
+    - 한 번에 풀 커밋 수는 config.GIT_UNCOMMIT_MAX_COMMITS 이하.
+    - 원격(refs/remotes)에 이미 있는 커밋은 공유 기록이므로 풀지 않는다(push 안 한 커밋만).
+    - 풀기 전 HEAD를 config.GIT_UNCOMMIT_BACKUP_REF_PREFIX-YYYYMMDD-HHMMSS ref에 남긴다(원본 보존).
+      되돌리기: git reset --soft <backup_ref>
+    """
+    text = (target_commit or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{7,40}", text):
+        raise ValueError("target_commit must be a 7-40 character hex commit id.")
+    if _staged_paths():
+        raise ValueError("Index must be empty before uncommit (unstage first) so commits do not mix.")
+
+    head = _run_git(["rev-parse", "--verify", "HEAD"])
+    if head.returncode != 0:
+        raise ValueError("The repository has no HEAD commit.")
+    head_sha = head.stdout.strip()
+    target = _run_git(["rev-parse", "--verify", "--quiet", text + "^{commit}"])
+    if target.returncode != 0 or not target.stdout.strip():
+        raise ValueError(f"Unknown commit: {text}")
+    target_sha = target.stdout.strip()
+    if target_sha == head_sha:
+        raise ValueError("target_commit is HEAD; nothing to uncommit.")
+    if _run_git(["merge-base", "--is-ancestor", target_sha, head_sha]).returncode != 0:
+        raise ValueError("target_commit must be an ancestor of HEAD.")
+
+    # 풀릴 커밋 목록(최신 → 오래된 순)
+    log = _run_git(["log", "--format=%H%x09%s", f"{target_sha}..{head_sha}"])
+    if log.returncode != 0:
+        raise RuntimeError(log.stderr.strip() or "Unable to list commits.")
+    commits = [dict(zip(("sha", "subject"), line.split("\t", 1))) for line in log.stdout.splitlines() if line]
+    limit = int(project_config.GIT_UNCOMMIT_MAX_COMMITS)
+    if len(commits) > limit:
+        raise ValueError(f"{len(commits)} commits exceed the uncommit limit ({limit}).")
+
+    # 가장 오래된 풀릴 커밋이 원격에 없으면, 그 뒤 커밋도 원격에 없다(원격에 있으면 조상도 있으므로).
+    pushed = _run_git(["for-each-ref", "--format=%(refname)", "--contains", commits[-1]["sha"], "refs/remotes"])
+    if pushed.returncode != 0:
+        raise RuntimeError(pushed.stderr.strip() or "Unable to check remote refs.")
+    if pushed.stdout.strip():
+        raise ValueError("Some commits are already pushed: " + ", ".join(pushed.stdout.split()))
+
+    changed = _run_git(["diff", "--name-only", target_sha, head_sha])
+    if changed.returncode != 0:
+        raise RuntimeError(changed.stderr.strip() or "Unable to list changed files.")
+    would_stage = sorted(line for line in changed.stdout.splitlines() if line)
+    backup_ref = f"{project_config.GIT_UNCOMMIT_BACKUP_REF_PREFIX}-{datetime.now():%Y%m%d-%H%M%S}"
+    plan = {
+        "action": "uncommit",
+        "dry_run": dry_run,
+        "head_before": head_sha,
+        "target_commit": target_sha,
+        "uncommitted": commits,
+        "would_stage": would_stage,
+        "backup_ref": backup_ref,
+    }
+    if dry_run:
+        return plan
+
+    if _run_git(["rev-parse", "--verify", "--quiet", backup_ref]).returncode == 0:
+        raise ValueError(f"Backup ref already exists, retry in a second: {backup_ref}")
+    saved = _run_git(["update-ref", backup_ref, head_sha])
+    if saved.returncode != 0:
+        raise RuntimeError(saved.stderr.strip() or "Unable to save the backup ref.")
+    reset = _run_git(["reset", "--soft", target_sha])
+    if reset.returncode != 0:
+        raise RuntimeError(reset.stderr.strip() or "git reset --soft failed.")
+    head_after = _run_git(["rev-parse", "--verify", "HEAD"]).stdout.strip()
+    if head_after != target_sha:
+        raise RuntimeError(f"HEAD did not move to target: {head_after}")
+    return {**plan, "head_after": head_after, "staged_after": _staged_paths(),
+            "restore_command": f"git reset --soft {backup_ref}"}
+
+
 def git_stage_manage(
     action: str,
     paths: list[str] | None = None,
     dry_run: bool = True,
+    target_commit: str | None = None,
 ) -> dict:
-    """Manage the Git index: status, stage, stage_delete, unstage, unstage_all, keep_only.
+    """Manage the Git index: status, stage, stage_delete, unstage, unstage_all, keep_only, uncommit.
 
-    Only the index changes; working-tree files are never modified or deleted.
+    Working-tree files are never modified or deleted.
     dry_run=True (default) returns the plan without changing the index.
     - status: list staged paths with change type (A/M/D/R...).
     - stage / stage_delete: same rules as git_add / git_stage_delete.
     - unstage: unstage the given paths (each must currently be staged).
     - unstage_all: unstage every staged path (takes no paths).
     - keep_only: keep only the given staged paths and unstage everything else.
+    - uncommit: undo the commits after target_commit (hex id, an ancestor of HEAD) so their
+      changes become staged again (git reset --soft). Takes no paths. Requires an empty index,
+      refuses pushed commits and more than config.GIT_UNCOMMIT_MAX_COMMITS commits, and saves
+      the old HEAD in a backup ref (restore: git reset --soft <backup_ref>).
     """
     normalized_action = (action or "").strip().lower()
     if normalized_action not in GIT_STAGE_MANAGE_ACTIONS:
@@ -456,6 +549,12 @@ def git_stage_manage(
             f"Unknown action: {action!r}. Allowed: {', '.join(GIT_STAGE_MANAGE_ACTIONS)}"
         )
     requested = list(paths or [])
+
+    # 2026-11-14: 커밋 풀기. 파일 일부만 푸는 기능이 아니므로 paths는 받지 않는다.
+    if normalized_action == "uncommit":
+        if requested:
+            raise ValueError("uncommit does not take paths.")
+        return _uncommit(target_commit, dry_run)
 
     # 조회 전용: 인자 검사 없이 현재 상태만 돌려준다.
     if normalized_action == "status":

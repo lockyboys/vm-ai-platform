@@ -1043,3 +1043,8 @@ SELF_REPAIR_TARGETS = {
     },
 }
 # <<< SELF_REPAIR_TARGETS
+# 2026-11-14 (LuckyBoys 요청): git_stage_manage(action="uncommit") — 커밋을 풀어 staged로 되돌리기.
+# 한 번에 풀 수 있는 최대 커밋 수(실수로 오래된 기록까지 푸는 것 방지).
+GIT_UNCOMMIT_MAX_COMMITS = 30
+# 풀기 전 HEAD를 남겨 두는 백업 ref 머리말(뒤에 -YYYYMMDD-HHMMSS). 되돌리기: git reset --soft <백업 ref>
+GIT_UNCOMMIT_BACKUP_REF_PREFIX = "refs/harness-backup/uncommit"
