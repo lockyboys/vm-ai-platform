@@ -9,6 +9,7 @@
 이 스크립트는 mcp_codex_apps_run_python_source가 sudo 사용을 찾아내 LuckyBoys 승인 뒤에만 실행된다.
 """
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,8 +29,15 @@ def has_candidate(package: str) -> bool:
 
 
 def libcups_visible() -> bool:
-    """ldconfig -p 에 libcups.so.2 가 있으면 True (설치 확인, sudo 불필요)."""
-    out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True, timeout=30).stdout
+    """ldconfig -p 에 libcups.so.2 가 있으면 True (설치 확인, sudo 불필요).
+
+    2026-11-15: 일반 사용자 PATH에는 ldconfig가 없어(보통 /sbin, /usr/sbin) FileNotFoundError가 났다.
+    PATH → /usr/sbin → /sbin 순서로 찾고, 못 찾으면 실행하지 않고 멈춘다.
+    """
+    found = shutil.which("ldconfig") or next((p for p in ("/usr/sbin/ldconfig", "/sbin/ldconfig") if Path(p).is_file()), None)
+    if found is None:
+        raise SystemExit("ldconfig를 찾지 못해 설치 여부를 확인할 수 없습니다 — 설치하지 않고 멈춥니다")
+    out = subprocess.run([found, "-p"], capture_output=True, text=True, timeout=30).stdout
     return "libcups.so.2" in out
 
 
