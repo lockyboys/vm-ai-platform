@@ -1048,3 +1048,32 @@ SELF_REPAIR_TARGETS = {
 GIT_UNCOMMIT_MAX_COMMITS = 30
 # 풀기 전 HEAD를 남겨 두는 백업 ref 머리말(뒤에 -YYYYMMDD-HHMMSS). 되돌리기: git reset --soft <백업 ref>
 GIT_UNCOMMIT_BACKUP_REF_PREFIX = "refs/harness-backup/uncommit"
+# 2026-11-15 (LuckyBoys 결정): 허용 목록 sudo 실행(common.sudo_runner.run_allowed_sudo).
+# 새 MCP 도구 없이 mcp_codex_apps_run_python_source의 위험 명령 승인(approval_commands)을 거친 뒤에만 실행된다.
+# 키: 명령 앞부분(고정), 값: 그 뒤에 올 수 있는 인자(모두 이 목록 안, 하나 이상). 값이 빈 튜플이면 인자 없이만.
+# 뺀 것(LuckyBoys 결정): rm -rf, kill, python3 -c, cat(보호 파일) — 무엇이든 할 수 있게 되는 명령.
+SUDO_ALLOWED_SERVICES = (
+    "sps-harness.service", "sps-gemini-agent.service", "sps-multi-persona.service",
+    "fastapi-insurance-rag.service", "mongod",
+)
+SUDO_ALLOWED_COMMANDS = {
+    # 서비스 재시작·시작·정지·자동 시작 켜기/끄기·상태 확인
+    ("systemctl", "restart"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "start"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "stop"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "enable"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "enable", "--now"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "disable"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "is-enabled"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "is-active"): SUDO_ALLOWED_SERVICES,
+    ("systemctl", "status", "--no-pager"): SUDO_ALLOWED_SERVICES,
+    # 서비스 설정 다시 읽기(인자 없음)
+    ("systemctl", "daemon-reload"): (),
+    # sudo 권한 확인(인자 없음)
+    ("-l",): (),
+    # Ulixee Hero(Chrome) 실행에 필요한 라이브러리(2026-11-15: libcups.so.2 누락). OS 버전에 따라 이름이 다름.
+    ("apt-get", "install", "-y"): ("libcups2", "libcups2t64"),
+}
+# sudo 명령 하나의 최대 실행 시간(초)
+SUDO_TIMEOUT_SECONDS = 600
+
