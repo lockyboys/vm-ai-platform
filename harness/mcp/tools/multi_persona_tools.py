@@ -258,7 +258,15 @@ def _junit_failures(xml_path: Path, limit: int) -> list[str]:
             problem = case.find("error")
         if problem is None:
             continue
-        message = " ".join((problem.get("message") or problem.text or "").split())
+        message = " ".join((problem.get("message") or "").split())
+        # 2026-11-16: message가 'AssertionError' 한 단어뿐이면 AI가 무엇을 기대하는지 모른다.
+        # pytest 본문에서 실패한 줄(">")과 오류 줄("E")을 덧붙여 기대값이 전달되게 한다(최대 3줄).
+        detail = [" ".join(line.split()) for line in (problem.text or "").splitlines()
+                  if line.lstrip().startswith((">", "E "))][:3]
+        if detail:
+            message = (message + " | " if message else "") + " / ".join(detail)
+        elif not message:
+            message = " ".join((problem.text or "").split())
         lines.append(f"- {case.get('name')}: {message[:300]}")
         if len(lines) >= limit:
             break
@@ -288,6 +296,9 @@ def _write_round_feedback(path: Path, result_dir: Path, auto_result: dict,
     if newly:
         lines.append("원래 통과하다가 새로 실패한 테스트(퇴행 — 다른 오류에 가려져 있던 결함일 수 있음, 반드시 해결):")
         lines.extend(f"- {name}" for name in newly)
+        # 2026-11-16: 퇴행은 대부분 '결함 외의 부분을 바꿔서' 생긴다(메모리 에이전트 시험의 ChatGPT·Claude).
+        lines.append("위 테스트가 확인하는 함수는 원래 코드의 동작(반환 문장·외부 API 호출 방식과 인자·출력 형식)으로 "
+                     "되돌리고, 진단한 결함과 관련된 줄만 고치세요. 새 기능 추가·리팩터링은 하지 마세요.")
     failures = _junit_failures(result_dir / "junit_after.xml", limit)
     if failures:
         lines.append(f"실패한 테스트와 메시지(최대 {limit}개):")
