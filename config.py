@@ -794,7 +794,7 @@ MULTI_PERSONA_OLLAMA_OUTPUT = 32768
 # SSH 대상은 중앙 설정으로 관리하고 비밀키는 경로로만 참조합니다.
 SPS_SSH_TARGETS = {
     "gpu": {
-        "host": os.getenv("SPS_GPU_SSH_HOST", "34.64.134.46"),
+        "host": os.getenv("SPS_GPU_SSH_HOST", "8.230.3.46"),   # 2026-11-16 AI 서버 재기동으로 IP 변경(이전 34.64.134.46)
         "user": os.getenv("SPS_GPU_SSH_USER", "jeajea_park"),
         "port": int(os.getenv("SPS_GPU_SSH_PORT", "22")),
         "identity_file": os.getenv("SPS_GPU_SSH_IDENTITY_FILE", "/home/jeaje/.ssh/google_compute_engine"),
