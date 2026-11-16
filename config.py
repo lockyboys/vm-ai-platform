@@ -695,6 +695,14 @@ MULTI_PERSONA_FATAL_PROVIDER_ERRORS = {
     "402 payment required": "LLM 크레딧 부족(402)",
     "invalid_api_key": "LLM API 키 오류(401)",
     "error code: 401": "LLM API 키 오류(401)",
+    # 2026-11-16 (LuckyBoys 요청): 메모리 에이전트 시험에서 8번씩 반복 호출된 오류 추가.
+    # Anthropic은 크레딧 부족을 402가 아니라 400 + 이 문구로 돌려준다.
+    "credit balance is too low": "LLM 크레딧 부족(Anthropic)",
+    # Ollama(llama-server)가 GPU 메모리를 못 잡으면 같은 요청을 다시 보내도 계속 실패한다.
+    "out of memory": "Ollama GPU 메모리 부족",
+    "out-of-memory": "Ollama GPU 메모리 부족",
+    # Ollama 서버 내부 오류(llama-server 비정상 종료 등). 오류 문장 끝에 이 표시가 붙는다.
+    "(status code: 500)": "Ollama 서버 오류(500)",
 }
 # 리뷰 CLI가 치명적 오류로 멈출 때 출력하는 표시 줄의 머리말과 종료 코드.
 # 앱(harness/mcp/tools/multi_persona_tools.py)은 이 머리말로 멈춘 이유를 찾아 결과에 보고한다.

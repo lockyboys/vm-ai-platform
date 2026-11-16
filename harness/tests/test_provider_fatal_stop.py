@@ -40,6 +40,26 @@ def test_invalid_api_key_401_is_fatal():
     assert "401" in cf.fatal_provider_error_reason(KEY_401)
 
 
+# 2026-11-16 (LuckyBoys 요청): 메모리 에이전트 시험에서 실제로 반복 호출된 오류 문장(비밀값 없음)
+ANTHROPIC_CREDIT = ("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+                    "'message': 'Your credit balance is too low to access the Anthropic API. "
+                    "Please go to Plans & Billing to upgrade or purchase credits.'}}")
+OLLAMA_OOM = ("llama-server startup failed after projector CPU offload retry: llama-server reported out-of-memory "
+              "during startup: cudaMalloc failed: out of memory (status code: 500)")
+OLLAMA_CRASH = "llama-server process has terminated: exit status 0xc0000409: CUDA error: unknown error (status code: 500)"
+
+
+@pytest.mark.parametrize("text, word", [
+    (ANTHROPIC_CREDIT, "크레딧"),   # 재현: 사고 때 8번 반복 호출(400이라 402 목록에 안 걸림)
+    (OLLAMA_OOM, "메모리"),          # 재현: Ollama GPU 메모리 부족, 8번 반복(15분)
+    (OLLAMA_CRASH, "500"),           # 재현: Ollama 서버 500
+])
+def test_reproduce_more_fatal_errors(text, word):
+    """Anthropic 크레딧 부족·Ollama GPU 메모리 부족·Ollama 500도 바로 멈춰야 한다."""
+    reason = cf.fatal_provider_error_reason(text)
+    assert reason is not None and word in reason
+
+
 @pytest.mark.parametrize("text", [RATE_429, "", "정상 답변 402줄 중 1줄 수정"])
 def test_transient_or_normal_text_is_not_fatal(text):
     """일시 오류(429)와 일반 문장(숫자 402가 섞여도)은 치명적이 아님 → None."""
