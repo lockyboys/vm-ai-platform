@@ -1,0 +1,15 @@
+interface:
+  display_name: use ulixee hero crawler
+  short_description: Use Ulixee Hero to inspect authorized dynamic websites, reuse
+    user-provided authenticated sessions, pause for human CAPTCHA completion, classify
+    SPA/list/detail behavior, and generate a resilient collection adapter without
+    bypassing access controls.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
