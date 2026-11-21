@@ -147,18 +147,23 @@ def test_reproduce_rejected_round_is_retried_and_applied(job, monkeypatch):
 
 
 def test_retry_limit_keeps_original(job, monkeypatch):
-    """잘못된 결과가 계속되면 정해진 횟수만 다시 시도하고 멈춘다(원본 유지, 무한 반복 없음)."""
+    """잘못된 결과가 계속되면 라운드마다 정해진 횟수만 다시 시도하고, 제자리걸음에서 멈춘다(원본 유지, 무한 반복 없음).
+    2026-11-21(대응표): 같은 라운드 재시도 한도를 넘으면 다음 라운드로 간다(예전: 바로 전체 멈춤)."""
     monkeypatch.setattr(review.project_config, "MULTI_PERSONA_AUTO_APPLY_UNVERIFIED_RETRIES", 1)
-    run, data = _run(job, monkeypatch, [FIRST, GOOD, GOOD], (True, False, False))
+    run, data = _run(job, monkeypatch, [FIRST] + [GOOD] * 4, (True, False, False, False, False))
     source, _ = job
     assert source.read_text(encoding="utf-8") == ORIGINAL
-    assert len(run.calls["review"]) == 3
+    assert len(run.calls["review"]) == 5          # 1차 + (본 시도+재시도 1회) × 2라운드, 그다음 제자리걸음(3)으로 멈춤
     assert data["auto_apply_rounds"][-1]["verified"] is False
+    assert "제자리걸음" in data["auto_apply_rounds"][-1]["stop_reason"]
 
 
 @pytest.mark.parametrize("bad", [0, -1])
 def test_zero_or_invalid_retries_means_no_extra_call(job, monkeypatch, bad):
-    """잘못된 입력·0 설정: 다시 시도 횟수가 0 이하이면 예전처럼 바로 멈춘다."""
+    """잘못된 입력·0 설정: 다시 시도 횟수가 0 이하이면 같은 라운드는 다시 하지 않는다.
+    2026-11-21(대응표): 대신 다음 라운드로 가서 3라운드에 반영된다(라운드마다 1번만 호출)."""
     monkeypatch.setattr(review.project_config, "MULTI_PERSONA_AUTO_APPLY_UNVERIFIED_RETRIES", bad)
-    run, _data = _run(job, monkeypatch, [FIRST, GOOD, GOOD], (True, False, True))
-    assert len(run.calls["review"]) == 2
+    run, data = _run(job, monkeypatch, [FIRST, GOOD, GOOD], (True, False, True))
+    assert len(run.calls["review"]) == 3
+    assert not any(r.get("attempt") for r in data["auto_apply_rounds"])   # 같은 라운드 재시도 없음
+    assert job[0].read_text(encoding="utf-8") == GOOD

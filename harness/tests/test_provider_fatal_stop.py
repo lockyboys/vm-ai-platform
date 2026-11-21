@@ -169,9 +169,12 @@ def test_reproduce_fatal_in_retry_round_stops_without_same_round_retry(job, monk
 
 
 def test_no_fatal_keeps_old_behavior(job, monkeypatch):
-    """치명적 오류가 없으면 예전처럼 라운드를 진행하고 provider_fatal_error는 None."""
+    """치명적 오류가 없으면 라운드를 진행하고 provider_fatal_error는 None.
+    2026-11-21(대응표 '고쳐질 때까지 반복'): 같은 수정안이 계속 실패하면 최대 라운드(안전 상한)가 아니라
+    제자리걸음 기준(MULTI_PERSONA_SELFFIX_STAGNATION_ROUNDS)에서 멈춘다."""
     run, data = _run(job, monkeypatch, fatal_at=-1)
-    assert len(run.calls["review"]) == project_config.MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS
+    assert len(run.calls["review"]) == min(project_config.MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS,
+                                           project_config.MULTI_PERSONA_SELFFIX_STAGNATION_ROUNDS)
     assert data["provider_fatal_error"] is None
 
 

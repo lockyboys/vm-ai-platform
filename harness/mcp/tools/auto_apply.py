@@ -28,6 +28,14 @@
     - 기본값은 루트 config.py의 MULTI_PERSONA_AUTO_APPLY_POLICY에서 읽는다.
     - 컴파일 오류는 규칙과 관계없이 항상 되돌린다.
 
+함수 단위 되돌림(2026-11-21, LuckyBoys 승인 '추가 기능 차단')
+    - improve 규칙에서 제안이 퇴행(원래 통과하던 테스트 실패)을 내면, 바로 전부 되돌리지 않고
+      제안에서 바뀐 '맨 바깥 함수·클래스'를 하나씩 원본으로 되돌려 테스트해 본다.
+    - 점수(퇴행 수가 적을수록, 같으면 통과 수가 많을수록)가 나빠지지 않는 되돌림만 남긴다.
+    - 마지막에 위 improve 판정(퇴행 0 + 통과 수 증가)을 그대로 적용한다 = 판정 기준은 완화하지 않는다.
+    - 최대 시도 개수는 config.MULTI_PERSONA_AUTO_APPLY_REVERT_MAX_FUNCTIONS(0 이하·숫자 아님이면 끔).
+    - 사고 사례: 메모리 에이전트 시험에서 작은 모델이 결함과 무관한 Gmail·검증 노드까지 바꿔 매번 전부 되돌려졌다.
+
 ⚠ 주의: test_paths 없이 호출하면 문법만 맞아도 원본이 바뀐다(동작이 달라져도 되돌리지 않음).
   중요한 파일은 반드시 test_paths=["tests/...", "harness/tests/..."]를 함께 넘길 것.
   허용 폴더와 pytest 시간 상한은 루트 config.py에서 읽는다(일반 지침 4, 하드코딩 금지):
@@ -37,6 +45,7 @@
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import shutil
 import subprocess
@@ -119,6 +128,106 @@ def _run_tests(root: Path, test_paths: list[str], deadline: float, xml_path: Pat
     return run.returncode, tail, _passed_tests(xml_path)
 
 
+# ---------------------------------------------------------------------------
+# 2026-11-21 함수 단위 되돌림(추가 기능 차단) — 아래 함수들은 apply_with_rollback 안에서만 쓴다.
+# ---------------------------------------------------------------------------
+def _revert_limit() -> int:
+    """되돌려 볼 함수·클래스 최대 개수. 설정이 없거나 0 이하·bool·숫자 아님이면 0(= 기능 끔)."""
+    value = getattr(project_config, "MULTI_PERSONA_AUTO_APPLY_REVERT_MAX_FUNCTIONS", 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return 0
+    return value
+
+
+def _top_level_defs(text: str) -> dict:
+    """맨 바깥 함수·클래스 이름 → (시작 줄, 끝 줄). 줄 번호는 1부터, 데코레이터 줄을 포함한다.
+
+    문법 오류면 빈 dict(되돌림 대상 없음). 같은 이름이 두 번 나오면 뒤의 것을 쓴다(파이썬 실행 결과와 같음).
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return {}
+    spans = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            start = min([node.lineno] + [item.lineno for item in node.decorator_list])
+            spans[node.name] = (start, node.end_lineno)
+    return spans
+
+
+def _segment(lines: list, span: tuple) -> str:
+    """줄 목록에서 (시작, 끝) 줄 구간 문자열(끝 줄 포함)."""
+    return "".join(lines[span[0] - 1:span[1]])
+
+
+def _changed_defs(original: str, proposal: str) -> list:
+    """원본과 제안 양쪽에 있는데 내용이 달라진 맨 바깥 함수·클래스 이름(제안에서 위에 있는 순서).
+
+    제안에만 있는 새 함수(도우미)·원본에만 있는 함수는 대상이 아니다(되돌릴 원본 짝이 없거나 이미 빠짐).
+    """
+    old, new = _top_level_defs(original), _top_level_defs(proposal)
+    old_lines, new_lines = original.splitlines(keepends=True), proposal.splitlines(keepends=True)
+    changed = [name for name in new
+               if name in old and _segment(new_lines, new[name]) != _segment(old_lines, old[name])]
+    return sorted(changed, key=lambda name: new[name][0])
+
+
+def _revert_def(current: str, original: str, name: str):
+    """current 소스에서 name 함수·클래스만 원본 내용으로 바꾼 소스. 어느 한쪽에 없으면 None."""
+    now, old = _top_level_defs(current), _top_level_defs(original)
+    if name not in now or name not in old:
+        return None
+    lines = current.splitlines(keepends=True)
+    piece = _segment(original.splitlines(keepends=True), old[name])
+    if not piece.endswith("\n"):
+        piece += "\n"  # 원본에서 파일 끝 줄이었으면 줄바꿈이 없으므로 다음 줄과 붙지 않게 넣는다
+    start, end = now[name]
+    return "".join(lines[:start - 1]) + piece + "".join(lines[end:])
+
+
+def _score(baseline_passed: set, passed: set) -> tuple:
+    """좋음의 순서: 퇴행(기준선에서 통과→실패) 수가 적을수록, 같으면 통과 수가 많을수록 좋다."""
+    return (-len(baseline_passed - passed), len(passed))
+
+
+def _salvage_by_function_revert(root: Path, source: Path, original: str, proposal: str,
+                                test_paths: list, deadline: float, backup_dir: Path,
+                                baseline: tuple, after: tuple):
+    """퇴행을 낸 제안에서 바뀐 함수·클래스를 하나씩 원본으로 되돌려 보고, 점수가 나빠지지 않는 것만 남긴다.
+
+    반환: (최종 소스 문자열, 최종 (통과 집합, 전체 수), 되돌린 이름 목록) / 시도할 것이 없으면 None.
+    최종 소스는 source 파일에도 써 둔다(호출자가 판정 후 유지하거나 백업으로 되돌린다).
+    점수가 같아도 되돌리는 이유: 같은 결과라면 원본에 더 가까운 쪽이 '최소 수정'이다.
+    """
+    limit = _revert_limit()
+    names = _changed_defs(original, proposal)[:limit] if limit else []
+    if not names:
+        return None
+    current, best, reverted = proposal, after, []
+    trial_xml = backup_dir / "junit_revert.xml"
+    for name in names:
+        if deadline - time.monotonic() < 30:      # 결과 저장·되돌림 여유(apply_with_rollback의 최소 예산과 같은 30초)
+            break
+        candidate = _revert_def(current, original, name)
+        if candidate is None:
+            continue
+        try:
+            compile(candidate, str(source), "exec")
+        except SyntaxError:
+            continue                               # 이어 붙인 결과가 문법 오류면 이 되돌림은 건너뜀
+        source.write_text(candidate, encoding="utf-8")
+        _code, _tail, trial = _run_tests(root, test_paths, deadline, trial_xml)
+        if trial is None:
+            continue                               # 결과를 못 읽으면 판단 근거가 없으므로 채택하지 않음
+        if _score(baseline[0], trial[0]) >= _score(baseline[0], best[0]):
+            current, best = candidate, trial
+            reverted.append(name)
+            shutil.copy2(trial_xml, backup_dir / "junit_salvaged.xml")  # 채택한 상태의 테스트 결과 기록
+    source.write_text(current, encoding="utf-8")
+    return current, best, reverted
+
+
 def apply_with_rollback(source: Path, proposed: Path, backup_dir: Path, expected_sha256: str,
                         test_paths: list[str], budget: float, project_root: Path, policy=None) -> dict:
     """검증된 제안을 원본에 적용하고, 검증에 실패하면 원본으로 되돌린다.
@@ -170,11 +279,26 @@ def apply_with_rollback(source: Path, proposed: Path, backup_dir: Path, expected
                     raise RuntimeError("tests failed and per-test results are unavailable")
                 newly_failed = sorted(baseline[0] - after[0])
                 state["newly_failed"] = newly_failed[:20]
+                salvaged = False
+                if newly_failed:
+                    # 2026-11-21: 퇴행이 있으면 바뀐 함수·클래스를 하나씩 원본으로 되돌려 본다(판정 기준은 아래 그대로).
+                    salvage = _salvage_by_function_revert(
+                        root, source, original_bytes.decode("utf-8"), proposed.read_text(encoding="utf-8"),
+                        test_paths, deadline, backup_dir, baseline, after)
+                    if salvage is not None:
+                        _final, after, reverted = salvage
+                        newly_failed = sorted(baseline[0] - after[0])
+                        salvaged = bool(reverted)
+                        state.update(reverted_functions=reverted, newly_failed=newly_failed[:20],
+                                     tests_passed_after=len(after[0]), tests_total=after[1])
                 if newly_failed:
                     raise RuntimeError(f"proposal broke {len(newly_failed)} previously passing tests")
                 if len(after[0]) <= len(baseline[0]):
                     raise RuntimeError("proposal did not increase the number of passing tests")
-                state["partial"] = True  # 전부는 아니지만 통과 수가 늘고 퇴행이 없어 적용
+                # 전부는 아니지만 통과 수가 늘고 퇴행이 없어 적용. 되돌림 후 전부 통과했으면 부분 적용이 아니다.
+                state["partial"] = (len(after[0]) < after[1]) if salvaged else True
+                if salvaged and not state["partial"]:
+                    state["test_returncode"] = 0
         state["applied"] = True
     except Exception as error:  # 컴파일 오류·테스트 실패·시간 초과 모두 되돌린다
         source.write_bytes(original_bytes)

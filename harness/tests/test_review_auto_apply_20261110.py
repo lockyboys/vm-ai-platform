@@ -109,7 +109,11 @@ def test_unverified_review_is_never_applied(job, monkeypatch):
     auto = _result(job_id)["auto_apply_result"]
     assert auto["applied"] is False and auto["rolled_back"] is False
     assert source.read_text(encoding="utf-8") == ORIGINAL
-    assert not any("pytest" in c for c in run.calls)  # 검증 안 된 리뷰는 테스트도 돌리지 않는다
+    # 검증 안 된 리뷰는 '적용 검증' 테스트를 돌리지 않는다.
+    # 2026-11-21 (LuckyBoys 승인 '실패 테스트 집중'): 리뷰 전에 원본으로 한 번 돌리는 읽기 전용 테스트(junit_focus.xml)는 예외.
+    apply_runs = [c for c in run.calls if "pytest" in c
+                  and not any(str(arg).endswith("junit_focus.xml") for arg in c)]
+    assert not apply_runs
 
 
 def test_source_changed_during_review_is_not_overwritten(job, monkeypatch):

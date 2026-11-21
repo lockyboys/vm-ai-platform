@@ -853,6 +853,33 @@ def resolve_ollama_base_url(pinned: Any, candidates: Any, timeout_seconds: Any,
     raise RuntimeError("no ollama candidate responded: " + json.dumps(tried, ensure_ascii=False))
 
 
+def list_ollama_models(url: Any, timeout_seconds: Any) -> list[str]:
+    """Ollama에 받아 둔 모델 이름 목록(GET <url>/api/tags, 읽기 전용) (2026-11-21, LuckyBoys 선택 1안).
+
+    용도: 스스로 고치는 앱이 리뷰 전에 '설정한 모델이 그 Ollama에 있는지' 확인한다
+          (예: gemma4:12b는 AI 서버에만 있고 노트북에는 없다).
+    잘못된 입력(주소 형식·대기 시간이 0 이하·bool·숫자 아님)은 네트워크를 건드리기 전에 ValueError.
+    연결 실패·응답 이상은 예외를 그대로 올린다(호출자가 이유로 보고).
+    """
+    import math
+    import urllib.request
+
+    base = _validate_ollama_url(url)
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) \
+            or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError(f"timeout_seconds must be a finite number > 0, got {timeout_seconds!r}")
+    with urllib.request.urlopen(base + "/api/tags", timeout=float(timeout_seconds)) as response:
+        if response.status != 200:
+            raise ConnectionError(f"unexpected /api/tags status {response.status} from {base}")
+        body = json.loads(response.read().decode("utf-8"))
+    models = body.get("models") if isinstance(body, dict) else None
+    if not isinstance(models, list):
+        raise ConnectionError(f"unexpected /api/tags response from {base}")
+    # 이름은 "name"(신버전) 또는 "model" 필드에 있다. 없는 항목은 건너뛴다.
+    return [str(item.get("name") or item.get("model")) for item in models
+            if isinstance(item, dict) and (item.get("name") or item.get("model"))]
+
+
 # =============================================================================
 # 2026-11-14 (LuckyBoys 요청): LLM 크레딧 부족(402)·키 오류(401)는 바로 멈추고 보고
 # 배경: Gemini 402 "prepayment credits are depleted"를 '잠시 후 다시 시도'로 처리해

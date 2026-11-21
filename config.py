@@ -649,7 +649,10 @@ MULTI_PERSONA_AUTO_APPLY_POLICY = "improve"
 #   자동 적용이 되돌려지거나 일부만 적용되면, 실패한 테스트 목록·메시지를 오류 로그로 만들어
 #   직전 수정안과 함께 같은 AI에게 다시 리뷰시킨다. 1이면 재시도 없음(1차만).
 # 2026-11-14 (LuckyBoys 결정): 2 → 3. 아래 온도표대로 1차 0.4 → 2차 0.2 → 3차 0.0 으로 세 번까지 시도한다.
-MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS = 3
+# 2026-11-21 (LuckyBoys 요청 '고쳐질 때까지 반복'): 3 → 10. 이제 반복은 '전부 통과' 또는 '제자리걸음'
+#   (아래 MULTI_PERSONA_SELFFIX_STAGNATION_ROUNDS)에서 끝나고, 이 값은 비용·시간을 막는 안전 상한일 뿐이다.
+#   4라운드부터는 온도표의 마지막 값(0.0)을 쓴다.
+MULTI_PERSONA_AUTO_APPLY_MAX_ROUNDS = 10
 # 2026-11-14 라운드별 작업 담당 AI(페르소나) temperature. 1차는 리뷰 CLI 기본값(0.4)을 그대로 쓰고,
 #   2차부터 이 값을 --agent-temperature로 넘긴다. 라운드가 더 많으면 마지막 값을 쓴다. 각 값은 0.0~1.0.
 #   이유: 같은 AI도 매번 답이 달라 재시도할수록 답을 고정해 피드백에 맞춘 수정만 하게 한다.
@@ -658,6 +661,33 @@ MULTI_PERSONA_AUTO_APPLY_ROUND_TEMPERATURES = (0.4, 0.2, 0.0)
 MULTI_PERSONA_AUTO_APPLY_RETRY_MIN_SECONDS = 180
 # 피드백에 넣을 실패 테스트 최대 개수(프롬프트가 너무 길어지지 않게).
 MULTI_PERSONA_AUTO_APPLY_FEEDBACK_MAX_FAILURES = 40
+# 2026-11-21 (LuckyBoys 승인 '실패 테스트 집중'): 피드백·focus.txt에 실패 테스트마다 붙일 테스트 코드 최대 줄 수.
+#   assert 앞 줄(입력)과 E 줄(기대값)을 보여 줘 작은 모델도 무엇을 고쳐야 하는지 알게 한다. 0이면 붙이지 않음.
+MULTI_PERSONA_AUTO_APPLY_FEEDBACK_CONTEXT_LINES = 12
+# 2026-11-21 (LuckyBoys 승인 '추가 기능 차단'): 제안이 퇴행을 내면 바뀐 맨 바깥 함수·클래스를 하나씩 원본으로
+#   되돌려 테스트해 볼 최대 개수(harness/mcp/tools/auto_apply.py). 0이면 끔(예전처럼 바로 전부 되돌림).
+#   한 개당 pytest 1회가 더 든다(메모리 에이전트 테스트 기준 약 1초).
+MULTI_PERSONA_AUTO_APPLY_REVERT_MAX_FUNCTIONS = 20
+# 2026-11-21 (LuckyBoys 승인 '느린 모델 시간 배분'): 공급자 항목의 job_timeout_seconds가 넘을 수 없는 상한(초).
+MULTI_PERSONA_REVIEW_PROVIDER_TIMEOUT_MAX_SECONDS = 30000
+# 2026-11-21 (LuckyBoys 요청 '수정 중 상황을 만나면 어떻게 하는지 로직으로'): 상황별 대응표.
+#   harness/mcp/tools/multi_persona_tools.py 의 _run_feedback_rounds 가 이 표대로만 움직인다.
+#   행동: stop(멈춤) / next_round(다음 라운드) / retry_same_round(같은 라운드 다시, 한도 넘으면 다음 라운드).
+#   상황마다 허용 행동이 정해져 있어(예: 성공은 stop만, 크레딧 부족은 stop만) 잘못 적으면 AI를 부르기 전에 거부한다.
+MULTI_PERSONA_SELFFIX_ACTIONS = {
+    "all_passed": "stop",                    # 테스트 전부 통과 = 성공
+    "improved": "next_round",                # 일부 나아짐(부분 반영) → 남은 실패를 계속 고친다
+    "no_gain": "next_round",                 # 나아지지 않음 → 피드백 주고 다시(제자리걸음 횟수에 셈)
+    "regressed": "next_round",               # 다른 테스트를 깸 → 되돌린 뒤 피드백 주고 다시(제자리걸음에 셈)
+    "format_rejected": "retry_same_round",   # 출력 형식 거부 → 같은 라운드 다시, 한도 넘으면 다음 라운드
+    "cli_error": "stop",                     # 리뷰 CLI 비정상 종료 → 원인 확인이 먼저
+    "provider_fatal": "stop",                # 크레딧 부족·키 오류·Ollama 메모리 부족 → 다시 불러도 같음
+    "review_timeout": "stop",                # 리뷰 시간 초과 → 남은 시간 없음
+    "time_low": "stop",                      # 다음 라운드를 시작할 시간이 모자람
+}
+# 2026-11-21 (LuckyBoys 선택 '전부 통과 or 제자리걸음'): 통과 테스트 수가 이 라운드 수만큼 연속으로 늘지 않으면 멈춘다.
+#   1 이상 정수. 형식 거부로 수정안이 없던 라운드도 '늘지 않음'으로 센다.
+MULTI_PERSONA_SELFFIX_STAGNATION_ROUNDS = 3
 # 2026-11-14 (LuckyBoys 요청: 같은 이유로 못 고치는 일이 없게) 피드백 라운드의 답이 출력 검사에서 거부되면
 # 거부 이유를 피드백에 넣어 같은 라운드를 이 횟수만큼 다시 시도한다. 0이면 예전처럼 바로 멈춘다.
 # 사고 사례: job ca0a8c65(테트리스, Gemini) 2차 답은 맞게 고쳤는데 형식 검사에서 버려져 1건이 남았다.
@@ -677,7 +707,10 @@ MULTI_PERSONA_REVIEW_PROVIDERS = {
     "openai": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "openai"},
     "claude": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "claude"},
     # 2026-11-10 리뷰 경로 통일: ollama도 공용 CLI + common/llm_provider.py(11-01 튜닝 포함)를 쓴다.
-    "ollama": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "ollama"},
+    # 2026-11-21 (LuckyBoys 승인: ollama 3시간): gemma4:12b는 한 라운드에 30~45분이 걸려 3590초 안에 2라운드도
+    #   못 끝냈다(job 16bef0c5). job_timeout_seconds가 있는 공급자만 이 작업 한도를 쓴다(다른 공급자는 3590초 그대로).
+    "ollama": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_gemini.py", "llm": "ollama",
+               "job_timeout_seconds": 10800},
     # 이전 전용 CLI는 이름을 바꿔 남겨 둔다(비교·호환용).
     "ollama_gemma": {"cli": "FastAPI/LangGraph/multi_persona/multi_persona_agent_Ollama_Gemma4_e4b.py", "llm": None},
 }
@@ -703,11 +736,20 @@ MULTI_PERSONA_FATAL_PROVIDER_ERRORS = {
     "out-of-memory": "Ollama GPU 메모리 부족",
     # Ollama 서버 내부 오류(llama-server 비정상 종료 등). 오류 문장 끝에 이 표시가 붙는다.
     "(status code: 500)": "Ollama 서버 오류(500)",
+    # 2026-11-21 (LuckyBoys 선택 1안): 설정한 모델이 그 Ollama에 없음(404). pull 하기 전에는 다시 불러도 같다.
+    #   Ollama 문장 예: model "gemma4:12b-it-q4_K_M" not found, try pulling it first (status code: 404)
+    "try pulling it first": "Ollama 모델 없음(404)",
 }
 # 리뷰 CLI가 치명적 오류로 멈출 때 출력하는 표시 줄의 머리말과 종료 코드.
 # 앱(harness/mcp/tools/multi_persona_tools.py)은 이 머리말로 멈춘 이유를 찾아 결과에 보고한다.
 MULTI_PERSONA_FATAL_PROVIDER_MARKER = "[치명적 공급자 오류]"
 MULTI_PERSONA_FATAL_PROVIDER_EXIT_CODE = 3
+# 2026-11-21 (LuckyBoys 선택 1안): 스스로 고치는 앱이 Ollama 리뷰 전에 점검할 때 '리뷰에 쓰면 안 되는' 주소.
+#   개발 서버 자체 Ollama(CPU 전용)는 리뷰 한 번에 40분 넘게 걸려 시간 초과로 끝났다(job 86dcf050).
+#   자동 선택이 이 주소로 떨어지면(= 노트북 터널·AI 서버 터널이 끊김, AI 서버 IP 바뀜) AI를 부르지 않고 바로 멈춘다.
+#   개발 서버 CPU로도 일부러 돌리려면 이 목록을 비우면 된다.
+MULTI_PERSONA_OLLAMA_REJECT_URLS = ("http://127.0.0.1:11434",)
+MULTI_PERSONA_OLLAMA_PREFLIGHT_TIMEOUT_SECONDS = 5  # /api/tags 대기(초)
 # 2026-11-10: common/llm_provider.py가 읽는 LLM 공급자별 생성 정보(키 값은 환경변수에만 둔다).
 # default_model이 빈 문자열이면 model_env 환경변수를 반드시 설정해야 한다(모델 이름을 추측하지 않음).
 MULTI_PERSONA_LLM_PROVIDERS = {
