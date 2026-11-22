@@ -250,43 +250,52 @@ def _ollama_direct_chat(base_url: str, model: str, prompt: str) -> str:
 
 
 def _llm_diagnose(prompt: str, mcp_tools: list[Any] | None = None) -> dict[str, Any]:
-    """1순위 Ollama -> 2순위 Gemini -> 3순위 OpenAI (오류 시 다음 AI로 자동 폴백)."""
+    """1순위 AI서버 GPU Ollama -> 2순위 노트북 GPU Ollama -> 3순위 로컬 Ollama -> 4순위 Gemini -> 5순위 OpenAI."""
     global _OLLAMA_TIMED_OUT
     candidates: list[tuple[str, Callable[[], Any]]] = []
 
-    # 1순위: 로컬 Ollama (임베딩 모델 제외, GPU 채팅 모델 우선)
+    # 1~3순위: Ollama 엔드포인트 순차 탐색 (AI서버 GPU -> 노트북 GPU 리버스 터널 -> 로컬 서버)
     env_ollama_url = os.getenv("OLLAMA_BASE_URL", "").strip()
-    ollama_candidates = [env_ollama_url] if env_ollama_url else ["http://10.178.0.8:11434", "http://34.64.144.124:11434", "http://127.0.0.1:11434"]
-    ollama_url = ollama_candidates[-1]
-    ollama_model: str | None = None
+    laptop_url = os.getenv("OLLAMA_LAPTOP_URL", "http://127.0.0.1:11436").strip()
+    ollama_tiers: list[tuple[str, str, int]] = (
+        [("지정 Ollama", env_ollama_url, 8192)]
+        if env_ollama_url
+        else [
+            ("AI서버 GPU", "http://10.178.0.8:11434", 8192),
+            ("AI서버 GPU(외부)", "http://34.64.144.124:11434", 8192),
+            ("노트북 GPU", laptop_url, 4096),
+            ("로컬 서버", "http://127.0.0.1:11434", 8192),
+        ]
+    )
     if not _OLLAMA_TIMED_OUT:
-        for cand_url in ollama_candidates:
-            ollama_model = _detect_ollama_model(cand_url)
-            if ollama_model:
-                ollama_url = cand_url
-                break
-    if ollama_model:
         num_gpu = int(os.getenv("OLLAMA_NUM_GPU", "999"))
-        def _build_ollama() -> Any:
-            kwargs: dict[str, Any] = {
-                "model": ollama_model,
-                "base_url": ollama_url,
-                "temperature": 0,
-                "num_gpu": num_gpu,
-                "num_ctx": 8192,
-                "num_predict": 2048,
-                "keep_alive": "10m",
-                "client_kwargs": {"timeout": int(os.getenv("OLLAMA_TIMEOUT", "36000"))},
-            }
-            try:
-                from langchain_ollama import ChatOllama  # type: ignore
-                return ChatOllama(**kwargs)
-            except Exception:
-                from langchain_community.chat_models import ChatOllama as LegacyChatOllama  # type: ignore
-                return LegacyChatOllama(model=ollama_model, base_url=ollama_url, temperature=0, num_gpu=num_gpu, num_ctx=8192, keep_alive="10m")
-        candidates.append((f"Ollama ({ollama_model} @ {ollama_url}, num_gpu={num_gpu}/ctx=8192)", _build_ollama))
+        ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "36000"))
+        for tier_label, cand_url, ctx_size in ollama_tiers:
+            if not cand_url:
+                continue
+            detected = _detect_ollama_model(cand_url)
+            if not detected:
+                continue
+            def _build_ollama(m: str = detected, u: str = cand_url, c: int = ctx_size) -> Any:
+                kwargs: dict[str, Any] = {
+                    "model": m,
+                    "base_url": u,
+                    "temperature": 0,
+                    "num_gpu": num_gpu,
+                    "num_ctx": c,
+                    "num_predict": 2048,
+                    "keep_alive": "10m",
+                    "client_kwargs": {"timeout": ollama_timeout},
+                }
+                try:
+                    from langchain_ollama import ChatOllama  # type: ignore
+                    return ChatOllama(**kwargs)
+                except Exception:
+                    from langchain_community.chat_models import ChatOllama as LegacyChatOllama  # type: ignore
+                    return LegacyChatOllama(model=m, base_url=u, temperature=0, num_gpu=num_gpu, num_ctx=c, keep_alive="10m")
+            candidates.append((f"Ollama[{tier_label}] ({detected} @ {cand_url}, num_gpu={num_gpu}/ctx={ctx_size})", _build_ollama))
 
-    # 2순위: Google Gemini (GEMINI_API_KEY 또는 GOOGLE_API_KEY 사용)
+    # 4순위: Google Gemini (GEMINI_API_KEY 또는 GOOGLE_API_KEY 사용)
     gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if gemini_key:
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
@@ -295,7 +304,7 @@ def _llm_diagnose(prompt: str, mcp_tools: list[Any] | None = None) -> dict[str, 
             return ChatGoogleGenerativeAI(model=gemini_model, google_api_key=gemini_key, temperature=0)
         candidates.append((f"Gemini ({gemini_model})", _build_gemini))
 
-    # 3순위: OpenAI (OPENAI_API_KEY 사용)
+    # 5순위: OpenAI (OPENAI_API_KEY 사용)
     if os.getenv("OPENAI_API_KEY"):
         def _build_openai() -> Any:
             from langchain_openai import ChatOpenAI  # type: ignore
